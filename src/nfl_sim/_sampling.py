@@ -72,7 +72,6 @@ def _filter_window(state: GameEngine, offensive_samples: pl.DataFrame) -> pl.Dat
 
 
 def _select_best_play_from_model(model_data: pl.DataFrame) -> pl.DataFrame:
-    # TODO: Implement model prediction eventually
     return model_data.sample(1)
 
 

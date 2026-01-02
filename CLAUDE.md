@@ -10,9 +10,10 @@ This program simulates NFL games. It's very bare bones now but will eventually b
 
 ## Priorities
 
-- Implement wp_estimator()
+- Create benchmarks for time performance
+- Create benchmarks for RMSE performance against the real result
 - Implement select best play model
-- Compute aggregates from game 
+- Compute aggregates from game
 
 ## Commands
 
