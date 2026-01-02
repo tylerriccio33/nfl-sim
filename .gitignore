@@ -1,0 +1,9 @@
+data
+.venv
+.ruff_cache
+.pytest_cache
+.claude
+.coverage
+__pycache__
+.hypothesis
+CLAUDE.md
