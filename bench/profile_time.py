@@ -15,13 +15,24 @@ from loguru import logger
 from nfl_sim.game import GameOrchestrator
 from nfl_sim._sampling import (
     fetch_like_play,
-    _filter_window,
     _select_best_play_from_model,
 )
 from nfl_sim.play import GameEngine
-from nfl_sim._model import calc_wp, _transform_wp, _sigmoid
 from nfl_sim.data import fetch_cur_week_metadata, game_factory, pull_game_data
 
+
+FUNCTIONS = (
+    ## Game Orchestration (high-level):
+    GameOrchestrator._run_half,
+    GameOrchestrator._handle_turnover,
+    GameOrchestrator._calc_new_yardline,
+    ## Sampling (filter_window is now in Rust - nfl_sim_core):
+    fetch_like_play,
+    _select_best_play_from_model,
+    ## Game Engine:
+    GameEngine.ingest_new_play.__wrapped__,  # ty: ignore (this is decorated)
+    GameEngine.consume_time,
+)
 
 logger.remove()
 logger.add(sys.stderr, level="WARNING")
@@ -41,24 +52,8 @@ def main() -> None:
     # Create profiler and add functions to profile
     profiler = LineProfiler()
 
-    # Game orchestration (high-level)
-    profiler.add_function(GameOrchestrator._run_half)
-    profiler.add_function(GameOrchestrator._handle_turnover)
-    profiler.add_function(GameOrchestrator._calc_new_yardline)
-
-    # Play sampling (likely bottleneck)
-    profiler.add_function(fetch_like_play)
-    profiler.add_function(_filter_window)
-    profiler.add_function(_select_best_play_from_model)
-
-    # Game engine (use .__wrapped__ for decorated functions)
-    profiler.add_function(GameEngine.ingest_new_play.__wrapped__)  # type: ignore[attr-defined]
-    profiler.add_function(GameEngine.consume_time)
-
-    # Win probability model
-    profiler.add_function(calc_wp)
-    profiler.add_function(_transform_wp)
-    profiler.add_function(_sigmoid)
+    for fn in FUNCTIONS:
+        profiler.add_function(fn)
 
     # Run the profiled game
     print("Loading data...")

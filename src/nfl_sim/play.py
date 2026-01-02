@@ -192,7 +192,7 @@ class GameEngine:
     @log_game_events
     def ingest_new_play(self, play_row: pl.DataFrame) -> None:
         """Method for updating the play completely, triggering properties."""
-        self._yards_gained = play_row["yards_gained"][0]
+        self._yards_gained = int(play_row["yards_gained"][0])
         self.add_play_to_drive(play_row["desc"][0])
 
         ## Touchdown in sample

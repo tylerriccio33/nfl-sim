@@ -138,7 +138,7 @@ def run_accuracy_benchmark(n_games: int = 100) -> tuple[dict[str, float], pl.Dat
     results_df = pl.DataFrame(results)
 
     # Calculate metrics
-    n_valid = len(results_df)
+    n_valid: int = len(results_df)
 
     # Home score metrics
     home_mse = (results_df["home_residual"] ** 2).mean()

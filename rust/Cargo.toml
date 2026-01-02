@@ -1,0 +1,13 @@
+[package]
+name = "nfl_sim_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "nfl_sim_core"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"] }
+numpy = "0.23"

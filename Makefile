@@ -5,6 +5,9 @@ lint: ## Run ruff and typer
 	@uv run ty check
 	@uv run complexipy src --quiet
 
+build: ## Run maturin develop
+	@uv run maturin develop --release
+
 run: ## Run the program
 	@uv run main.py
 

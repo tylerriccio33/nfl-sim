@@ -65,27 +65,25 @@ def test_team_order_tuple(game_with_samples: GameOrchestrator):
     assert game_with_samples._team_order == ("KC", "BUF")
 
 
-# cur_samples property
+# cur_offensive_samples property
 
 
-def test_cur_samples_home(game_with_samples: GameOrchestrator):
-    # Initially home team (KC) has ball
-    posteam, defteam = game_with_samples.cur_samples
-    home_posteam, _ = game_with_samples.home_samples
-    _, away_defteam = game_with_samples.away_samples
+def test_cur_offensive_samples_home(game_with_samples: GameOrchestrator):
+    # Initially home team (KC) has ball - should get home offensive samples
+    df, matrix = game_with_samples.cur_offensive_samples
+    home_offense_df = game_with_samples.home_samples[0]
 
-    assert posteam.equals(home_posteam)
-    assert defteam.equals(away_defteam)
+    assert df.equals(home_offense_df)
+    assert matrix.shape[1] == 4  # down, ydstogo, yardline_100, wp
 
 
-def test_cur_samples_away(game_with_samples: GameOrchestrator):
+def test_cur_offensive_samples_away(game_with_samples: GameOrchestrator):
     game_with_samples._posteam = "BUF"  # simulate switching offense
-    posteam, defteam = game_with_samples.cur_samples
-    _, home_defteam = game_with_samples.home_samples
-    away_posteam, _ = game_with_samples.away_samples
+    df, matrix = game_with_samples.cur_offensive_samples
+    away_offense_df = game_with_samples.away_samples[0]
 
-    assert posteam.equals(home_defteam)
-    assert defteam.equals(away_posteam)
+    assert df.equals(away_offense_df)
+    assert matrix.shape[1] == 4
 
 
 # _flip_teams

@@ -4,7 +4,7 @@ import itertools
 
 import polars as pl
 import polars.selectors as cs
-from nfl_sim._sampling import fetch_like_play
+from nfl_sim._sampling import fetch_like_play, _FilterMatrix
 from loguru import logger
 from nfl_sim.play import GameEngine, PlayRecord
 from nfl_sim._event import (
@@ -66,12 +66,13 @@ class GameOrchestrator:
         return self._posteam_score - self._defteam_score
 
     @property
-    def cur_samples(self) -> _SamplePair:
-        """Fetch offense and defense samples."""
+    def cur_offensive_samples(self) -> tuple[pl.DataFrame, _FilterMatrix]:
+        """Get current possession team's offensive samples (df and filter matrix)."""
         offense_is_home: bool = self._posteam == self.metadata["home_team"]
         if offense_is_home:
-            return (self.home_samples[0], self.away_samples[1])
-        return (self.away_samples[0], self.home_samples[1])
+            # home_samples: (offense_df, offense_matrix, defense_df, defense_matrix)
+            return (self.home_samples[0], self.home_samples[1])
+        return (self.away_samples[0], self.away_samples[1])
 
     def _flip_teams(self) -> None:
         self._posteam, self._defteam = self._defteam, self._posteam
@@ -189,9 +190,14 @@ class GameOrchestrator:
             ## Update game-level meta features for models:
             self._engine.score = self.posteam_differential
 
+            offensive_df, offensive_matrix = self.cur_offensive_samples
             play_row = fetch_like_play(
-                self._engine,
-                self.cur_samples,
+                offensive_df,
+                offensive_matrix,
+                down=self._engine.down,
+                dist=self._engine.dist,
+                yardline=self._engine.yardline,
+                wp=self._engine.wp,
             )
             try:
                 self._engine.ingest_new_play(play_row)
