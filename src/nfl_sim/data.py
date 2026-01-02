@@ -80,12 +80,53 @@ def fetch_cur_week_metadata(
 def game_factory(
     all_data: pl.DataFrame, game_metadata: list[GameMetadata]
 ) -> list[GameOrchestrator]:
+    """Create a list of `GameOrchestrator` instances from incoming game metadata.
+
+    Args:
+        all_data (pl.DataFrame): _description_
+        game_metadata (list[GameMetadata]): _description_
+
+    Returns:
+        list[GameOrchestrator]: _description_
+    """
+    # Split the data up once so we don't have to repeat it.
+    all_teams: set[str] = {game["home_team"] for game in game_metadata} | {
+        game["away_team"] for game in game_metadata
+    }
+    posteam_data = all_data
+    defteam_data = all_data
+    if len(all_teams) <= 32:  # No need to do an expensive partition if not all teams
+        posteam_data = posteam_data.filter(pl.col("posteam").is_in(all_teams))
+        defteam_data = defteam_data.filter(pl.col("defteam").is_in(all_teams))
+
+    posteam_partitions: dict[tuple[str], pl.DataFrame] = posteam_data.partition_by(
+        "posteam", maintain_order=False, as_dict=True
+    )
+    defteam_partitions: dict[tuple[str], pl.DataFrame] = defteam_data.partition_by(
+        "defteam", maintain_order=False, as_dict=True
+    )
+
+    # keys come back as tuple[str] since it's supposed to be a tuple of group keys. Since we only have one group
+    # we can just subset the key tuple to make it easier to retrieve the data later.
+    posteam_partitions: dict[str, pl.DataFrame] = {
+        team_key[0]: data for team_key, data in posteam_partitions.items()
+    }
+    defteam_partitions: dict[str, pl.DataFrame] = {
+        team_key[0]: data for team_key, data in defteam_partitions.items()
+    }
+
     games = []
     for meta in game_metadata:
         home_team = meta["home_team"]
         away_team = meta["away_team"]
-        home_samples: _SamplePair = build_sample_pairs(all_data, home_team)
-        away_samples: _SamplePair = build_sample_pairs(all_data, away_team)
+        home_data = pl.concat(
+            [posteam_partitions[home_team], defteam_partitions[home_team]]
+        )
+        away_data = pl.concat(
+            [posteam_partitions[away_team], defteam_partitions[away_team]]
+        )
+        home_samples: _SamplePair = build_sample_pairs(home_data, home_team)
+        away_samples: _SamplePair = build_sample_pairs(away_data, away_team)
         extra: dict[str, Any] = {
             k: v for k, v in meta.items() if k not in ("home_team", "away_team")
         }

@@ -39,23 +39,14 @@ def _dataframe_to_filter_matrix(df: pl.DataFrame) -> _FilterMatrix:
     ).to_numpy()
 
 
+# TODO: This is redundant I think? Also we should be dropping these nulls way earlier right?
 def build_sample_pairs(all_data: pl.DataFrame, team: str) -> _SamplePair:
     """Returns data where team is on offense and then defense, with filter matrices.
 
     Drops rows with null values in filter columns since these can't be used.
     """
-    home_df = (
-        all_data.lazy()
-        .filter(pl.col("posteam") == team)
-        .drop_nulls(subset=_FILTER_COLS)
-        .collect()
-    )
-    away_df = (
-        all_data.lazy()
-        .filter(pl.col("defteam") == team)
-        .drop_nulls(subset=_FILTER_COLS)
-        .collect()
-    )
+    home_df = all_data.lazy().drop_nulls(subset=_FILTER_COLS).collect()
+    away_df = all_data.lazy().drop_nulls(subset=_FILTER_COLS).collect()
     return (
         home_df,
         _dataframe_to_filter_matrix(home_df),

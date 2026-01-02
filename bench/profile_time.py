@@ -16,6 +16,7 @@ from nfl_sim.game import GameOrchestrator
 from nfl_sim._sampling import (
     fetch_like_play,
     _select_best_play_from_model,
+    build_sample_pairs,
 )
 from nfl_sim.play import GameEngine
 from nfl_sim.data import fetch_cur_week_metadata, game_factory, pull_game_data
@@ -31,6 +32,7 @@ FUNCTIONS = (
     ## Sampling (filter_window is now in Rust - nfl_sim_core):
     fetch_like_play,
     _select_best_play_from_model,
+    build_sample_pairs,
     ## Game Engine:
     GameEngine.ingest_new_play.__wrapped__,  # ty: ignore (this is decorated)
     GameEngine.consume_time,
@@ -68,6 +70,7 @@ def main() -> None:
         f"Profiling game: {game.metadata['home_team']} vs {game.metadata['away_team']}"
     )
     profiler.runcall(game.play)
+    profiler.runcall(game_factory, data, game_metadata)
 
     # Save results to file
     output_path = Path(__file__).parent / "profile_results.txt"

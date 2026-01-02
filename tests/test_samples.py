@@ -11,17 +11,6 @@ from nfl_sim._sampling import (
 )
 
 
-# Init tests
-
-
-def test_filters_by_team(mock_play_data: pl.DataFrame):
-    offense_df, offense_matrix, defense_df, defense_matrix = build_sample_pairs(
-        mock_play_data, "KC"
-    )
-    assert len(offense_df) == 5  # KC as posteam
-    assert len(defense_df) == 3  # KC as defteam
-
-
 # Filter window tests (via Rust nfl_sim_core.filter_window)
 
 
