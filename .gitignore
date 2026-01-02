@@ -10,3 +10,4 @@ CLAUDE.md
 model/dev
 .complexipy_cache
 dictionary
+bench/profile_results.txt

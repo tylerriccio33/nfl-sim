@@ -19,6 +19,7 @@ build-backend = "uv_build"
 dev = [
     "complexipy>=5.1.0",
     "hypothesis>=6.100.0",
+    "line-profiler>=4.1.0",
     "nflreadpy>=0.1.5",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",

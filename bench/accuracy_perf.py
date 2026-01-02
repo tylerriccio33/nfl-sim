@@ -170,7 +170,6 @@ def run_accuracy_benchmark(n_games: int = 100) -> tuple[dict[str, float], pl.Dat
     correct_winner = (
         (results_df["margin_actual"] > 0) == (results_df["margin_pred"] > 0)
     ).sum()
-    ties = (results_df["margin_pred"] == 0).sum()
     win_accuracy = correct_winner / n_valid if n_valid > 0 else 0
 
     # Vegas win prediction accuracy (based on spread)
@@ -198,7 +197,6 @@ def run_accuracy_benchmark(n_games: int = 100) -> tuple[dict[str, float], pl.Dat
         "win_accuracy": win_accuracy,
         "vegas_win_accuracy": vegas_win_accuracy,
         "model_ats_accuracy": model_ats_accuracy,
-        "ties_predicted": ties,
     }
 
     return stats, results_df
@@ -227,7 +225,6 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
         f"{stats['vegas_win_accuracy']:.1%}",
     )
     metrics_table.add_row("Model ATS", f"{stats['model_ats_accuracy']:.1%}", "-")
-    metrics_table.add_row("Ties Predicted", f"{stats['ties_predicted']:.0f}", "-")
 
     console.print()
     console.print(metrics_table)
