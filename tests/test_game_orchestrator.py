@@ -61,8 +61,8 @@ def test_game_init(game_with_samples: GameOrchestrator):
     assert game_with_samples.drives == []
 
 
-def test_both_teams_tuple(game_with_samples: GameOrchestrator):
-    assert game_with_samples._both_teams == ("KC", "BUF")
+def test_team_order_tuple(game_with_samples: GameOrchestrator):
+    assert game_with_samples._team_order == ("KC", "BUF")
 
 
 # cur_samples property

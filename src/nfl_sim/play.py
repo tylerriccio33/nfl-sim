@@ -1,8 +1,7 @@
+import random
+
 import polars as pl
 from loguru import logger
-
-# Type alias for a single play record: (down, dist, yardline, yards_gained, desc)
-type PlayRecord = tuple[int, int, int, int | None, str | None]
 
 from nfl_sim._event import (
     TurnoverOnDowns,
@@ -21,7 +20,8 @@ from nfl_sim._event import (
 )
 from nfl_sim._model import calc_wp
 
-import random
+# Type alias for a single play record: (down, dist, yardline, yards_gained, desc)
+type PlayRecord = tuple[int, int, int, int | None, str | None]
 
 # Average time consumed per play based on 2024 NFL data
 # Distribution: mean=25s, median=29s, std=16s

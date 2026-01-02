@@ -56,8 +56,9 @@ class GameOrchestrator:
         self.away_samples: _SamplePair = away_samples
         self.drives: list[list[PlayRecord]] = []
         self._engine = GameEngine()
-        self._both_teams: tuple[str, str] = (home_team, away_team)
-        self._posteam, self._defteam = self._both_teams
+        # Fixed order: (home, away) - doesn't change when possession flips
+        self._team_order: tuple[str, str] = (home_team, away_team)
+        self._posteam, self._defteam = self._team_order
         self._posteam_score, self._defteam_score = 0, 0
 
     @property
@@ -253,13 +254,13 @@ class GameOrchestrator:
 
         logger.info(
             "Game complete: {} {}, {} {}",
-            self._both_teams[0],
+            self._team_order[0],
             self._posteam_score
-            if self._posteam == self._both_teams[0]
+            if self._posteam == self._team_order[0]
             else self._defteam_score,
-            self._both_teams[1],
+            self._team_order[1],
             self._defteam_score
-            if self._posteam == self._both_teams[0]
+            if self._posteam == self._team_order[0]
             else self._posteam_score,
         )
 
@@ -293,7 +294,7 @@ class GameOrchestrator:
         ).select(pl.col(raw).alias(disp) for disp, raw in prof_cols.items())
 
     def __repr__(self) -> str:
-        home, away = self._both_teams
+        home, away = self._team_order
         home_score = (
             self._posteam_score if self._posteam == home else self._defteam_score
         )

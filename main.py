@@ -12,8 +12,7 @@ def configure_logging(level: str = "INFO") -> None:
     logger.add(
         sys.stderr,
         level=level,
-        # TODO: I actually don't like these... should make them more presentable.
-        format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+        format="<green>{time:HH:mm:ss}</green> | <level>{level: <7}</level> | <level>{message}</level>",
     )
 
 
