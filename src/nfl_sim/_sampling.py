@@ -30,6 +30,7 @@ def _dataframe_to_filter_matrix(df: pl.DataFrame) -> _FilterMatrix:
     Creates a matrix with columns: down, ydstogo, yardline_100, wp (scaled by 1000).
     Win probability is scaled to preserve precision as int64.
     """
+    # TODO: Downcast these
     return df.select(
         pl.col("down").cast(pl.Int64),
         pl.col("ydstogo").cast(pl.Int64),
@@ -43,8 +44,18 @@ def build_sample_pairs(all_data: pl.DataFrame, team: str) -> _SamplePair:
 
     Drops rows with null values in filter columns since these can't be used.
     """
-    home_df = all_data.filter(pl.col("posteam") == team).drop_nulls(subset=_FILTER_COLS)
-    away_df = all_data.filter(pl.col("defteam") == team).drop_nulls(subset=_FILTER_COLS)
+    home_df = (
+        all_data.lazy()
+        .filter(pl.col("posteam") == team)
+        .drop_nulls(subset=_FILTER_COLS)
+        .collect()
+    )
+    away_df = (
+        all_data.lazy()
+        .filter(pl.col("defteam") == team)
+        .drop_nulls(subset=_FILTER_COLS)
+        .collect()
+    )
     return (
         home_df,
         _dataframe_to_filter_matrix(home_df),

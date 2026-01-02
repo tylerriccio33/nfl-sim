@@ -22,6 +22,8 @@ from nfl_sim.data import fetch_cur_week_metadata, game_factory, pull_game_data
 
 
 FUNCTIONS = (
+    ## Data Pulls:
+    game_factory,
     ## Game Orchestration (high-level):
     GameOrchestrator._run_half,
     GameOrchestrator._handle_turnover,

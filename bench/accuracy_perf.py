@@ -142,18 +142,22 @@ def run_accuracy_benchmark(n_games: int = 100) -> tuple[dict[str, float], pl.Dat
 
     # Home score metrics
     home_mse = (results_df["home_residual"] ** 2).mean()
+    assert isinstance(home_mse, float)  # help type checker
     home_rmse = home_mse**0.5
 
     # Away score metrics
     away_mse = (results_df["away_residual"] ** 2).mean()
+    assert isinstance(away_mse, float)  # help type checker
     away_rmse = away_mse**0.5
 
     # Model margin metrics
     margin_mse = (results_df["margin_residual"] ** 2).mean()
+    assert isinstance(margin_mse, float)  # help type checker
     margin_rmse = margin_mse**0.5
 
     # Vegas spread metrics
     spread_mse = (results_df["spread_residual"] ** 2).mean()
+    assert isinstance(spread_mse, float)  # help type checker
     spread_rmse = spread_mse**0.5
 
     # R-squared for model margin
