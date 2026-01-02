@@ -1,4 +1,6 @@
 import random
+from functools import wraps
+from typing import Callable, ParamSpec, TypeVar
 
 import polars as pl
 from loguru import logger
@@ -17,8 +19,46 @@ from nfl_sim._event import (
     PuntRegular,
     PickSix,
     Interception,
+    Flip,
+    FlipReset,
+    ScoreReset,
 )
 from nfl_sim._model import calc_wp
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+# Game events that should be logged when raised
+GAME_EVENTS = (
+    Flip,
+    FlipReset,
+    ScoreReset,
+    Safety,
+    MoveChains,
+    TurnoverOnDowns,
+    Touchdown,
+)
+
+
+def log_game_events(func: Callable[P, R]) -> Callable[P, R]:
+    """Decorator that logs game events when they are raised as exceptions."""
+
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            return func(*args, **kwargs)
+        except GAME_EVENTS as e:
+            # Convert class name to readable format (e.g., PickSix -> Pick Six)
+            event_name = type(e).__name__
+            readable = "".join(
+                f" {c}" if c.isupper() and i > 0 else c
+                for i, c in enumerate(event_name)
+            ).strip()
+            logger.debug("Play result: {}", readable)
+            raise
+
+    return wrapper
+
 
 # Type alias for a single play record: (down, dist, yardline, yards_gained, desc)
 type PlayRecord = tuple[int, int, int, int | None, str | None]
@@ -149,68 +189,43 @@ class GameEngine:
         self._drive = []
         return cur_drive
 
-    # TODO: Standardize the logging by catching exception and logging using a decorator
+    @log_game_events
     def ingest_new_play(self, play_row: pl.DataFrame) -> None:
         """Method for updating the play completely, triggering properties."""
         self._yards_gained = play_row["yards_gained"][0]
         self.add_play_to_drive(play_row["desc"][0])
 
-        logger.debug(
-            "{}&{} at {} | {} yds",
-            self._down,
-            self._dist,
-            self._yardline,
-            self._yards_gained,
-        )
-
         ## Touchdown in sample
         if play_row["touchdown"][0] == 1:
-            logger.debug("Play result: Touchdown")
             raise Touchdown
 
         ## FG in sample
         fg_result = play_row["field_goal_result"][0]
         if fg_result == "made":
-            logger.debug("Play result: Field goal made")
             raise FieldGoalSuccess
         if fg_result in ("missed", "blocked"):
-            logger.debug("Play result: Field goal {}", fg_result)
             raise FieldGoalFail
 
-        ## Punt in real sample.
+        ## Punt in real sample
         if play_row["punt_attempt"][0] == 1:
-            # Handle all punt outcomes
             if play_row["punt_blocked"][0] == 1:
-                logger.debug("Play result: Punt blocked")
                 raise PuntBlocked
             if play_row["punt_in_endzone"][0] == 1:
-                logger.debug("Play result: Punt into endzone")
                 raise PuntEndzone
-            # All other punts (fair catch, OOB, downed, returned) are regular punts
-            logger.debug("Play result: Punt")
             raise PuntRegular
 
         ## Interception
         if play_row["interception"][0] == 1:
             if play_row["return_touchdown"][0] == 1:
-                logger.debug("Play result: Pick six")
                 raise PickSix
-            logger.debug("Play result: Interception")
             raise Interception
 
         ## TODO: Fumble
 
         ## SIMULATION: Update yardline (subtract yards gained since yardline_100 decreases as you advance)
-        try:
-            self.yardline = self.yardline - self._yards_gained
-        except Touchdown:
-            logger.debug("Play result: simulated touchdown.")
-            raise Touchdown
-        except Safety:
-            logger.debug("Play result: Safety")
-            raise Safety
+        self.yardline = self.yardline - self._yards_gained
 
-        # Regular first down.
+        # Regular first down
         try:
             self.dist = self.dist - self._yards_gained
         except MoveChains:
@@ -218,11 +233,7 @@ class GameEngine:
             self.dist = 10
             return
 
-        try:
-            self.down = self.down + 1
-        except TurnoverOnDowns:
-            logger.debug("Play result: simulated turnover on downs.")
-            raise TurnoverOnDowns
+        self.down = self.down + 1
 
     def __repr__(self) -> str:
         return f"Down: {self.down}, Dist: {self.dist}, Yardline: {self.yardline}, Yards Gained: {self._yards_gained}"

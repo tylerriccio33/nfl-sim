@@ -74,7 +74,6 @@ class GameOrchestrator:
         return (self.away_samples[0], self.home_samples[1])
 
     def _flip_teams(self) -> None:
-        # TODO: Will need to flip WP among other things right?
         self._posteam, self._defteam = self._defteam, self._posteam
         self._posteam_score, self._defteam_score = (
             self._defteam_score,

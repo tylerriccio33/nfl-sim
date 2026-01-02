@@ -8,3 +8,4 @@ __pycache__
 .hypothesis
 CLAUDE.md
 model/dev
+.complexipy_cache
