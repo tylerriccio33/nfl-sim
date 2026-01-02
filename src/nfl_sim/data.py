@@ -20,6 +20,9 @@ def _calc_window(cur_date: datetime.datetime) -> tuple[int, int]:
     return 2023, 10
 
 
+# TODO: Should transition all of this to nflreadrpy or whatever that is
+
+
 def pull_game_data(
     cur_date=datetime.datetime.now(), week_window: int = 10
 ) -> pl.DataFrame:

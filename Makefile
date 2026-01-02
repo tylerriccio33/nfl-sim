@@ -19,6 +19,9 @@ load-dictionaries: ## Download data dictionaries
 
 bench-time: ## Run performance benchmarks for time
 	@uv run bench/time_perf.py
+	
+bench-results: ## Run performance of results against real
+	@uv run bench/accuracy_perf.py
 
 train-wp-model: ## Run the model training script for WP model
 	@uv run model/wp_model_train.py
