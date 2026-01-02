@@ -76,7 +76,7 @@ def report_results(stats: dict[str, float]) -> None:
 
 
 def main() -> None:
-    stats = run_benchmark(n_games=10)
+    stats = run_benchmark(n_games=50)
     report_results(stats)
 
 

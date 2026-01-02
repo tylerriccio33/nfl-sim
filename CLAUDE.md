@@ -13,7 +13,6 @@ This program simulates NFL games. It's very bare bones now but will eventually b
 
 ## Priorities
 
-- Profile and optimize to achieve 10 games/s instead of 1 game/s
 - Refactor to simulate a game N times and average from there
 - Implement select best play model
 - Compute aggregates from game

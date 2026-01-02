@@ -92,5 +92,5 @@ def fetch_like_play(
     if len(indices) == 0:
         raise NotImplementedError(f"No plays found for down {down}")
 
-    filtered = offensive_df[indices.tolist()]
+    filtered = offensive_df[indices]
     return _select_best_play_from_model(filtered)
