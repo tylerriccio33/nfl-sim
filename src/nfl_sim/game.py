@@ -80,21 +80,10 @@ class GameOrchestrator:
             self._posteam_score,
         )
 
-    def _process_play(self, play_row: pl.DataFrame) -> None:
-        """Process a single play and update game state.
-
-        Handles all play outcomes: touchdowns, field goals, punts,
-        turnovers, interceptions, and safeties.
-        """
-        try:
-            self._engine.ingest_new_play(play_row)
-        except (Flip, FlipReset) as e:
-            self._handle_turnover(e, play_row)
-        except Safety:  # TODO: This should be wrapped into the _handle turnover and this method done away with completely
-            self._handle_safety()
-
-    def _handle_turnover(self, event: Flip | FlipReset, play_row: pl.DataFrame) -> None:
-        """Handle possession changes from turnovers, punts, scores."""
+    def _handle_turnover(
+        self, event: Flip | FlipReset | Safety, play_row: pl.DataFrame
+    ) -> None:
+        """Handle possession changes from turnovers, punts, scores, and safeties."""
         drive_plays: list[PlayRecord] = self._engine.collect_drive()
         self.drives.append(drive_plays)
         logger.debug(
@@ -104,6 +93,7 @@ class GameOrchestrator:
         )
 
         # Score updates
+        # TODO: don't like this log here. maybe use a decorator
         if isinstance(event, Touchdown):
             self._posteam_score += 7
             logger.info(
@@ -114,11 +104,21 @@ class GameOrchestrator:
                 self._defteam,
                 self._defteam_score,
             )
-        if isinstance(event, FieldGoalSuccess):
+        elif isinstance(event, FieldGoalSuccess):
             self._posteam_score += 3
             logger.info(
                 "FG {} | Score: {} {}, {} {}",
                 self._posteam,
+                self._posteam,
+                self._posteam_score,
+                self._defteam,
+                self._defteam_score,
+            )
+        elif isinstance(event, Safety):
+            self._defteam_score += 2
+            logger.info(
+                "Safety! {} scores 2 | Score: {} {}, {} {}",
+                self._defteam,
                 self._posteam,
                 self._posteam_score,
                 self._defteam,
@@ -137,7 +137,7 @@ class GameOrchestrator:
         )
 
     def _calc_new_yardline(
-        self, event: Flip | FlipReset, play_row: pl.DataFrame
+        self, event: Flip | FlipReset | Safety, play_row: pl.DataFrame
     ) -> int:
         """Calculate receiving team's starting yardline_100 after turnover.
 
@@ -165,31 +165,11 @@ class GameOrchestrator:
             # Defense recovers at LOS (simplified)
             return 100 - self._engine.yardline
 
-        if isinstance(event, (PuntEndzone, FlipReset)):
-            return 75  # touchback (own 25 = yardline_100 of 75)
+        if isinstance(event, (PuntEndzone, FlipReset, Safety)):
+            return 75  # touchback / safety kick (own 25 = yardline_100 of 75)
 
         # Flip in place (interception, turnover on downs)
         return 100 - self._engine.yardline
-
-    def _handle_safety(self) -> None:
-        """Handle safety: 2 points to defense, possession change."""
-        drive_plays: list[PlayRecord] = self._engine.collect_drive()
-        self.drives.append(drive_plays)
-
-        self._defteam_score += 2
-        logger.info(
-            "Safety! {} scores 2 | Score: {} {}, {} {}",
-            self._defteam,
-            self._posteam,
-            self._posteam_score,
-            self._defteam,
-            self._defteam_score,
-        )
-
-        # After safety, team that scored gets ball at own 25 (yardline_100 = 75)
-        self._engine.reset_offense(yardline=75)
-        self._flip_teams()
-        logger.debug("After safety: {} gets ball at own 25", self._posteam)
 
     def _run_half(self) -> None:
         """Run plays until the half ends."""
@@ -213,7 +193,10 @@ class GameOrchestrator:
                 self._engine,
                 self.cur_samples,
             )
-            self._process_play(play_row)
+            try:
+                self._engine.ingest_new_play(play_row)
+            except (Flip, FlipReset, Safety) as e:
+                self._handle_turnover(e, play_row)
 
             # Consume time after each play
             try:

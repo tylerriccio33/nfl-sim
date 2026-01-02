@@ -12,3 +12,7 @@ test: ## Run tests
 	@uv run pytest \
 		--cov src \
 		--cov-report term-missing
+
+load-dictionaries: ## Download data dictionaries
+	@curl -L -o dictionary/pbp.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_pbp.csv
+	@curl -L -o dictionary/dc.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_depth_charts.csv
