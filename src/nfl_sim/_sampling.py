@@ -91,8 +91,7 @@ def fetch_like_play(
     """
     indices = nfl_sim_core.filter_window(offensive_matrix, down, dist, yardline, wp)
 
-    if len(indices) == 0:
-        raise NotImplementedError(f"No plays found for down {down}")
+    assert len(indices)
 
-    filtered = offensive_df[indices]
+    filtered = offensive_df[indices]  # TODO: Really should be lazy
     return _select_best_play_from_model(filtered)

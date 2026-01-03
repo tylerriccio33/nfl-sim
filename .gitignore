@@ -13,3 +13,4 @@ dictionary
 bench/profile_results.txt
 target
 rust/target
+CLAUDE.md

@@ -69,7 +69,7 @@ def test_raises_when_no_matches():
     )
     offense_df, offense_matrix, _, _ = build_sample_pairs(data, "KC")
     # No 4th down plays in data - fetch_like_play should raise
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(AssertionError):
         fetch_like_play(
             offense_df, offense_matrix, down=4, dist=10, yardline=75, wp=0.5
         )

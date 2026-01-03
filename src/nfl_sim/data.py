@@ -14,6 +14,153 @@ if TYPE_CHECKING:
     from nfl_sim._sampling import _SamplePair
 
 
+# =============================================================================
+# PLAY-BY-PLAY COLUMN SELECTION
+# =============================================================================
+# Reference: dictionary/pbp.csv (374 total fields available)
+#
+# These columns are pulled from nflverse play-by-play data. Keeping this list
+# minimal reduces memory usage and improves performance. Add columns as needed.
+# =============================================================================
+
+# Core identifiers and team info
+_COLS_IDENTIFIERS = [
+    "play_id",
+    "game_id",
+    "posteam",  # Used for partitioning
+    "defteam",  # Used for partitioning
+    # "home_team",
+    # "away_team",
+    # "season",
+    # "week",
+]
+
+# Game situation columns (used for play matching/sampling)
+_COLS_GAME_STATE = [
+    "down",
+    "ydstogo",
+    "yardline_100",  # Yards from opponent's endzone
+    "wp",  # Win probability
+    # "quarter_seconds_remaining",
+    # "half_seconds_remaining",
+    # "game_seconds_remaining",
+    # "qtr",
+    # "goal_to_go",
+    # "score_differential",
+]
+
+# Play type and filtering columns
+_COLS_PLAY_TYPE = [
+    "play_type",
+    "play",  # Binary: 1 if normal play
+    "penalty",  # Binary: used to filter out penalty plays
+    # "special",
+    # "special_teams_play",
+    # "qb_dropback",
+    # "qb_kneel",
+    # "qb_spike",
+    # "qb_scramble",
+]
+
+# Play outcome columns
+_COLS_OUTCOMES = [
+    "yards_gained",
+    "touchdown",
+    "interception",
+    "return_touchdown",  # For pick-sixes
+    "fumble",
+    "fumble_lost",
+    # "safety",
+    # "sack",
+    # "complete_pass",
+    # "incomplete_pass",
+    # "first_down",
+    # "third_down_converted",
+    # "third_down_failed",
+    # "fourth_down_converted",
+    # "fourth_down_failed",
+]
+
+# Field goal columns
+_COLS_FIELD_GOAL = [
+    "field_goal_result",  # "made", "missed", "blocked"
+    "field_goal_attempt",
+    "kick_distance",
+    # "extra_point_result",
+    # "extra_point_attempt",
+    # "two_point_conv_result",
+    # "two_point_attempt",
+]
+
+# Punt columns
+_COLS_PUNT = [
+    "punt_attempt",
+    "punt_blocked",
+    "punt_in_endzone",
+    # "punt_inside_twenty",
+    # "punt_out_of_bounds",
+    # "punt_downed",
+    # "punt_fair_catch",
+    # "touchback",
+]
+
+# Play description (useful for debugging/display)
+_COLS_DESCRIPTION = [
+    "desc",
+]
+
+# Advanced metrics (for future enhancements)
+# _COLS_EPA = [
+#     "ep",
+#     "epa",
+#     "air_epa",
+#     "yac_epa",
+#     "qb_epa",
+# ]
+
+# Passing details (for future player-level simulation)
+# _COLS_PASSING = [
+#     "pass_length",       # "short" or "deep"
+#     "pass_location",     # "left", "middle", "right"
+#     "air_yards",
+#     "yards_after_catch",
+#     "pass_attempt",
+#     "passer_player_id",
+#     "passer_player_name",
+#     "receiver_player_id",
+#     "receiver_player_name",
+#     "passing_yards",
+#     "receiving_yards",
+# ]
+
+# Rushing details (for future player-level simulation)
+# _COLS_RUSHING = [
+#     "run_location",      # "left", "middle", "right"
+#     "run_gap",           # "end", "guard", "tackle"
+#     "rush_attempt",
+#     "rusher_player_id",
+#     "rusher_player_name",
+#     "rushing_yards",
+# ]
+
+# Formation columns (for future strategic analysis)
+# _COLS_FORMATION = [
+#     "shotgun",
+#     "no_huddle",
+# ]
+
+# Combine all active column groups
+PBP_COLUMNS: list[str] = (
+    _COLS_IDENTIFIERS
+    + _COLS_GAME_STATE
+    + _COLS_PLAY_TYPE
+    + _COLS_OUTCOMES
+    + _COLS_FIELD_GOAL
+    + _COLS_PUNT
+    + _COLS_DESCRIPTION
+)
+
+
 def _calc_window(cur_date: datetime.datetime) -> tuple[int, int]:
     # win year and week needed
     # ! implement
@@ -43,16 +190,21 @@ def pull_game_data(
 
         year_data.append(data)
 
-    all_data = pl.concat(year_data).collect()
-
-    # Filter here
+    # Select only needed columns and filter
     # Include punts and field goals (play=0) alongside regular plays (play=1)
     # Punts/FGs have yards_gained=0 but have kick_distance for processing
-    return all_data.filter(
-        pl.col("yards_gained").is_not_null(),
-        pl.col("penalty") != 1,
-        (pl.col("play") == 1) | (pl.col("play_type").is_in(["punt", "field_goal"])),
+    all_data = (
+        pl.concat(year_data)
+        .select(PBP_COLUMNS)
+        .filter(
+            pl.col("yards_gained").is_not_null(),
+            pl.col("penalty") != 1,
+            (pl.col("play") == 1) | (pl.col("play_type").is_in(["punt", "field_goal"])),
+        )
+        .collect()
     )
+
+    return all_data
 
 
 def fetch_cur_week_metadata(
