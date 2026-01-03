@@ -4,7 +4,6 @@ This program simulates NFL games. It's very bare bones now but will eventually b
 
 ## Priorities
 
-- Slim down columns in data significantly using the data dictionary to select for relevant columns.
 - Refactor to simulate a game N times and average from there
 - Implement select best play reconcilation model to choose a play from offense, choose a play from defense and find a way to average their outcomes and select the most likely of the two.
 - Compute aggregates from game

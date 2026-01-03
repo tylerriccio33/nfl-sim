@@ -7,28 +7,31 @@ Output saved to: bench/profile_results.txt
 import sys
 from pathlib import Path
 
+import polars as pl
 from line_profiler import LineProfiler
 from loguru import logger
 
 ## == Profile These ==============================================
 
-from nfl_sim.game import GameOrchestrator
+from nfl_sim.game import _GameOrchestrator
 from nfl_sim._sampling import (
     fetch_like_play,
     _select_best_play_from_model,
     build_sample_pairs,
 )
 from nfl_sim.play import GameEngine
-from nfl_sim.data import fetch_cur_week_metadata, game_factory, pull_game_data
+from nfl_sim.data import fetch_cur_week_metadata, pull_game_data
+from nfl_sim.simulate import simulate_n_games, _run_single_simulation
 
 
 FUNCTIONS = (
-    ## Data Pulls:
-    game_factory,
-    ## Game Orchestration (high-level):
-    GameOrchestrator._run_half,
-    GameOrchestrator._handle_turnover,
-    GameOrchestrator._calc_new_yardline,
+    ## Simulation (high-level):
+    simulate_n_games,
+    _run_single_simulation,
+    ## Game Orchestration:
+    _GameOrchestrator._run_half,
+    _GameOrchestrator._handle_turnover,
+    _GameOrchestrator._calc_new_yardline,
     ## Sampling (filter_window is now in Rust - nfl_sim_core):
     fetch_like_play,
     _select_best_play_from_model,
@@ -42,16 +45,6 @@ logger.remove()
 logger.add(sys.stderr, level="WARNING")
 
 
-def run_single_game() -> GameOrchestrator:
-    """Run a single game and return it."""
-    game_metadata = fetch_cur_week_metadata()
-    data = pull_game_data()
-    games = game_factory(data, game_metadata)
-    game = games[0]
-    game.play()
-    return game
-
-
 def main() -> None:
     # Create profiler and add functions to profile
     profiler = LineProfiler()
@@ -59,18 +52,50 @@ def main() -> None:
     for fn in FUNCTIONS:
         profiler.add_function(fn)
 
-    # Run the profiled game
+    # Load data
     print("Loading data...")
     game_metadata = fetch_cur_week_metadata()
     data = pull_game_data()
-    games = game_factory(data, game_metadata)
-    game = games[0]
 
-    print(
-        f"Profiling game: {game.metadata['home_team']} vs {game.metadata['away_team']}"
+    # Get first game metadata
+    meta = game_metadata[0]
+    home_team = meta["home_team"]
+    away_team = meta["away_team"]
+
+    # Build sample pairs
+    print("Building sample pairs...")
+    all_teams = {home_team, away_team}
+    posteam_data = data.filter(pl.col("posteam").is_in(all_teams))
+    defteam_data = data.filter(pl.col("defteam").is_in(all_teams))
+
+    posteam_partitions = posteam_data.partition_by("posteam", as_dict=True)
+    defteam_partitions = defteam_data.partition_by("defteam", as_dict=True)
+
+    posteam_partitions = {k[0]: v for k, v in posteam_partitions.items()}
+    defteam_partitions = {k[0]: v for k, v in defteam_partitions.items()}
+
+    home_data = pl.concat(
+        [posteam_partitions[home_team], defteam_partitions[home_team]]
     )
-    profiler.runcall(game.play)
-    profiler.runcall(game_factory, data, game_metadata)
+    away_data = pl.concat(
+        [posteam_partitions[away_team], defteam_partitions[away_team]]
+    )
+
+    home_samples = build_sample_pairs(home_data, home_team)
+    away_samples = build_sample_pairs(away_data, away_team)
+
+    # Profile N simulations
+    n_sims = 10
+    print(f"Profiling {home_team} vs {away_team} ({n_sims} simulations)...")
+    profiler.runcall(
+        simulate_n_games,
+        home_samples=home_samples,
+        away_samples=away_samples,
+        home_team=home_team,
+        away_team=away_team,
+        n=n_sims,
+        store_individual=False,
+    )
 
     # Save results to file
     output_path = Path(__file__).parent / "profile_results.txt"

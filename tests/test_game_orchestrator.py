@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from nfl_sim.game import GameOrchestrator
+from nfl_sim.game import _GameOrchestrator
 from nfl_sim._sampling import build_sample_pairs
 
 
@@ -35,11 +35,11 @@ def game_samples_data() -> pl.DataFrame:
 
 
 @pytest.fixture
-def game_with_samples(game_samples_data: pl.DataFrame) -> GameOrchestrator:
+def game_with_samples(game_samples_data: pl.DataFrame) -> _GameOrchestrator:
     """Game instance with real Samples objects."""
     home_samples = build_sample_pairs(game_samples_data, "KC")
     away_samples = build_sample_pairs(game_samples_data, "BUF")
-    return GameOrchestrator(
+    return _GameOrchestrator(
         home_samples=home_samples,
         away_samples=away_samples,
         home_team="KC",
@@ -51,7 +51,7 @@ def game_with_samples(game_samples_data: pl.DataFrame) -> GameOrchestrator:
 # Init tests
 
 
-def test_game_init(game_with_samples: GameOrchestrator):
+def test_game_init(game_with_samples: _GameOrchestrator):
     assert game_with_samples.metadata["home_team"] == "KC"
     assert game_with_samples.metadata["away_team"] == "BUF"
     assert game_with_samples._posteam == "KC"
@@ -61,14 +61,14 @@ def test_game_init(game_with_samples: GameOrchestrator):
     assert game_with_samples.drives == []
 
 
-def test_team_order_tuple(game_with_samples: GameOrchestrator):
+def test_team_order_tuple(game_with_samples: _GameOrchestrator):
     assert game_with_samples._team_order == ("KC", "BUF")
 
 
 # cur_offensive_samples property
 
 
-def test_cur_offensive_samples_home(game_with_samples: GameOrchestrator):
+def test_cur_offensive_samples_home(game_with_samples: _GameOrchestrator):
     # Initially home team (KC) has ball - should get home offensive samples
     df, matrix = game_with_samples.cur_offensive_samples
     home_offense_df = game_with_samples.home_samples[0]
@@ -77,7 +77,7 @@ def test_cur_offensive_samples_home(game_with_samples: GameOrchestrator):
     assert matrix.shape[1] == 4  # down, ydstogo, yardline_100, wp
 
 
-def test_cur_offensive_samples_away(game_with_samples: GameOrchestrator):
+def test_cur_offensive_samples_away(game_with_samples: _GameOrchestrator):
     game_with_samples._posteam = "BUF"  # simulate switching offense
     df, matrix = game_with_samples.cur_offensive_samples
     away_offense_df = game_with_samples.away_samples[0]
@@ -89,7 +89,7 @@ def test_cur_offensive_samples_away(game_with_samples: GameOrchestrator):
 # _flip_teams
 
 
-def test_flip_teams(game_with_samples: GameOrchestrator):
+def test_flip_teams(game_with_samples: _GameOrchestrator):
     game_with_samples._posteam_score = 7
     game_with_samples._defteam_score = 3
 
@@ -104,7 +104,7 @@ def test_flip_teams(game_with_samples: GameOrchestrator):
 # game_data property
 
 
-def test_game_data_empty(game_with_samples: GameOrchestrator):
+def test_game_data_empty(game_with_samples: _GameOrchestrator):
     df = game_with_samples.game_data
     assert len(df) == 0
 
@@ -112,7 +112,7 @@ def test_game_data_empty(game_with_samples: GameOrchestrator):
 # __repr__
 
 
-def test_repr(game_with_samples: GameOrchestrator):
+def test_repr(game_with_samples: _GameOrchestrator):
     game_with_samples._posteam_score = 14
     game_with_samples._defteam_score = 7
     game_with_samples.drives = [[], [], []]  # 3 empty drives
@@ -125,7 +125,7 @@ def test_repr(game_with_samples: GameOrchestrator):
     assert "3 drives" in result
 
 
-def test_repr_swapped_possession(game_with_samples: GameOrchestrator):
+def test_repr_swapped_possession(game_with_samples: _GameOrchestrator):
     """Test repr when away team currently has possession."""
     game_with_samples._flip_teams()  # BUF now has ball
     game_with_samples._posteam_score = 10  # BUF score
@@ -140,7 +140,7 @@ def test_repr_swapped_possession(game_with_samples: GameOrchestrator):
 # game_data with plays
 
 
-def test_game_data_with_drives(game_with_samples: GameOrchestrator):
+def test_game_data_with_drives(game_with_samples: _GameOrchestrator):
     """Test game_data when there are plays in drives."""
     game_with_samples.drives = [
         [(1, 10, 25, 5, "Rush for 5"), (2, 5, 30, 10, "Pass for 10")],

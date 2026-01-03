@@ -10,7 +10,7 @@ from rich.table import Table
 
 from nfl_sim._sampling import build_sample_pairs
 from nfl_sim.data import pull_game_data
-from nfl_sim.game import GameOrchestrator
+from nfl_sim.simulate import simulate_n_games
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -19,7 +19,7 @@ def configure_logging(level: str = "WARNING") -> None:
     logger.add(sys.stderr, level=level)
 
 
-# TODO: Consolidate with data functinos from the package?
+# TODO: Consolidate with data functions from the package?
 def fetch_completed_games(n_games: int = 100, min_season: int = 2020) -> pl.DataFrame:
     """Fetch completed games with actual results for validation."""
     spath = Path("data") / "games.csv"
@@ -48,18 +48,18 @@ def fetch_completed_games(n_games: int = 100, min_season: int = 2020) -> pl.Data
     return completed
 
 
-def extract_final_scores(
-    game: GameOrchestrator,
-) -> tuple[int, int]:  # TODO: Should be better way to do this
-    """Extract the final home and away scores from a completed game."""
-    home = game.metadata["home_team"]
-    home_score = game._posteam_score if game._posteam == home else game._defteam_score
-    away_score = game._defteam_score if game._posteam == home else game._posteam_score
-    return home_score, away_score
+def run_accuracy_benchmark(
+    n_games: int = 100, n_sims_per_game: int = 50
+) -> tuple[dict[str, float], pl.DataFrame]:
+    """Run N simulations per game and compare against actual results.
 
+    Args:
+        n_games: Number of historical games to compare against
+        n_sims_per_game: Number of simulations per game matchup for averaging
 
-def run_accuracy_benchmark(n_games: int = 100) -> tuple[dict[str, float], pl.DataFrame]:
-    """Run simulations and compare against actual results."""
+    Returns:
+        Tuple of (stats dict, results DataFrame)
+    """
     configure_logging("WARNING")
     console = Console()
 
@@ -73,7 +73,9 @@ def run_accuracy_benchmark(n_games: int = 100) -> tuple[dict[str, float], pl.Dat
 
     # Run simulations
     results = []
-    console.print(f"[bold green]Simulating {len(games_df)} games...")
+    console.print(
+        f"[bold green]Simulating {len(games_df)} games ({n_sims_per_game} sims each)..."
+    )
 
     for i, row in enumerate(games_df.iter_rows(named=True)):
         if (i + 1) % 10 == 0:
@@ -85,22 +87,22 @@ def run_accuracy_benchmark(n_games: int = 100) -> tuple[dict[str, float], pl.Dat
         actual_away = row["away_score"]
         spread = row["spread_line"]  # Negative = home favored
 
-        # Build samples and create game
+        # Build samples and run N simulations
         home_samples = build_sample_pairs(play_data, home_team)
         away_samples = build_sample_pairs(play_data, away_team)
 
-        game = GameOrchestrator(
+        sim_result = simulate_n_games(
             home_samples=home_samples,
             away_samples=away_samples,
             home_team=home_team,
             away_team=away_team,
+            n=n_sims_per_game,
+            store_individual=False,
         )
 
-        # Run simulation
-        game.play()
-
-        # Extract predicted scores
-        pred_home, pred_away = extract_final_scores(game)
+        # Use average scores as predictions
+        pred_home = sim_result.home_score_avg
+        pred_away = sim_result.away_score_avg
 
         # Calculate residuals (actual - predicted)
         home_residual = actual_home - pred_home
@@ -262,7 +264,7 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
 
 
 def main() -> None:
-    stats, results_df = run_accuracy_benchmark(n_games=100)
+    stats, results_df = run_accuracy_benchmark(n_games=100, n_sims_per_game=50)
     report_results(stats, results_df)
 
 

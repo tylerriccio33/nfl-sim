@@ -38,7 +38,7 @@ class GameMetadata(TypedDict):
     game_type: NotRequired[str]
 
 
-class GameOrchestrator:
+class _GameOrchestrator:
     def __init__(
         self,
         home_samples: _SamplePair,

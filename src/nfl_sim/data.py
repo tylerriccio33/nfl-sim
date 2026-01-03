@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
-from nfl_sim.game import GameOrchestrator, GameMetadata
+from nfl_sim.game import _GameOrchestrator, GameMetadata
 from nfl_sim._sampling import build_sample_pairs
 
 import polars as pl
@@ -231,7 +231,7 @@ def fetch_cur_week_metadata(
 
 def game_factory(
     all_data: pl.DataFrame, game_metadata: list[GameMetadata]
-) -> list[GameOrchestrator]:
+) -> list[_GameOrchestrator]:
     """Create a list of `GameOrchestrator` instances from incoming game metadata.
 
     Args:
@@ -282,7 +282,7 @@ def game_factory(
         extra: dict[str, Any] = {
             k: v for k, v in meta.items() if k not in ("home_team", "away_team")
         }
-        game = GameOrchestrator(
+        game = _GameOrchestrator(
             home_samples=home_samples,
             away_samples=away_samples,
             home_team=home_team,

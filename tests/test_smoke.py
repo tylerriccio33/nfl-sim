@@ -12,7 +12,7 @@ from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
 from nfl_sim.data import pull_game_data
-from nfl_sim.game import GameOrchestrator
+from nfl_sim.game import _GameOrchestrator
 from nfl_sim._sampling import build_sample_pairs
 from typing import TYPE_CHECKING
 
@@ -65,11 +65,11 @@ NFL_TEAMS = [
 
 def create_game(
     game_data: pl.DataFrame, home_team: str, away_team: str
-) -> GameOrchestrator:
+) -> _GameOrchestrator:
     """Create a game instance with given teams."""
     home_samples: _SamplePair = build_sample_pairs(game_data, team=home_team)
     away_samples: _SamplePair = build_sample_pairs(game_data, team=away_team)
-    return GameOrchestrator(
+    return _GameOrchestrator(
         home_samples=home_samples,
         away_samples=away_samples,
         home_team=home_team,
