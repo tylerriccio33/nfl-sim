@@ -18,7 +18,7 @@ class _Event(Exception):
         posteam_score: int,
         defteam_score: int,
         **extra: object,
-    ) -> None:
+    ) -> None:  # pragma: no cover
         """Log the event with game context.
 
         Args:
@@ -37,17 +37,6 @@ class MoveChains(_Event):
 
 class Flip(_Event):
     """Possession change without score reset."""
-
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.debug("Turnover: {} -> {}", posteam, defteam)
 
 
 class Interception(Flip):
@@ -117,8 +106,6 @@ class FieldGoalFail(Flip):
 
 class FlipReset(_Event):
     """Possession change with field position reset (touchback)."""
-
-    pass
 
 
 class Touchdown(FlipReset):
@@ -231,27 +218,6 @@ class FumbleSix(ScoreReset):
         logger.info(
             "FUMBLE SIX {} | Score: {} {}, {} {}",
             defteam,
-            posteam,
-            posteam_score,
-            defteam,
-            defteam_score,
-        )
-
-
-class GameOver(_Event):
-    """Raised when game clock expires."""
-
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info(
-            "Game Over | Final: {} {}, {} {}",
             posteam,
             posteam_score,
             defteam,

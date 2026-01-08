@@ -11,7 +11,6 @@ from nfl_sim._event import (
     FieldGoalSuccess,
     Flip,
     FlipReset,
-    GameOver,
     HalfOver,
     PuntBlocked,
     PuntEndzone,
@@ -190,15 +189,13 @@ class _GameOrchestrator:
             # Consume time after each play
             try:
                 self._engine.consume_time()
-            except HalfOver:
+            except HalfOver:  # TODO: bleh location for a log
                 logger.info(
                     "Half {} complete after {} plays",
                     self._engine.half,
                     play_count,
                 )
                 return
-            except GameOver:
-                raise
 
     def play(self) -> None:
         """Run the full game simulation."""
@@ -218,12 +215,9 @@ class _GameOrchestrator:
         self._engine.reset_offense(yardline=75)  # Own 25 = yardline_100 of 75
 
         # Second half
-        try:
-            self._run_half()
-        except GameOver:
-            logger.info("Game clock expired")
+        self._run_half()
 
-        logger.info(
+        logger.info(  # TODO: Make repr.
             "Game complete: {} {}, {} {}",
             self._team_order[0],
             self._posteam_score

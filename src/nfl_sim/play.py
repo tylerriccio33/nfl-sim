@@ -14,7 +14,6 @@ from nfl_sim._event import (
     FieldGoalFail,
     FieldGoalSuccess,
     HalfOver,
-    GameOver,
     PuntBlocked,
     PuntRegular,
     PickSix,
@@ -150,23 +149,21 @@ class GameEngine:
         return self._half_seconds_remaining
 
     def consume_time(self, seconds: int | None = None) -> None:
-        """Consume game clock time. Raises HalfOver or GameOver when clock expires."""
+        """Consume game clock time. Raises HalfOver when clock expires."""
         if seconds is None:
             seconds = max(5, min(60, int(random.gauss(AVG_PLAY_TIME, PLAY_TIME_STD))))
 
         self._half_seconds_remaining -= seconds
 
         if self._half_seconds_remaining <= 0:
-            if self._half == 1:
-                raise HalfOver
-            else:
-                raise GameOver
+            raise HalfOver
 
     def start_second_half(self) -> None:
         """Reset clock for second half."""
         self._half = 2
         self._half_seconds_remaining = 1800
 
+    # TODO: Rename to reset_series
     def reset_offense(self, yardline: int = 75) -> None:
         """Reset to 1st and 10 at given yardline (default: own 25 = yardline_100 of 75)."""
         self._down = 1
