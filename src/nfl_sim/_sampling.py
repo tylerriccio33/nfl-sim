@@ -63,6 +63,7 @@ def fetch_like_play(
     offensive_df: pl.DataFrame,
     offensive_matrix: _FilterMatrix,
     *,
+    # TODO: This should be an Enum or Options class or something
     down: int,
     dist: int,
     yardline: int,
@@ -73,7 +74,7 @@ def fetch_like_play(
     This is the ML piece of the engine. All logic for play selection goes here.
     Currently we do 2 steps:
         1. Pre-filter the samples to find valid ones that make sense (via Rust).
-        2. Select the best by some model.
+        2. Select the best by some model?
 
     Args:
         offensive_df: DataFrame containing the full play data for selection.
@@ -87,7 +88,7 @@ def fetch_like_play(
         pl.DataFrame: Single play row selected from matching plays.
 
     Raises:
-        NotImplementedError: If no plays found even with down-only fallback.
+        AssertionError: If no plays found even with down-only fallback.
     """
     indices = nfl_sim_core.filter_window(offensive_matrix, down, dist, yardline, wp)
 

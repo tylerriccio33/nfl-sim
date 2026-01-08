@@ -1,5 +1,7 @@
 use numpy::{PyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
+use rand::distributions::WeightedIndex;
+use rand::prelude::*;
 
 /// Window configuration: (dist_window, wp_window, yardline_window)
 const WINDOW_CONFIGS: [(i32, f64, i32); 3] = [
@@ -7,6 +9,38 @@ const WINDOW_CONFIGS: [(i32, f64, i32); 3] = [
     (5, 0.15, 15),  // Medium
     (10, 0.25, 25), // Wide: fallback for rare situations
 ];
+
+/// Sample n indices from a list with exponential decay weighting toward earlier indices.
+/// Earlier indices (more recent plays) have higher probability of being selected.
+fn weighted_sample(indices: Vec<usize>, n: usize) -> Vec<usize> {
+    if indices.len() <= n {
+        return indices;
+    }
+
+    let mut rng = thread_rng();
+    let len = indices.len();
+
+    // Exponential decay weights: weight[i] = exp(-decay * i)
+    // decay factor chosen so last element has ~10% weight of first
+    let decay = 2.3 / (len as f64); // ln(10) ≈ 2.3
+    let weights: Vec<f64> = (0..len).map(|i| (-decay * i as f64).exp()).collect();
+
+    let dist = WeightedIndex::new(&weights).unwrap();
+    let mut selected: Vec<usize> = Vec::with_capacity(n);
+    let mut used: Vec<bool> = vec![false; len];
+
+    while selected.len() < n {
+        let idx = dist.sample(&mut rng);
+        if !used[idx] {
+            used[idx] = true;
+            selected.push(indices[idx]);
+        }
+    }
+
+    // Sort to maintain order (optional, but keeps indices ordered)
+    selected.sort_unstable();
+    selected
+}
 
 /// Filter samples to find plays matching the game state.
 ///
@@ -16,8 +50,9 @@ const WINDOW_CONFIGS: [(i32, f64, i32); 3] = [
 /// - 2: yardline_100 (i32)
 /// - 3: wp (f64, scaled by 1000 to store as i32)
 ///
-/// Returns indices of matching rows, or empty array if none found.
+/// Returns indices of matching rows (up to n samples), biased toward recent plays.
 #[pyfunction]
+#[pyo3(signature = (samples, down, dist, yardline, wp, n=10))]
 fn filter_window<'py>(
     py: Python<'py>,
     samples: PyReadonlyArray2<'_, i64>,
@@ -25,6 +60,7 @@ fn filter_window<'py>(
     dist: i32,
     yardline: i32,
     wp: f64,
+    n: usize,
 ) -> Bound<'py, PyArray1<usize>> {
     let arr = samples.as_array();
     let n_rows = arr.nrows();
@@ -70,7 +106,7 @@ fn filter_window<'py>(
         }
 
         if !indices.is_empty() {
-            return PyArray1::from_vec(py, indices);
+            return PyArray1::from_vec(py, weighted_sample(indices, n));
         }
     }
 
@@ -83,7 +119,7 @@ fn filter_window<'py>(
         }
     }
 
-    PyArray1::from_vec(py, indices)
+    PyArray1::from_vec(py, weighted_sample(indices, n))
 }
 
 /// NFL simulation core module implemented in Rust.

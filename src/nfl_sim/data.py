@@ -23,16 +23,19 @@ if TYPE_CHECKING:
 # minimal reduces memory usage and improves performance. Add columns as needed.
 # =============================================================================
 
+# TODO: Turn this into a TOML config file.
+
 # Core identifiers and team info
 _COLS_IDENTIFIERS = [
     "play_id",
     "game_id",
     "posteam",  # Used for partitioning
     "defteam",  # Used for partitioning
-    # "home_team",
-    # "away_team",
-    # "season",
-    # "week",
+    "home_team",
+    "away_team",
+    "season",
+    "week",
+    "game_date"
 ]
 
 # Game situation columns (used for play matching/sampling)
@@ -41,10 +44,10 @@ _COLS_GAME_STATE = [
     "ydstogo",
     "yardline_100",  # Yards from opponent's endzone
     "wp",  # Win probability
-    # "quarter_seconds_remaining",
-    # "half_seconds_remaining",
-    # "game_seconds_remaining",
-    # "qtr",
+    "quarter_seconds_remaining",
+    "half_seconds_remaining",
+    "game_seconds_remaining",
+    "qtr",
     # "goal_to_go",
     # "score_differential",
 ]
@@ -201,6 +204,7 @@ def pull_game_data(
             pl.col("penalty") != 1,
             (pl.col("play") == 1) | (pl.col("play_type").is_in(["punt", "field_goal"])),
         )
+        .with_columns(pl.col("game_date").cast(pl.Date))
         .collect()
     )
 

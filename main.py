@@ -104,10 +104,10 @@ def main() -> None:
 
     home_data = pl.concat(
         [posteam_partitions[home_team], defteam_partitions[home_team]]
-    )
+    ).sort("game_date", descending=True)
     away_data = pl.concat(
         [posteam_partitions[away_team], defteam_partitions[away_team]]
-    )
+    ).sort("game_date", descending=True)
 
     home_samples = build_sample_pairs(home_data, home_team)
     away_samples = build_sample_pairs(away_data, away_team)
