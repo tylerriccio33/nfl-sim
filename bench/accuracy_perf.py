@@ -48,6 +48,7 @@ def fetch_completed_games(n_games: int = 100, min_season: int = 2020) -> pl.Data
     return completed
 
 
+# TODO: I'm like 99% sure these metrics are SOOOOOO off.
 def run_accuracy_benchmark(
     n_games: int = 100, n_sims_per_game: int = 50
 ) -> tuple[dict[str, float], pl.DataFrame]:
@@ -189,6 +190,7 @@ def run_accuracy_benchmark(
     # Simplified: model covers if it predicted correctly relative to spread
     model_vs_spread = results_df["margin_pred"] - results_df["vegas_margin"]
     actual_vs_spread = results_df["margin_actual"] - results_df["vegas_margin"]
+    # TODO: Need to print something that actually tells me WTF this means
     model_ats_correct = ((model_vs_spread > 0) == (actual_vs_spread > 0)).sum()
     model_ats_accuracy = model_ats_correct / n_valid if n_valid > 0 else 0
 
