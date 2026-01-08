@@ -94,37 +94,20 @@ class _GameOrchestrator:
         )
 
         # Score updates
-        # TODO: don't like this log here. maybe use a decorator
         if isinstance(event, Touchdown):
             self._posteam_score += 7
-            logger.info(
-                "TD {} | Score: {} {}, {} {}",
-                self._posteam,
-                self._posteam,
-                self._posteam_score,
-                self._defteam,
-                self._defteam_score,
-            )
         elif isinstance(event, FieldGoalSuccess):
             self._posteam_score += 3
-            logger.info(
-                "FG {} | Score: {} {}, {} {}",
-                self._posteam,
-                self._posteam,
-                self._posteam_score,
-                self._defteam,
-                self._defteam_score,
-            )
         elif isinstance(event, Safety):
             self._defteam_score += 2
-            logger.info(
-                "Safety! {} scores 2 | Score: {} {}, {} {}",
-                self._defteam,
-                self._posteam,
-                self._posteam_score,
-                self._defteam,
-                self._defteam_score,
-            )
+
+        # Log the event with current game state
+        type(event).log(
+            posteam=self._posteam,
+            defteam=self._defteam,
+            posteam_score=self._posteam_score,
+            defteam_score=self._defteam_score,
+        )
 
         # Determine new yardline
         new_yardline = self._calc_new_yardline(event, play_row)
