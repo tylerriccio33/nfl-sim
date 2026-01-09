@@ -169,7 +169,6 @@ class _GameOrchestrator:
         logger.info("--- HALFTIME ---")
         self._flip_teams()
         self._engine.start_second_half()
-        self._engine.reset_offense(yardline=75)  # Own 25 = yardline_100 of 75
 
         # Second half
         self._run_half()

@@ -41,7 +41,7 @@ class _SetsYardline(Protocol):
     """A play where the yardline is reset after it's finished."""
 
     def get_new_yardline(self, game: _GameOrchestrator, play_row: pl.DataFrame) -> int:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
 
 @runtime_checkable
@@ -49,11 +49,10 @@ class _ScorePlay(Protocol):
     """Play where a score is applied."""
 
     def apply_score(self, game: _GameOrchestrator) -> None:
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
 
-class MoveChains(_Event):
-    pass
+class MoveChains(_Event): ...
 
 
 class Flip(_Event, _SetsYardline):
