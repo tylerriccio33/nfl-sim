@@ -8,15 +8,11 @@ from nfl_sim._sampling import fetch_like_play, _FilterMatrix
 from loguru import logger
 from nfl_sim.play import GameEngine, PlayRecord
 from nfl_sim._event import (
-    FieldGoalSuccess,
     Flip,
     FlipReset,
     HalfOver,
-    PuntBlocked,
-    PuntEndzone,
-    PuntRegular,
     Safety,
-    Touchdown,
+    _ScorePlay,
 )
 
 from typing import TYPE_CHECKING, TypedDict, NotRequired, Any
@@ -93,12 +89,8 @@ class _GameOrchestrator:
         )
 
         # Score updates
-        if isinstance(event, Touchdown):
-            self._posteam_score += 7
-        elif isinstance(event, FieldGoalSuccess):
-            self._posteam_score += 3
-        elif isinstance(event, Safety):
-            self._defteam_score += 2
+        if isinstance(event, _ScorePlay):
+            event.apply_score(self)
 
         # Log the event with current game state
         type(event).log(
@@ -109,7 +101,7 @@ class _GameOrchestrator:
         )
 
         # Determine new yardline
-        new_yardline = self._calc_new_yardline(event, play_row)
+        new_yardline = event.get_new_yardline(self, play_row)
 
         self._engine.reset_offense(yardline=new_yardline)
         self._flip_teams()
@@ -118,41 +110,6 @@ class _GameOrchestrator:
             self._posteam,
             new_yardline,
         )
-
-    def _calc_new_yardline(
-        self, event: Flip | FlipReset | Safety, play_row: pl.DataFrame
-    ) -> int:
-        """Calculate receiving team's starting yardline_100 after turnover.
-
-        Yardline Convention (yardline_100):
-            Yards from opponent's endzone. Lower = closer to scoring.
-            - 75 = own 25 (75 yards to score)
-            - 25 = opponent's 25 (red zone)
-            Flip formula: 100 - yardline gives the same spot from other team's perspective.
-        """
-        if isinstance(event, PuntRegular):
-            punt_dist = play_row["kick_distance"][0]
-            # Punt travels toward opponent's endzone (decreases yardline_100)
-            # Ball lands at: punting_yardline - punt_dist
-            # Flip for receiving team: 100 - landing
-            landing_yardline = self._engine.yardline - punt_dist
-            if landing_yardline <= 0:
-                return 75  # touchback (own 25 = yardline_100 of 75)
-            new_yardline = 100 - landing_yardline
-            # Clamp to valid range (can't be past own goal line)
-            if new_yardline > 99:
-                return 99
-            return int(new_yardline)
-
-        if isinstance(event, PuntBlocked):
-            # Defense recovers at LOS (simplified)
-            return 100 - self._engine.yardline
-
-        if isinstance(event, (PuntEndzone, FlipReset, Safety)):
-            return 75  # touchback / safety kick (own 25 = yardline_100 of 75)
-
-        # Flip in place (interception, turnover on downs)
-        return 100 - self._engine.yardline
 
     def _run_half(self) -> None:
         """Run plays until the half ends."""

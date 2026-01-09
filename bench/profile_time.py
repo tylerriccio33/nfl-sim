@@ -31,7 +31,6 @@ FUNCTIONS = (
     ## Game Orchestration:
     _GameOrchestrator._run_half,
     _GameOrchestrator._handle_turnover,
-    _GameOrchestrator._calc_new_yardline,
     ## Sampling (filter_window is now in Rust - nfl_sim_core):
     fetch_like_play,
     _select_best_play_from_model,
