@@ -197,7 +197,7 @@ class _GameOrchestrator:
                 )
                 return
 
-    def play(self) -> None:
+    def play(self) -> None:  # TODO: Change name to play game
         """Run the full game simulation."""
         logger.info(
             "Starting game: {} vs {}",
