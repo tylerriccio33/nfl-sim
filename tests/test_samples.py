@@ -6,7 +6,6 @@ import pytest
 import nfl_sim_core
 from nfl_sim._sampling import (
     build_sample_pairs,
-    _select_best_play_from_model,
     fetch_like_play,
 )
 
@@ -73,14 +72,6 @@ def test_raises_when_no_matches():
         fetch_like_play(
             offense_df, offense_matrix, down=4, dist=10, yardline=75, wp=0.5
         )
-
-
-# Select best tests
-
-
-def test_returns_single_row(mock_play_data: pl.DataFrame):
-    result = _select_best_play_from_model(mock_play_data)
-    assert len(result) == 1
 
 
 # Fetch best tests

@@ -55,10 +55,6 @@ def build_sample_pairs(all_data: pl.DataFrame, team: str) -> _SamplePair:
     )
 
 
-def _select_best_play_from_model(model_data: pl.DataFrame) -> pl.DataFrame:
-    return model_data.sample(1)
-
-
 def fetch_like_play(
     offensive_df: pl.DataFrame,
     offensive_matrix: _FilterMatrix,
@@ -90,9 +86,9 @@ def fetch_like_play(
     Raises:
         AssertionError: If no plays found even with down-only fallback.
     """
-    indices = nfl_sim_core.filter_window(offensive_matrix, down, dist, yardline, wp)
-
-    assert len(indices)
-
-    filtered = offensive_df[indices]  # TODO: Really should be lazy
-    return _select_best_play_from_model(filtered)
+    idx = nfl_sim_core.filter_window(offensive_matrix, down, dist, yardline, wp, n=1)
+    assert len(idx) != 0
+    idx_int = int(idx[0])
+    # For now, we just take the top play per the filter which is weighted by time, at least.
+    # In the future, we could incorporate an interesting system of play selection.
+    return offensive_df[idx_int]  # TODO: Use slice or filter

@@ -16,7 +16,6 @@ from loguru import logger
 from nfl_sim.game import _GameOrchestrator
 from nfl_sim._sampling import (
     fetch_like_play,
-    _select_best_play_from_model,
     build_sample_pairs,
 )
 from nfl_sim.play import GameEngine
@@ -33,7 +32,6 @@ FUNCTIONS = (
     _GameOrchestrator._handle_turnover,
     ## Sampling (filter_window is now in Rust - nfl_sim_core):
     fetch_like_play,
-    _select_best_play_from_model,
     build_sample_pairs,
     ## Game Engine:
     GameEngine.ingest_new_play.__wrapped__,  # ty: ignore (this is decorated)
