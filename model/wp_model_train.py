@@ -173,9 +173,7 @@ def main():
     df = create_target(df)
 
     # Convert half to numeric
-    df = df.with_columns(
-        pl.when(pl.col("game_half") == "Half1").then(1).otherwise(2).alias("half")
-    )
+    df = df.with_columns(pl.when(pl.col("game_half") == "Half1").then(1).otherwise(2).alias("half"))
 
     # Extract arrays
     down = df["down"].to_numpy().astype(np.float64)
@@ -240,9 +238,7 @@ def main():
     print("=" * 50)
 
     # Sample some test cases
-    sample_indices = np.random.default_rng(123).choice(
-        len(test_idx), size=10, replace=False
-    )
+    sample_indices = np.random.default_rng(123).choice(len(test_idx), size=10, replace=False)
 
     print(
         f"{'Down':<5} {'Dist':<5} {'Yard':<5} {'Half':<5} {'Time':<6} {'Score':<6} {'Pred':<8} {'Actual':<8}"
@@ -325,16 +321,12 @@ def main():
     print("=" * 50)
 
     # All test predictions should be in [0, 1]
-    assert np.all((p_test >= 0) & (p_test <= 1)), (
-        "FAIL: Test predictions outside [0, 1]"
-    )
+    assert np.all((p_test >= 0) & (p_test <= 1)), "FAIL: Test predictions outside [0, 1]"
     print(f"PASS: All {len(p_test):,} test predictions in [0, 1]")
 
     # No extreme predictions (< 0.001 or > 0.999) for neutral situations
     # Check predictions where score is close to 0 and time > 5 min
-    neutral_mask = (np.abs(score[test_idx]) <= 3) & (
-        half_seconds_remaining[test_idx] > 300
-    )
+    neutral_mask = (np.abs(score[test_idx]) <= 3) & (half_seconds_remaining[test_idx] > 300)
     neutral_preds = p_test[neutral_mask]
     if len(neutral_preds) > 0:
         assert np.all((neutral_preds >= 0.10) & (neutral_preds <= 0.90)), (
@@ -359,9 +351,7 @@ def main():
     assert score_diff_late > score_diff_early, (
         f"FAIL: Score should matter more late ({score_diff_late:.1%}) than early ({score_diff_early:.1%})"
     )
-    print(
-        f"PASS: Score diff impact late ({score_diff_late:.1%}) > early ({score_diff_early:.1%})"
-    )
+    print(f"PASS: Score diff impact late ({score_diff_late:.1%}) > early ({score_diff_early:.1%})")
 
     # Check predictions don't blow up at extreme inputs
     extreme_scenarios = [
@@ -370,9 +360,7 @@ def main():
     ]
     for d, di, yl, h, t, s in extreme_scenarios:
         prob = calc_prob(d, di, yl, h, t, s)
-        assert 0.0 <= prob <= 1.0, (
-            f"FAIL: Extreme scenario prediction {prob} outside [0, 1]"
-        )
+        assert 0.0 <= prob <= 1.0, f"FAIL: Extreme scenario prediction {prob} outside [0, 1]"
     print("PASS: Extreme scenarios produce valid probabilities")
 
     print("\nAll assertions passed!")

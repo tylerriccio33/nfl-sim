@@ -63,9 +63,7 @@ NFL_TEAMS = [
 ]
 
 
-def create_game(
-    game_data: pl.DataFrame, home_team: str, away_team: str
-) -> _GameOrchestrator:
+def create_game(game_data: pl.DataFrame, home_team: str, away_team: str) -> _GameOrchestrator:
     """Create a game instance with given teams."""
     home_samples: _SamplePair = build_sample_pairs(game_data, team=home_team)
     away_samples: _SamplePair = build_sample_pairs(game_data, team=away_team)
@@ -103,9 +101,7 @@ def test_game_completes_without_error(
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
-def test_scores_are_reasonable(
-    game_data: pl.DataFrame, home_idx: int, away_idx: int
-) -> None:
+def test_scores_are_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
     """Scores should be within reasonable NFL bounds."""
     home_team = NFL_TEAMS[home_idx]
     away_team = NFL_TEAMS[away_idx]
@@ -113,12 +109,8 @@ def test_scores_are_reasonable(
     game = create_game(game_data, home_team, away_team)
     game.play()
 
-    home_score = (
-        game._posteam_score if game._posteam == home_team else game._defteam_score
-    )
-    away_score = (
-        game._defteam_score if game._posteam == home_team else game._posteam_score
-    )
+    home_score = game._posteam_score if game._posteam == home_team else game._defteam_score
+    away_score = game._defteam_score if game._posteam == home_team else game._posteam_score
     total_score = home_score + away_score
 
     assert home_score >= 0, f"Home score negative: {home_score}"
@@ -137,9 +129,7 @@ def test_scores_are_reasonable(
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
-def test_play_count_is_reasonable(
-    game_data: pl.DataFrame, home_idx: int, away_idx: int
-) -> None:
+def test_play_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
     """Play count should be within reasonable NFL bounds."""
     game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play()
@@ -158,9 +148,7 @@ def test_play_count_is_reasonable(
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
-def test_drive_count_is_reasonable(
-    game_data: pl.DataFrame, home_idx: int, away_idx: int
-) -> None:
+def test_drive_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
     """Drive count should be within reasonable NFL bounds."""
     game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play()

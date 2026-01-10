@@ -50,8 +50,7 @@ def log_game_events(func: Callable[P, R]) -> Callable[P, R]:
             # Convert class name to readable format (e.g., PickSix -> Pick Six)
             event_name = type(e).__name__
             readable = "".join(
-                f" {c}" if c.isupper() and i > 0 else c
-                for i, c in enumerate(event_name)
+                f" {c}" if c.isupper() and i > 0 else c for i, c in enumerate(event_name)
             ).strip()
             logger.debug("Play result: {}", readable)
             raise

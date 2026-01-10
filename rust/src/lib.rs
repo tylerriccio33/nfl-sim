@@ -4,7 +4,7 @@ use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 
 /// Window configuration: (dist_window, wp_window, yardline_window)
-const WINDOW_CONFIGS: [(i32, f64, i32); 3] = [
+const WINDOW_CONFIGS: [(u32, f32, u32); 3] = [
     (2, 0.1, 10),   // Tight
     (5, 0.15, 15),  // Medium
     (10, 0.25, 25), // Wide: fallback for rare situations
@@ -22,8 +22,8 @@ fn weighted_sample(indices: Vec<usize>, n: usize) -> Vec<usize> {
 
     // Exponential decay weights: weight[i] = exp(-decay * i)
     // decay factor chosen so last element has ~10% weight of first
-    let decay = 2.3 / (len as f64); // ln(10) ≈ 2.3
-    let weights: Vec<f64> = (0..len).map(|i| (-decay * i as f64).exp()).collect();
+    let decay = 2.3 / (len as f32); // ln(10) ≈ 2.3
+    let weights: Vec<f32> = (0..len).map(|i| (-decay * i as f32).exp()).collect();
 
     let dist = WeightedIndex::new(&weights).unwrap();
     let mut selected: Vec<usize> = Vec::with_capacity(n);
@@ -45,10 +45,10 @@ fn weighted_sample(indices: Vec<usize>, n: usize) -> Vec<usize> {
 /// Filter samples to find plays matching the game state.
 ///
 /// The samples matrix should have shape (n_samples, 4) with columns:
-/// - 0: down (i32)
-/// - 1: ydstogo (i32)
-/// - 2: yardline_100 (i32)
-/// - 3: wp (f64, scaled by 1000 to store as i32)
+/// - 0: down (u32)
+/// - 1: ydstogo (u32)
+/// - 2: yardline_100 (u32)
+/// - 3: wp (f32, scaled by 1000 to store as u32)
 ///
 /// Returns indices of matching rows (up to n samples), biased toward recent plays.
 #[pyfunction]
@@ -56,10 +56,10 @@ fn weighted_sample(indices: Vec<usize>, n: usize) -> Vec<usize> {
 fn filter_window<'py>(
     py: Python<'py>,
     samples: PyReadonlyArray2<'_, i64>,
-    down: i32,
-    dist: i32,
-    yardline: i32,
-    wp: f64,
+    down: u32,
+    dist: u32,
+    yardline: u32,
+    wp: f32,
     n: usize,
 ) -> Bound<'py, PyArray1<usize>> {
     let arr = samples.as_array();
@@ -73,10 +73,10 @@ fn filter_window<'py>(
         let mut indices: Vec<usize> = Vec::new();
 
         for i in 0..n_rows {
-            let sample_down = arr[[i, 0]] as i32;
-            let sample_ydstogo = arr[[i, 1]] as i32;
-            let sample_yardline = arr[[i, 2]] as i32;
-            let sample_wp = arr[[i, 3]] as f64 / 1000.0;
+            let sample_down = arr[[i, 0]] as u32;
+            let sample_ydstogo = arr[[i, 1]] as u32;
+            let sample_yardline = arr[[i, 2]] as u32;
+            let sample_wp = arr[[i, 3]] as f32 / 1000.0;
 
             // Check down (exact match)
             if sample_down != down {
@@ -113,7 +113,7 @@ fn filter_window<'py>(
     // Last resort: just match by down
     let mut indices: Vec<usize> = Vec::new();
     for i in 0..n_rows {
-        let sample_down = arr[[i, 0]] as i32;
+        let sample_down = arr[[i, 0]] as u32;
         if sample_down == down {
             indices.push(i);
         }

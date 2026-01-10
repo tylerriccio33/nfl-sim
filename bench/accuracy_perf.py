@@ -24,9 +24,7 @@ def configure_logging(level: str = "WARNING") -> None:
 
 
 # TODO: Consolidate with data functions from the package?
-def fetch_completed_games(
-    n_games: int = NGAMES, min_season: int = 2020
-) -> pl.DataFrame:
+def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> pl.DataFrame:
     """Fetch completed games with actual results for validation."""
     spath = Path("data") / "games.csv"
     if not spath.exists():
@@ -79,9 +77,7 @@ def run_accuracy_benchmark(
 
     # Run simulations
     results = []
-    console.print(
-        f"[bold green]Simulating {len(games_df)} games ({n_sims_per_game} sims each)..."
-    )
+    console.print(f"[bold green]Simulating {len(games_df)} games ({n_sims_per_game} sims each)...")
 
     for i, row in enumerate(games_df.iter_rows(named=True)):
         if (i + 1) % 10 == 0:
@@ -140,12 +136,8 @@ def run_accuracy_benchmark(
     # Win prediction accuracy (excluding ties)
     non_ties = results_df.filter(pl.col("actual_margin") != 0)
     n_non_ties = len(non_ties)
-    model_correct = (
-        (non_ties["actual_margin"] > 0) == (non_ties["pred_differential"] > 0)
-    ).sum()
-    vegas_correct = (
-        (non_ties["actual_margin"] > 0) == (non_ties["vegas_differential"] > 0)
-    ).sum()
+    model_correct = ((non_ties["actual_margin"] > 0) == (non_ties["pred_differential"] > 0)).sum()
+    vegas_correct = ((non_ties["actual_margin"] > 0) == (non_ties["vegas_differential"] > 0)).sum()
     model_wp = model_correct / n_non_ties if n_non_ties > 0 else 0.0
     vegas_wp = vegas_correct / n_non_ties if n_non_ties > 0 else 0.0
 
@@ -180,12 +172,8 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
     metrics_table.add_column("Vegas", style="green", justify="right")
 
     metrics_table.add_row("Games", f"{stats['n_games']:.0f}", "")
-    metrics_table.add_row(
-        "RMSE", f"{stats['model_rmse']:.2f}", f"{stats['vegas_rmse']:.2f}"
-    )
-    metrics_table.add_row(
-        "Win %", f"{stats['model_wp']:.1%}", f"{stats['vegas_wp']:.1%}"
-    )
+    metrics_table.add_row("RMSE", f"{stats['model_rmse']:.2f}", f"{stats['vegas_rmse']:.2f}")
+    metrics_table.add_row("Win %", f"{stats['model_wp']:.1%}", f"{stats['vegas_wp']:.1%}")
     metrics_table.add_row("ATS %", f"{stats['ats_wp']:.1%}", "50%")
 
     console.print()

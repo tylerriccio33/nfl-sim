@@ -67,9 +67,7 @@ def display_results(result: SimulationResult, console: Console) -> None:
     console.print()
 
     # Margin statistics
-    median_margin = sorted([r.margin for r in result.individual_results])[
-        result.n_simulations // 2
-    ]
+    median_margin = sorted([r.margin for r in result.individual_results])[result.n_simulations // 2]
     console.print("[bold]Margin (home - away):[/]")
     console.print(f"  Average: [green]{result.margin_avg:+.1f}[/]")
     console.print(f"  Median:  [green]{median_margin:+d}[/]")
@@ -77,6 +75,7 @@ def display_results(result: SimulationResult, console: Console) -> None:
     console.print()
 
 
+# TODO: Should be shipped with the package. Should be in __init__ too I think.
 def main() -> None:
     configure_logging("WARNING")  # Reduce noise for N simulations
     console = Console()
@@ -102,12 +101,12 @@ def main() -> None:
     posteam_partitions = {k[0]: v for k, v in posteam_partitions.items()}
     defteam_partitions = {k[0]: v for k, v in defteam_partitions.items()}
 
-    home_data = pl.concat(
-        [posteam_partitions[home_team], defteam_partitions[home_team]]
-    ).sort("game_date", descending=True)
-    away_data = pl.concat(
-        [posteam_partitions[away_team], defteam_partitions[away_team]]
-    ).sort("game_date", descending=True)
+    home_data = pl.concat([posteam_partitions[home_team], defteam_partitions[home_team]]).sort(
+        "game_date", descending=True
+    )
+    away_data = pl.concat([posteam_partitions[away_team], defteam_partitions[away_team]]).sort(
+        "game_date", descending=True
+    )
 
     home_samples = build_sample_pairs(home_data, home_team)
     away_samples = build_sample_pairs(away_data, away_team)
@@ -115,9 +114,7 @@ def main() -> None:
     # Simulate game N times
     n_sims = 100
 
-    with console.status(
-        f"[bold green]Simulating {home_team} vs {away_team} {n_sims} times..."
-    ):
+    with console.status(f"[bold green]Simulating {home_team} vs {away_team} {n_sims} times..."):
         result = simulate_n_games(
             home_samples=home_samples,
             away_samples=away_samples,

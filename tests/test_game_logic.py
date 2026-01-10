@@ -189,9 +189,7 @@ def test_turnover_on_downs_at_spot(game: _GameOrchestrator):
 def test_punt_flips_possession(game: _GameOrchestrator):
     """Punt should give ball to receiving team."""
     initial_posteam = game._posteam
-    play = make_play_row(
-        yards_gained=0, punt_attempt=1, punt_fair_catch=1, kick_distance=45
-    )
+    play = make_play_row(yards_gained=0, punt_attempt=1, punt_fair_catch=1, kick_distance=45)
 
     process_play(game, play)
 
@@ -202,9 +200,7 @@ def test_punt_yardline_calculation(game: _GameOrchestrator):
     """Punt receiving team gets ball at correct yardline."""
     # KC at own 30 = yardline_100 of 70 (70 yards from opponent's endzone)
     game._engine._yardline = 70
-    play = make_play_row(
-        yards_gained=0, punt_attempt=1, punt_fair_catch=1, kick_distance=45
-    )
+    play = make_play_row(yards_gained=0, punt_attempt=1, punt_fair_catch=1, kick_distance=45)
 
     process_play(game, play)
 
@@ -218,9 +214,7 @@ def test_punt_touchback_if_into_endzone(game: _GameOrchestrator):
     """Punt into endzone results in touchback at own 25 (yardline_100 = 75)."""
     # KC at midfield = yardline_100 of 50
     game._engine._yardline = 50
-    play = make_play_row(
-        yards_gained=0, punt_attempt=1, punt_fair_catch=1, kick_distance=60
-    )
+    play = make_play_row(yards_gained=0, punt_attempt=1, punt_fair_catch=1, kick_distance=60)
 
     process_play(game, play)
 

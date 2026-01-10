@@ -32,6 +32,9 @@ bench-results: ## Run performance of results against real
 train-wp-model: ## Run the model training script for WP model
 	@uv run model/wp_model_train.py
 
+refresh-data: ## Refresh all data files
+	@uv run python data/refresh_data.py
+
 .PHONY: help
 help:  ## Display this help screen
 	@echo -e "\033[1mAvailable commands:\033[0m"

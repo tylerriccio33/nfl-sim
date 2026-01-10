@@ -7,9 +7,10 @@ import tomllib
 from pathlib import Path
 from nfl_sim.game import _GameOrchestrator, GameMetadata
 from nfl_sim._sampling import build_sample_pairs
-
+import nflreadpy as nfl
 import polars as pl
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
+from nflreadpy.utils_date import get_current_week, get_current_season
 
 if TYPE_CHECKING:
     from nfl_sim._sampling import _SamplePair
@@ -44,19 +45,30 @@ def _load_pbp_columns() -> list[str]:
 
 PBP_COLUMNS: list[str] = _load_pbp_columns()
 
-
-def _calc_window(cur_date: datetime.datetime) -> tuple[int, int]:
-    # win year and week needed
-    # ! implement
-    return 2023, 10
-
+MAX_WEEKS = 18
+"""Number of weeks in a season, used for getting the window."""
 
 # TODO: Should transition all of this to nflreadrpy or whatever that is
 
 
-def pull_game_data(
-    cur_date=datetime.datetime.now(), week_window: int = 10
-) -> pl.DataFrame:
+# TODO: Cache this
+def _cur_week_from_date(cur_date: datetime.date) -> tuple[int, int]:
+    """Get current week from date, e.g. 2023-09-11 -> 2024, 1"""
+    cur_week = get_current_week()
+    cur_season = get_current_season()
+    return cur_season, cur_week
+
+
+def _get_min_window_dates(cur_year: int, cur_week: int, week_window: int) -> tuple[int, int]:
+    """Get the minimum week/year to use based on the window."""
+    target_week: int = cur_week - week_window
+    if target_week > 0:
+        return cur_year, cur_week
+
+    raise NotImplementedError("Didn't get this far...")
+
+
+def pull_game_data(cur_date=datetime.datetime.now(), week_window: int = 10) -> pl.DataFrame:
     """Pull play-by-play data from nflverse.
 
     Downloads and caches nflverse play-by-play parquet files, selecting only the
@@ -74,29 +86,17 @@ def pull_game_data(
         Column selection is configured in `src/nfl_sim/pbp_columns.toml`.
         Reference: nflverse dictionary/pbp.csv (374 total fields available).
     """
-    cur_year = cur_date.year
-    min_year, min_week = _calc_window(cur_date)
+    # TODO: Update docs
+    cur_year, cur_week = _cur_week_from_date(cur_date)
+    min_year, min_week = _get_min_window_dates(cur_year, cur_week, week_window)
 
-    year_data: list[pl.LazyFrame] = []
-    for year in range(min_year, cur_year):
-        spath = Path("data") / f"play_by_play_{year}.parquet"
-        if not spath.exists():  # TODO: should be able to just move instead of scan+sink
-            fpath = f"https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{year}.parquet"
-            data = pl.scan_parquet(fpath)
-
-            # save data to local for ease
-            data.sink_parquet(path=spath)
-        else:
-            data = pl.scan_parquet(spath)
-
-        year_data.append(data)
-
-    # Select only needed columns and filter
-    # Include punts and field goals (play=0) alongside regular plays (play=1)
-    # Punts/FGs have yards_gained=0 but have kick_distance for processing
-    all_data = (
-        pl.concat(year_data)
+    return (
+        nfl.load_pbp(min_year)
+        .lazy()
+        # Select only needed columns
         .select(PBP_COLUMNS)
+        # Include punts and field goals (play=0) alongside regular plays (play=1)
+        # Punts/FGs have yards_gained=0 but have kick_distance for processing
         .filter(
             pl.col("yards_gained").is_not_null(),
             pl.col("penalty") != 1,
@@ -106,33 +106,26 @@ def pull_game_data(
         .collect()
     )
 
-    return all_data
-
 
 def fetch_cur_week_metadata(
-    cur_week: int = 1,
-    cur_year: int = datetime.datetime.now().year,
-    rm_complete: bool = True,
+    cur_date=datetime.datetime.now(), rm_complete: bool = True
 ) -> list[GameMetadata]:
-    spath = Path("data") / "games.csv"
-    if not spath.exists():
-        schedule_data = pl.read_csv(r"http://www.habitatring.com/games.csv")
-        schedule_data.write_csv(Path("data") / "games.csv")
-    else:
-        schedule_data = pl.read_csv(spath)
+    # TODO: Better documentation
 
-    # TODO: We'll do something with this
+    cur_year, cur_week = _cur_week_from_date(cur_date)
+
+    schedule_data = nfl.load_schedules(seasons=cur_year).filter(pl.col("week") == cur_week)
 
     if rm_complete:
         schedule_data = schedule_data.filter(pl.col("result").is_null())
 
-    schedule_data = schedule_data.sample(1)
-
-    return cast(list[GameMetadata], list(schedule_data.iter_rows(named=True)))
+    # TODO: Implement a TypeIs function for this to remove the ignore
+    return list(schedule_data.iter_rows(named=True))  # ty: ignore
 
 
 def game_factory(
-    all_data: pl.DataFrame, game_metadata: list[GameMetadata]
+    all_data: pl.DataFrame,  # TODO: All data? What does that mean?
+    game_metadata: list[GameMetadata],
 ) -> list[_GameOrchestrator]:
     """Create a list of `GameOrchestrator` instances from incoming game metadata.
 
@@ -143,6 +136,7 @@ def game_factory(
     Returns:
         list[GameOrchestrator]: _description_
     """
+    # TODO: Documentation!
     # Split the data up once so we don't have to repeat it.
     all_teams: set[str] = {game["home_team"] for game in game_metadata} | {
         game["away_team"] for game in game_metadata
@@ -169,16 +163,13 @@ def game_factory(
         team_key[0]: data for team_key, data in defteam_partitions.items()
     }
 
+    # TODO: Not really sure what we're trying to accomplish here frankly
     games = []
     for meta in game_metadata:
         home_team = meta["home_team"]
         away_team = meta["away_team"]
-        home_data = pl.concat(
-            [posteam_partitions[home_team], defteam_partitions[home_team]]
-        )
-        away_data = pl.concat(
-            [posteam_partitions[away_team], defteam_partitions[away_team]]
-        )
+        home_data = pl.concat([posteam_partitions[home_team], defteam_partitions[home_team]])
+        away_data = pl.concat([posteam_partitions[away_team], defteam_partitions[away_team]])
         home_samples: _SamplePair = build_sample_pairs(home_data, home_team)
         away_samples: _SamplePair = build_sample_pairs(away_data, away_team)
         extra: dict[str, Any] = {

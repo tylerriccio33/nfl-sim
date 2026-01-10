@@ -53,12 +53,8 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
         posteam_partitions = {k[0]: v for k, v in posteam_partitions.items()}
         defteam_partitions = {k[0]: v for k, v in defteam_partitions.items()}
 
-        home_data = pl.concat(
-            [posteam_partitions[home_team], defteam_partitions[home_team]]
-        )
-        away_data = pl.concat(
-            [posteam_partitions[away_team], defteam_partitions[away_team]]
-        )
+        home_data = pl.concat([posteam_partitions[home_team], defteam_partitions[home_team]])
+        away_data = pl.concat([posteam_partitions[away_team], defteam_partitions[away_team]])
 
         home_samples = build_sample_pairs(home_data, home_team)
         away_samples = build_sample_pairs(away_data, away_team)

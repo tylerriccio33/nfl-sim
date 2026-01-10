@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from nfl_sim._sampling import _SamplePair
 
 
-class GameMetadata(TypedDict):
+class GameMetadata(TypedDict):  # TODO: This needs a TypeIs
     """Metadata for a game from the schedule data."""
 
     home_team: str
@@ -76,9 +76,7 @@ class _GameOrchestrator:
             self._posteam_score,
         )
 
-    def _handle_turnover(
-        self, event: Flip | FlipReset | Safety, play_row: pl.DataFrame
-    ) -> None:
+    def _handle_turnover(self, event: Flip | FlipReset | Safety, play_row: pl.DataFrame) -> None:
         """Handle possession changes from turnovers, punts, scores, and safeties."""
         drive_plays: list[PlayRecord] = self._engine.collect_drive()
         self.drives.append(drive_plays)
@@ -176,13 +174,9 @@ class _GameOrchestrator:
         logger.info(  # TODO: Make repr.
             "Game complete: {} {}, {} {}",
             self._team_order[0],
-            self._posteam_score
-            if self._posteam == self._team_order[0]
-            else self._defteam_score,
+            self._posteam_score if self._posteam == self._team_order[0] else self._defteam_score,
             self._team_order[1],
-            self._defteam_score
-            if self._posteam == self._team_order[0]
-            else self._posteam_score,
+            self._defteam_score if self._posteam == self._team_order[0] else self._posteam_score,
         )
 
     @property
@@ -216,12 +210,6 @@ class _GameOrchestrator:
 
     def __repr__(self) -> str:
         home, away = self._team_order
-        home_score = (
-            self._posteam_score if self._posteam == home else self._defteam_score
-        )
-        away_score = (
-            self._defteam_score if self._posteam == home else self._posteam_score
-        )
-        return (
-            f"Game({home} {home_score}, {away} {away_score}, {len(self.drives)} drives)"
-        )
+        home_score = self._posteam_score if self._posteam == home else self._defteam_score
+        away_score = self._defteam_score if self._posteam == home else self._posteam_score
+        return f"Game({home} {home_score}, {away} {away_score}, {len(self.drives)} drives)"

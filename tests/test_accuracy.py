@@ -13,6 +13,8 @@ from nfl_sim._sampling import build_sample_pairs
 from nfl_sim.data import pull_game_data
 from nfl_sim.simulate import simulate_n_games
 
+# TODO: these are all pretty slow, might want to investigate
+
 
 @dataclass
 class RealNFLStats:
@@ -129,17 +131,11 @@ def test_single_game_does_not_converge_around_zero(sample_matchup, real_nfl_stat
 
     # Individual team scores should not be near zero
     # Real NFL teams average ~22 points per game
-    assert result.home_score_avg > 10, (
-        f"Home score avg {result.home_score_avg:.1f} is too low"
-    )
-    assert result.away_score_avg > 10, (
-        f"Away score avg {result.away_score_avg:.1f} is too low"
-    )
+    assert result.home_score_avg > 10, f"Home score avg {result.home_score_avg:.1f} is too low"
+    assert result.away_score_avg > 10, f"Away score avg {result.away_score_avg:.1f} is too low"
 
 
-def test_single_game_does_not_produce_insane_distro_of_scores(
-    sample_matchup, real_nfl_stats
-):
+def test_single_game_does_not_produce_insane_distro_of_scores(sample_matchup, real_nfl_stats):
     """100 sims of a single game should not produce a comically wide distribution of scores.
 
     Real NFL team scores have a std deviation around 10 points.
@@ -229,8 +225,7 @@ def test_some_games_match_statistical_profile_of_real_week(game_data, real_nfl_s
 
     # Average should be within ±25% of real NFL average
     assert real_avg * 0.75 < avg_score < real_avg * 1.25, (
-        f"Avg score {avg_score:.1f} outside expected range "
-        f"(real NFL: {real_avg:.1f} ± 25%)"
+        f"Avg score {avg_score:.1f} outside expected range (real NFL: {real_avg:.1f} ± 25%)"
     )
 
     # Std dev should be within 40%-160% of real NFL std dev
@@ -262,13 +257,9 @@ def test_games_produce_similar_results_to_spread(game_data, real_nfl_stats):
 
     # Win probabilities should be reasonable (not 0% or 100%)
     assert result.home_win_pct > 0.05, "Home win pct too low - simulation may be broken"
-    assert result.home_win_pct < 0.95, (
-        "Home win pct too high - simulation may be broken"
-    )
+    assert result.home_win_pct < 0.95, "Home win pct too high - simulation may be broken"
     assert result.away_win_pct > 0.05, "Away win pct too low - simulation may be broken"
-    assert result.away_win_pct < 0.95, (
-        "Away win pct too high - simulation may be broken"
-    )
+    assert result.away_win_pct < 0.95, "Away win pct too high - simulation may be broken"
 
     # Margin standard deviation should be similar to real NFL
     # Real NFL margin std is around 13-14 points
@@ -310,14 +301,10 @@ def test_leakage(game_data):
     # Verify that sample pools have diversity (not just a few games)
     # Each team should have plays from multiple games in their sample pool
     home_game_ids = (
-        home_offense_df["game_id"].n_unique()
-        if "game_id" in home_offense_df.columns
-        else None
+        home_offense_df["game_id"].n_unique() if "game_id" in home_offense_df.columns else None
     )
     away_game_ids = (
-        away_offense_df["game_id"].n_unique()
-        if "game_id" in away_offense_df.columns
-        else None
+        away_offense_df["game_id"].n_unique() if "game_id" in away_offense_df.columns else None
     )
 
     if home_game_ids is not None:
@@ -348,6 +335,12 @@ def test_leakage(game_data):
     assert unique_scores >= 5, (
         f"Only {unique_scores} unique home scores in 50 sims - possible data leakage"
     )
+
+
+@pytest.mark.xfail(reason="not yet implemented")
+def test_game_rerun_yields_same_result():
+    # Test a rerun of the same game's simulations yield the same results/convergance.
+    raise NotImplementedError
 
 
 if __name__ == "__main__":

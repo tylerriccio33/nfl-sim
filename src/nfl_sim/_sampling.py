@@ -30,13 +30,17 @@ def _dataframe_to_filter_matrix(df: pl.DataFrame) -> _FilterMatrix:
     Creates a matrix with columns: down, ydstogo, yardline_100, wp (scaled by 1000).
     Win probability is scaled to preserve precision as int64.
     """
-    # TODO: Downcast these
-    return df.select(
-        pl.col("down").cast(pl.Int64),
-        pl.col("ydstogo").cast(pl.Int64),
-        pl.col("yardline_100").cast(pl.Int64),
-        (pl.col("wp") * 1000).cast(pl.Int64),
-    ).to_numpy()
+    return (
+        df.select(
+            pl.col("down"),
+            pl.col("ydstogo"),
+            pl.col("yardline_100"),
+            (pl.col("wp") * 1000),
+        )
+        # TODO: I can't get this down to u32 for some reason
+        .select(pl.all().cast(pl.Int64))
+        .to_numpy()
+    )
 
 
 # TODO: This is redundant I think? Also we should be dropping these nulls way earlier right?

@@ -106,8 +106,6 @@ def calc_wp(
         Win probability for possession team (0.0 to 1.0)
     """
     weights = _load_weights()
-    features = _transform_wp(
-        down, dist, yardline_100, half, half_seconds_remaining, score
-    )
+    features = _transform_wp(down, dist, yardline_100, half, half_seconds_remaining, score)
     z = float(np.dot(features, weights))
     return float(_sigmoid(z))
