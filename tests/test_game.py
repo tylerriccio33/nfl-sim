@@ -1,10 +1,11 @@
 """Tests for GameEngine state machine."""
 
 import pytest
+from conftest import make_play_row
 
 from nfl_sim.play import (
-    GameEngine,
     FieldGoalSuccess,
+    GameEngine,
     Interception,
     MoveChains,
     PickSix,
@@ -15,8 +16,6 @@ from nfl_sim.play import (
     Touchdown,
     TurnoverOnDowns,
 )
-from conftest import make_play_row
-
 
 # Init tests
 

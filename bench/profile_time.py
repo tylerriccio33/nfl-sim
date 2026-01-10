@@ -11,17 +11,16 @@ import polars as pl
 from line_profiler import LineProfiler
 from loguru import logger
 
-## == Profile These ==============================================
-
-from nfl_sim.game import _GameOrchestrator
 from nfl_sim._sampling import (
-    fetch_like_play,
     build_sample_pairs,
+    fetch_like_play,
 )
-from nfl_sim.play import GameEngine
 from nfl_sim.data import fetch_cur_week_metadata, pull_game_data
-from nfl_sim.simulate import simulate_n_games, _run_single_simulation
 
+## == Profile These ==============================================
+from nfl_sim.game import _GameOrchestrator
+from nfl_sim.play import GameEngine
+from nfl_sim.simulate import _run_single_simulation, simulate_n_games
 
 FUNCTIONS = (
     ## Simulation (high-level):
@@ -43,6 +42,7 @@ logger.add(sys.stderr, level="WARNING")
 
 
 def main() -> None:
+    """Profile simulation functions and save results."""
     # Create profiler and add functions to profile
     profiler = LineProfiler()
 
@@ -92,7 +92,7 @@ def main() -> None:
 
     # Save results to file
     output_path = Path(__file__).parent / "profile_results.txt"
-    with open(output_path, "w") as f:
+    with output_path.open("w") as f:
         profiler.print_stats(stream=f)
 
     print(f"\nProfile results saved to: {output_path}")

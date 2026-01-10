@@ -12,7 +12,6 @@ from nfl_sim._sampling import build_sample_pairs
 from nfl_sim.data import pull_game_data
 from nfl_sim.simulate import simulate_n_games
 
-
 NGAMES = 100
 NSIMS = 50
 
@@ -63,6 +62,7 @@ def run_accuracy_benchmark(
 
     Returns:
         Tuple of (stats dict, results DataFrame)
+
     """
     configure_logging("WARNING")
     console = Console()
@@ -203,6 +203,7 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
 
 
 def main() -> None:
+    """Run accuracy benchmark and display results."""
     stats, results_df = run_accuracy_benchmark(n_games=NGAMES, n_sims_per_game=NSIMS)
     report_results(stats, results_df)
 

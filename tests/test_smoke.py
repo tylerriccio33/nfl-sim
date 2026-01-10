@@ -6,17 +6,19 @@ and produce statistically reasonable results.
 
 from __future__ import annotations
 
-import polars as pl
-import pytest
-from hypothesis import given, settings, HealthCheck
-from hypothesis import strategies as st
-
-from nfl_sim.data import pull_game_data
-from nfl_sim.game import _GameOrchestrator
-from nfl_sim._sampling import build_sample_pairs
 from typing import TYPE_CHECKING
 
+import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+
+from nfl_sim._sampling import build_sample_pairs
+from nfl_sim.data import pull_game_data
+from nfl_sim.game import _GameOrchestrator
+
 if TYPE_CHECKING:
+    import polars as pl
+
     from nfl_sim._sampling import _SamplePair
 
 

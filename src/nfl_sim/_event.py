@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
 from loguru import logger
-from typing import Protocol, TYPE_CHECKING, runtime_checkable
 
 if TYPE_CHECKING:
     import polars as pl
+
     from nfl_sim.game import _GameOrchestrator
 
 
@@ -32,6 +34,7 @@ class _Event(Exception):
             posteam_score: Possession team's score.
             defteam_score: Defensive team's score.
             **extra: Additional context for subclass-specific logging.
+
         """
         logger.debug("{}", cls.__name__)
 

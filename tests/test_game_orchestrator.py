@@ -3,8 +3,8 @@
 import polars as pl
 import pytest
 
-from nfl_sim.game import _GameOrchestrator
 from nfl_sim._sampling import build_sample_pairs
+from nfl_sim.game import _GameOrchestrator
 
 
 @pytest.fixture

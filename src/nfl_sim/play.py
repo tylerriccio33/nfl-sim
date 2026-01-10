@@ -1,31 +1,30 @@
+"""Game engine state machine for play-by-play simulation."""
+
 import random
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable, ParamSpec, TypeVar
 
 import polars as pl
 from loguru import logger
 
 from nfl_sim._event import (
-    TurnoverOnDowns,
-    MoveChains,
-    PuntEndzone,
-    Touchdown,
-    Safety,
     FieldGoalFail,
     FieldGoalSuccess,
-    HalfOver,
-    PuntBlocked,
-    PuntRegular,
-    PickSix,
-    Interception,
     Flip,
     FlipReset,
+    HalfOver,
+    Interception,
+    MoveChains,
+    PickSix,
+    PuntBlocked,
+    PuntEndzone,
+    PuntRegular,
+    Safety,
     ScoreReset,
+    Touchdown,
+    TurnoverOnDowns,
 )
 from nfl_sim._model import calc_wp
-
-P = ParamSpec("P")
-R = TypeVar("R")
 
 # Game events that should be logged when raised
 GAME_EVENTS = (
@@ -39,7 +38,7 @@ GAME_EVENTS = (
 )
 
 
-def log_game_events(func: Callable[P, R]) -> Callable[P, R]:
+def log_game_events[**P, R](func: Callable[P, R]) -> Callable[P, R]:
     """Decorator that logs game events when they are raised as exceptions."""
 
     @wraps(func)
@@ -68,8 +67,7 @@ PLAY_TIME_STD = 16
 
 
 class GameEngine:
-    """
-    Game state machine tracking down, distance, and field position.
+    """Game state machine tracking down, distance, and field position.
 
     Yardline Convention (yardline_100):
         Uses NFL/nflverse standard: yards from opponent's endzone.
@@ -85,6 +83,7 @@ class GameEngine:
     """
 
     def __init__(self) -> None:
+        """Initialize game state at own 25 yard line."""
         self._dist = 10
         self._down = 1
         self._yardline = 75  # Own 25 yard line (75 yards from opponent's endzone)
@@ -97,6 +96,7 @@ class GameEngine:
 
     @property
     def wp(self) -> float:
+        """Calculate current win probability."""
         return calc_wp(
             down=self._down,
             dist=self._dist,
@@ -108,6 +108,7 @@ class GameEngine:
 
     @property
     def down(self) -> int:
+        """Current down (1-4)."""
         return self._down
 
     @down.setter
@@ -118,6 +119,7 @@ class GameEngine:
 
     @property
     def dist(self) -> int:
+        """Yards to first down."""
         return self._dist
 
     @dist.setter
@@ -128,6 +130,7 @@ class GameEngine:
 
     @property
     def yardline(self) -> int:
+        """Yards from opponent's endzone (yardline_100)."""
         return self._yardline
 
     @yardline.setter
@@ -141,10 +144,12 @@ class GameEngine:
 
     @property
     def half(self) -> int:
+        """Current half (1 or 2)."""
         return self._half
 
     @property
     def half_seconds_remaining(self) -> int:
+        """Seconds remaining in current half."""
         return self._half_seconds_remaining
 
     def consume_time(self, seconds: int | None = None) -> None:
@@ -170,6 +175,7 @@ class GameEngine:
         self._yardline = yardline
 
     def add_play_to_drive(self, original_desc: str | None = None) -> None:
+        """Record current play to the drive history."""
         play: PlayRecord = (
             self._down,
             self._dist,

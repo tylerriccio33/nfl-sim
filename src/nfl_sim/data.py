@@ -38,7 +38,7 @@ def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
     """
     if not isinstance(obj, dict):
         return False
-    d = cast(dict[str, object], obj)
+    d = cast("dict[str, object]", obj)
     return (
         "home_team" in d
         and "away_team" in d
@@ -52,9 +52,10 @@ def _load_pbp_columns() -> list[str]:
 
     Returns:
         list[str]: Combined list of all active column names.
+
     """
     config_path = Path(__file__).parent / "pbp_columns.toml"
-    with open(config_path, "rb") as f:
+    with config_path.open("rb") as f:
         config = tomllib.load(f)
 
     columns: list[str] = []
@@ -92,6 +93,7 @@ def _cur_week_from_date(cur_date: datetime.date) -> tuple[int, int]:
 
     Returns:
         Tuple of (season_year, week_number), e.g. (2024, 1).
+
     """
     cur_week = get_current_week()
     cur_season = get_current_season()
@@ -104,10 +106,13 @@ def _get_min_window_dates(cur_year: int, cur_week: int, week_window: int) -> tup
     if target_week > 0:
         return cur_year, cur_week
 
-    raise NotImplementedError("Didn't get this far...")
+    msg = "Didn't get this far..."
+    raise NotImplementedError(msg)
 
 
-def pull_game_data(cur_date=datetime.datetime.now(), week_window: int = 10) -> pl.DataFrame:
+def pull_game_data(
+    cur_date: datetime.datetime | None = None, week_window: int = 10
+) -> pl.DataFrame:
     """Pull play-by-play data from nflverse.
 
     Downloads and caches nflverse play-by-play parquet files, selecting only the
@@ -125,9 +130,12 @@ def pull_game_data(cur_date=datetime.datetime.now(), week_window: int = 10) -> p
     Note:
         Column selection is configured in `src/nfl_sim/pbp_columns.toml`.
         Reference: nflverse dictionary/pbp.csv (374 total fields available).
+
     """
+    if cur_date is None:
+        cur_date = datetime.datetime.now()
     cur_year, cur_week = _cur_week_from_date(cur_date)
-    min_year, min_week = _get_min_window_dates(cur_year, cur_week, week_window)
+    min_year, _min_week = _get_min_window_dates(cur_year, cur_week, week_window)
 
     return (
         nfl.load_pbp(min_year)
@@ -156,9 +164,11 @@ class ScheduleData:
     REQUIRED_COLUMNS: tuple[str, ...] = ("home_team", "away_team", "week", "result")
 
     def __init__(self, df: pl.DataFrame) -> None:
+        """Initialize ScheduleData with a DataFrame."""
         missing = set(self.REQUIRED_COLUMNS) - set(df.columns)
         if missing:
-            raise ValueError(f"Missing required columns: {missing}")
+            msg = f"Missing required columns: {missing}"
+            raise ValueError(msg)
         self._df = df
 
     @property
@@ -176,7 +186,8 @@ class ScheduleData:
         """Get a game by index, returning as GameMetadata dict."""
         row = self._df.row(idx, named=True)
         if not _is_game_metadata(row):
-            raise ValueError(f"Row {idx} is not valid GameMetadata")
+            msg = f"Row {idx} is not valid GameMetadata"
+            raise ValueError(msg)
         return row
 
     @classmethod
@@ -191,6 +202,7 @@ class ScheduleData:
 
         Returns:
             ScheduleData for the current week's games.
+
         """
         if cur_date is None:
             cur_date = datetime.datetime.now()
@@ -210,6 +222,7 @@ class ScheduleData:
 
         Returns:
             ScheduleData for the requested season/week.
+
         """
         df = nfl.load_schedules(seasons=season)
         if week is not None:
@@ -229,6 +242,7 @@ class ScheduleData:
 
         Returns:
             List of GameMetadata dicts for each game in the schedule.
+
         """
         rows = list(self._df.iter_rows(named=True))
         return [row for row in rows if _is_game_metadata(row)]
@@ -260,6 +274,7 @@ def fetch_cur_week_metadata(
 
     Returns:
         ScheduleData for the current week's games.
+
     """
     return ScheduleData.from_cur_week(cur_date=cur_date, rm_complete=rm_complete)
 
@@ -280,6 +295,7 @@ def game_factory(
 
     Returns:
         List of configured GameOrchestrator instances ready for simulation.
+
     """
     # Normalize input to list of GameMetadata
     game_metadata: list[GameMetadata]

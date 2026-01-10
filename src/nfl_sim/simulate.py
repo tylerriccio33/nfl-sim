@@ -159,6 +159,7 @@ def simulate_n_games(
 
     Returns:
         SimulationResult with aggregated statistics
+
     """
     results: list[SingleGameResult] = []
 

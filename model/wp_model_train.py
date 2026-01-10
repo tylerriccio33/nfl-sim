@@ -1,3 +1,5 @@
+"""Train win probability model from play-by-play data."""
+
 # down: int
 # dist: int (Distance to go.)
 # yardline_100: int (Numeric distance in the number of yards from the opponent's endzone for the posteam.)
@@ -73,8 +75,7 @@ def build_features(
     half_seconds_remaining: np.ndarray,
     score: np.ndarray,
 ) -> np.ndarray:
-    """
-    Build feature matrix with interaction terms.
+    """Build feature matrix with interaction terms.
 
     Base features (normalized):
     - down, dist, yardline_100, half, half_seconds_remaining, score
@@ -164,7 +165,8 @@ def fit_logistic(
     return weights
 
 
-def main():
+def main() -> None:
+    """Train and evaluate win probability model."""
     print("Loading data...")
     df = load_data(sample_frac=0.3)
     print(f"Loaded {len(df):,} plays")
@@ -390,7 +392,7 @@ def main():
         ],
     }
 
-    with open(model_path, "wb") as f:
+    with model_path.open("wb") as f:
         pickle.dump(model_data, f)
 
     print(f"\nModel saved to: {model_path}")

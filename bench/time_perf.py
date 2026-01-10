@@ -3,13 +3,13 @@
 import sys
 import time
 
+import polars as pl
 from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-import polars as pl
-from nfl_sim.data import fetch_cur_week_metadata, pull_game_data
 from nfl_sim._sampling import build_sample_pairs
+from nfl_sim.data import fetch_cur_week_metadata, pull_game_data
 from nfl_sim.simulate import simulate_n_games
 
 
@@ -28,6 +28,7 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
 
     Returns:
         Dictionary with timing statistics
+
     """
     configure_logging("WARNING")
     console = Console()
@@ -115,6 +116,7 @@ def report_results(stats: dict[str, float]) -> None:
 
 
 def main() -> None:
+    """Run timing benchmark and display results."""
     stats = run_benchmark(n_sims_per_game=100, n_matchups=10)
     report_results(stats)
 

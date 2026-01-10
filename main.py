@@ -1,13 +1,15 @@
+"""Main entry point for NFL game simulation."""
+
 import sys
 
+import polars as pl
 from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim.data import fetch_cur_week_metadata, pull_game_data
 from nfl_sim._sampling import build_sample_pairs
-from nfl_sim.simulate import simulate_n_games, SimulationResult
-import polars as pl
+from nfl_sim.data import fetch_cur_week_metadata, pull_game_data
+from nfl_sim.simulate import SimulationResult, simulate_n_games
 
 
 def configure_logging(level: str = "INFO") -> None:
@@ -77,6 +79,7 @@ def display_results(result: SimulationResult, console: Console) -> None:
 
 # TODO: Should be shipped with the package. Should be in __init__ too I think.
 def main() -> None:
+    """Run N simulations of a game and display results."""
     configure_logging("WARNING")  # Reduce noise for N simulations
     console = Console()
 

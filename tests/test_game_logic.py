@@ -2,11 +2,11 @@
 
 import polars as pl
 import pytest
-
-from nfl_sim.game import _GameOrchestrator
 from conftest import make_play_row
-from nfl_sim._sampling import build_sample_pairs
+
 from nfl_sim._event import Flip, FlipReset, Safety
+from nfl_sim._sampling import build_sample_pairs
+from nfl_sim.game import _GameOrchestrator
 
 
 def process_play(game: _GameOrchestrator, play_row: pl.DataFrame) -> None:

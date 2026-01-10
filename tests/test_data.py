@@ -6,14 +6,13 @@ import polars as pl
 import pytest
 
 from nfl_sim.data import (
-    pull_game_data,
-    fetch_cur_week_metadata,
-    game_factory,
+    PBP_COLUMNS,
     GameMetadata,
     ScheduleData,
-    PBP_COLUMNS,
+    fetch_cur_week_metadata,
+    game_factory,
+    pull_game_data,
 )
-
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 

@@ -9,7 +9,6 @@ from nfl_sim._sampling import (
     fetch_like_play,
 )
 
-
 # Filter window tests (via Rust nfl_sim_core.filter_window)
 
 

@@ -15,7 +15,7 @@ def _load_weights() -> np.ndarray:
         if not model_path.exists():
             msg = f"Model file not found: {model_path}. Run model/wp_model_train.py first."
             raise FileNotFoundError(msg)
-        with open(model_path, "rb") as f:
+        with model_path.open("rb") as f:
             model_data = pickle.load(f)
         _MODEL_CACHE["weights"] = model_data["weights"]
     return _MODEL_CACHE["weights"]
@@ -36,8 +36,7 @@ def _transform_wp(
     half_seconds_remaining: int,
     score: int,
 ) -> np.ndarray:
-    """
-    Transform game state into feature vector for WP model.
+    """Transform game state into feature vector for WP model.
 
     Features (normalized):
     - Base: down, dist, yardline_100, half, time, score
@@ -86,8 +85,7 @@ def calc_wp(
     half_seconds_remaining: int,
     score: int,
 ) -> float:
-    """
-    Calculate win probability for possession team.
+    """Calculate win probability for possession team.
 
     Args:
         down: Current down (1-4)
@@ -104,6 +102,7 @@ def calc_wp(
 
     Returns:
         Win probability for possession team (0.0 to 1.0)
+
     """
     weights = _load_weights()
     features = _transform_wp(down, dist, yardline_100, half, half_seconds_remaining, score)

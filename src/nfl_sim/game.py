@@ -1,12 +1,14 @@
+"""Game orchestration for simulating full NFL games."""
+
 from __future__ import annotations
 
 import itertools
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 import polars.selectors as cs
-from nfl_sim._sampling import fetch_like_play, _FilterMatrix
 from loguru import logger
-from nfl_sim.play import GameEngine, PlayRecord
+
 from nfl_sim._event import (
     Flip,
     FlipReset,
@@ -14,8 +16,8 @@ from nfl_sim._event import (
     Safety,
     _ScorePlay,
 )
-
-from typing import TYPE_CHECKING, Any
+from nfl_sim._sampling import _FilterMatrix, fetch_like_play
+from nfl_sim.play import GameEngine, PlayRecord
 
 if TYPE_CHECKING:
     from nfl_sim._sampling import _SamplePair
