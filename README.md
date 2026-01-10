@@ -259,9 +259,9 @@ data/                  # Created at runtime
 
 ## Future Enhancements
 
+- **Web App** : Build a user interface for simulations and visualizations
 - **Penalty Handling:** Integrate penalties into game flow
 - **Player-Level Simulation:** Incorporate player statistics and depth charts
 - **Defense Play Selection:** Combine offense and defense play choices for realism
-- **Web App** : Build a user interface for simulations and visualizations
 - **Advanced Analytics:** Add more detailed statistics and analysis tools
 - **Smarter Play Selection:** Include more context in selection criteria to bias towards realistic plays (e.g. cur QB, is home, other things). This may require a new model.

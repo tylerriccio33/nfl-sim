@@ -5,7 +5,7 @@ import fire
 from nfl_sim import run_week as _run_week
 
 
-class Main:
+class Main:  # pragma: no cover
     """Main class for interacting with NFL simulations."""
 
     @staticmethod
@@ -22,6 +22,6 @@ class Main:
         _run_week()
 
 
-def main():
+def main():  # pragma: no cover
     """Runnable for the CLI."""
     fire.Fire(Main)

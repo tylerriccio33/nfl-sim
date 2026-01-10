@@ -114,7 +114,7 @@ class PuntRegular(Flip, _SetsYardline):
             return 75  # touchback (own 25 = yardline_100 of 75)
         new_yardline = 100 - landing_yardline
         # Clamp to valid range (can't be past own goal line)
-        if new_yardline > 99:
+        if new_yardline > 99:  # pragma: no cover
             return 99
         return int(new_yardline)
 

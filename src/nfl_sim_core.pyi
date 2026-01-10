@@ -1,9 +1,10 @@
 import numpy as np
 import numpy.typing as npt
 
-# TODO: Type alias the samples to that filtered class
+from nfl_sim._sampling import _FilterMatrix
+
 def filter_window(
-    samples: np.ndarray, down: int, dist: int, yardline: int, wp: float, n: int = 10
+    samples: _FilterMatrix, down: int, dist: int, yardline: int, wp: float, n: int = 10
 ) -> npt.NDArray[np.uint64]:
     """Filter samples to plays like the one described by args. See rust impl for more.
 

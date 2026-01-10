@@ -36,7 +36,7 @@ def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
 
     Checks for required keys (home_team, away_team) with string values.
     """
-    if not isinstance(obj, dict):
+    if not isinstance(obj, dict):  # pragma: no cover
         return False
     d = cast("dict[str, object]", obj)
     return (

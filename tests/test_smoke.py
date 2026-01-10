@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -18,13 +17,14 @@ from nfl_sim.data import pull_game_data
 from nfl_sim.game import _GameOrchestrator
 
 if TYPE_CHECKING:
-    from nfl_sim._sampling import _SamplePair
     import polars as pl
+
+    from nfl_sim._sampling import _SamplePair
 
 
 @pytest.fixture(scope="module")
 def game_data() -> pl.DataFrame:
-    """Load play-by-play data once for all tests in this module."""
+    """Load play_game-by-play_game data once for all tests in this module."""
     return pull_game_data()
 
 
@@ -91,7 +91,7 @@ def test_game_completes_without_error(
 ) -> None:
     """Games should complete without raising exceptions."""
     game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
-    game.play()
+    game.play_game()
 
 
 @given(
@@ -109,7 +109,7 @@ def test_scores_are_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx:
     away_team = NFL_TEAMS[away_idx]
 
     game = create_game(game_data, home_team, away_team)
-    game.play()
+    game.play_game()
 
     home_score = game._posteam_score if game._posteam == home_team else game._defteam_score
     away_score = game._defteam_score if game._posteam == home_team else game._posteam_score
@@ -131,14 +131,17 @@ def test_scores_are_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx:
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
-def test_play_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
-    """Play count should be within reasonable NFL bounds."""
+def test_play_game_count_is_reasonable(
+    game_data: pl.DataFrame, home_idx: int, away_idx: int
+) -> None:
+    """play_game count should be within reasonable NFL bounds."""
     game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
-    game.play()
+    game.play_game()
 
-    play_count = len(game.game_data)
-    assert play_count >= 80, f"Too few plays: {play_count}"
-    assert play_count <= 250, f"Too many plays: {play_count}"
+    play_game_count = len(game.game_data)
+    assert play_game_count >= 80, f"Too few play_games: {play_game_count}"
+    assert play_game_count <= 250, f"Too many play_games: {play_game_count}"
+
 
 @given(
     home_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
@@ -152,7 +155,7 @@ def test_play_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_i
 def test_drive_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
     """Drive count should be within reasonable NFL bounds."""
     game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
-    game.play()
+    game.play_game()
 
     drive_count = len(game.drives)
     assert drive_count >= 8, f"Too few drives: {drive_count}"
@@ -171,15 +174,15 @@ def test_drive_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_
 def test_yards_gained_stats_reasonable(
     game_data: pl.DataFrame, home_idx: int, away_idx: int
 ) -> None:
-    """Yards gained per play should be reasonable."""
+    """Yards gained per play_game should be reasonable."""
     game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
-    game.play()
+    game.play_game()
 
-    plays = game.game_data
-    if len(plays) == 0:
-        pytest.skip("No plays recorded")
+    play_games = game.game_data
+    if len(play_games) == 0:
+        pytest.skip("No play_games recorded")
 
-    yards = plays["yards_gained"].to_list()
+    yards = play_games["yards_gained"].to_list()
 
     for yard in yards:
         if yard is not None:
@@ -194,21 +197,21 @@ def test_yards_gained_stats_reasonable(
 
 
 def test_game_data_has_required_columns(game_data: pl.DataFrame) -> None:
-    """Game play DataFrame should have all required columns."""
+    """Game play_game DataFrame should have all required columns."""
     game = create_game(game_data, "KC", "BUF")
-    game.play()
+    game.play_game()
 
-    plays = game.game_data
+    play_games = game.game_data
     required_cols = ["down", "dist", "yardline", "yards_gained", "desc"]
 
     for col in required_cols:
-        assert col in plays.columns, f"Missing column: {col}"
+        assert col in play_games.columns, f"Missing column: {col}"
 
 
 def test_game_repr_format(game_data: pl.DataFrame) -> None:
     """Game repr should contain team names and scores."""
     game = create_game(game_data, "KC", "BUF")
-    game.play()
+    game.play_game()
 
     repr_str = repr(game)
     assert "KC" in repr_str
@@ -219,7 +222,7 @@ def test_game_repr_format(game_data: pl.DataFrame) -> None:
 def test_rand_game(game_data: pl.DataFrame) -> None:
     """Games should complete without raising exceptions."""
     game = create_game(game_data, "NYJ", "KC")
-    game.play()
+    game.play_game()
     print(game)
 
 

@@ -122,7 +122,7 @@ def _run_single_simulation(
         home_team=home_team,
         away_team=away_team,
     )
-    game.play()
+    game.play_game()
 
     home_score, away_score = extract_scores(game)
     num_drives = len(game.drives)

@@ -12,7 +12,7 @@ def _load_weights() -> np.ndarray:
     """Load model weights from pickle file (cached)."""
     if "weights" not in _MODEL_CACHE:
         model_path = Path(__file__).parent.parent.parent / "model" / "dev" / "wp.pkl"
-        if not model_path.exists():
+        if not model_path.exists():  # pragma: no cover
             msg = f"Model file not found: {model_path}. Run model/wp_model_train.py first."
             raise FileNotFoundError(msg)
         with model_path.open("rb") as f:
