@@ -86,6 +86,7 @@ def fetch_like_play(
     Raises:
         AssertionError: If no plays found even with down-only fallback.
     """
+    # TODO: Update documentation
     idx = nfl_sim_core.filter_window(offensive_matrix, down, dist, yardline, wp, n=1)
     assert len(idx) != 0
     idx_int = int(idx[0])
