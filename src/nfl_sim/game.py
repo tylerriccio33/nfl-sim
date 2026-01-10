@@ -103,7 +103,7 @@ class _GameOrchestrator:
         # Determine new yardline
         new_yardline = event.get_new_yardline(self, play_row)
 
-        self._engine.reset_offense(yardline=new_yardline)
+        self._engine.reset_series(yardline=new_yardline)
         self._flip_teams()
         logger.debug(
             "Possession change: {} now has ball at {}",

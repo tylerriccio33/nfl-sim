@@ -1,7 +1,6 @@
 """Module is for checking the results make sense to some degree, using heuristics and statistics."""
 
 from __future__ import annotations
-from ast import Assert
 
 import statistics
 from pathlib import Path
@@ -36,7 +35,7 @@ def _load_real_game_scores() -> pl.DataFrame:
     parquet_files = list(data_dir.glob("play_by_play_*.parquet"))
 
     assert len(parquet_files) > 0
-    
+
     # Get final scores (max per game)
     all_games = (
         pl.scan_parquet(parquet_files)

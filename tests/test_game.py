@@ -96,14 +96,14 @@ def test_reset_default(game: GameEngine):
     game.down = 3
     game.dist = 2
     game.yardline = 50
-    game.reset_offense()
+    game.reset_series()
     assert game.down == 1
     assert game.dist == 10
     assert game.yardline == 75  # Default is own 25 = yardline_100 of 75
 
 
 def test_reset_custom_yardline(game: GameEngine):
-    game.reset_offense(yardline=50)  # Midfield
+    game.reset_series(yardline=50)  # Midfield
     assert game.yardline == 50
     assert game.down == 1
     assert game.dist == 10

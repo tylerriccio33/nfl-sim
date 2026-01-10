@@ -162,10 +162,9 @@ class GameEngine:
         """Reset clock for second half."""
         self._half = 2
         self._half_seconds_remaining = 1800
-        self.reset_offense(yardline=75)
+        self.reset_series(yardline=75)
 
-    # TODO: Rename to reset_series
-    def reset_offense(self, yardline: int = 75) -> None:
+    def reset_series(self, yardline: int = 75) -> None:
         """Reset to 1st and 10 at given yardline (default: own 25 = yardline_100 of 75)."""
         self._down = 1
         self._dist = 10
