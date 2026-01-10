@@ -9,7 +9,6 @@ from nfl_sim.data import (
     PBP_COLUMNS,
     GameMetadata,
     ScheduleData,
-    fetch_cur_week_metadata,
     game_factory,
     pull_game_data,
 )
@@ -193,7 +192,7 @@ class TestFetchCurWeekMetadata:
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
         mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
 
-        result = fetch_cur_week_metadata()
+        result = ScheduleData.from_cur_week()
 
         assert isinstance(result, ScheduleData)
 
@@ -203,7 +202,7 @@ class TestFetchCurWeekMetadata:
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
         mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, target_week))
 
-        result = fetch_cur_week_metadata()
+        result = ScheduleData.from_cur_week()
 
         # All returned games should be from the target week
         for row in result.df.iter_rows(named=True):
@@ -214,7 +213,7 @@ class TestFetchCurWeekMetadata:
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
         mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
 
-        result = fetch_cur_week_metadata(rm_complete=True)
+        result = ScheduleData.from_cur_week(rm_complete=True)
 
         # All returned games should have null result (not yet played)
         for row in result.df.iter_rows(named=True):
@@ -225,8 +224,8 @@ class TestFetchCurWeekMetadata:
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
         mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
 
-        all_games = fetch_cur_week_metadata(rm_complete=False)
-        incomplete_only = fetch_cur_week_metadata(rm_complete=True)
+        all_games = ScheduleData.from_cur_week(rm_complete=False)
+        incomplete_only = ScheduleData.from_cur_week(rm_complete=True)
 
         # With rm_complete=False, we should have at least as many games
         assert len(all_games) >= len(incomplete_only)

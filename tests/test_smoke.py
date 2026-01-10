@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -17,9 +18,8 @@ from nfl_sim.data import pull_game_data
 from nfl_sim.game import _GameOrchestrator
 
 if TYPE_CHECKING:
-    import polars as pl
-
     from nfl_sim._sampling import _SamplePair
+    import polars as pl
 
 
 @pytest.fixture(scope="module")
@@ -140,7 +140,6 @@ def test_play_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_i
     assert play_count >= 80, f"Too few plays: {play_count}"
     assert play_count <= 250, f"Too many plays: {play_count}"
 
-
 @given(
     home_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
     away_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
@@ -157,7 +156,7 @@ def test_drive_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_
 
     drive_count = len(game.drives)
     assert drive_count >= 8, f"Too few drives: {drive_count}"
-    assert drive_count <= 40, f"Too many drives: {drive_count}"
+    assert drive_count <= 30, f"Too many drives: {drive_count}"
 
 
 @given(

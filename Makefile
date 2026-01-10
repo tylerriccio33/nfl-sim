@@ -9,7 +9,7 @@ build: ## Run maturin develop
 	@uv run maturin develop --release
 
 run: ## Run the program
-	@uv run main.py
+	@uv run nfl-sim run-week
 
 test: ## Run tests
 	@uv run pytest \

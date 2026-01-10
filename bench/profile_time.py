@@ -4,6 +4,7 @@ Run with: uv run python bench/profile_time.py
 Output saved to: bench/profile_results.txt
 """
 
+import datetime
 import sys
 from pathlib import Path
 
@@ -11,11 +12,8 @@ import polars as pl
 from line_profiler import LineProfiler
 from loguru import logger
 
-from nfl_sim._sampling import (
-    build_sample_pairs,
-    fetch_like_play,
-)
-from nfl_sim.data import fetch_cur_week_metadata, pull_game_data
+from nfl_sim._sampling import build_sample_pairs, fetch_like_play
+from nfl_sim.data import ScheduleData, pull_game_data
 
 ## == Profile These ==============================================
 from nfl_sim.game import _GameOrchestrator
@@ -51,7 +49,7 @@ def main() -> None:
 
     # Load data
     print("Loading data...")
-    game_metadata = fetch_cur_week_metadata()
+    game_metadata = ScheduleData.from_cur_week(datetime.datetime.now(), True)
     data = pull_game_data()
 
     # Get first game metadata

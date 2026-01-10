@@ -104,7 +104,7 @@ def _get_min_window_dates(cur_year: int, cur_week: int, week_window: int) -> tup
     """Get the minimum week/year to use based on the window."""
     target_week: int = cur_week - week_window
     if target_week > 0:
-        return cur_year, cur_week
+        return cur_year, target_week
 
     msg = "Didn't get this far..."
     raise NotImplementedError(msg)
@@ -135,11 +135,16 @@ def pull_game_data(
     if cur_date is None:
         cur_date = datetime.datetime.now()
     cur_year, cur_week = _cur_week_from_date(cur_date)
-    min_year, _min_week = _get_min_window_dates(cur_year, cur_week, week_window)
 
-    return (
+    min_year, min_week = _get_min_window_dates(cur_year, cur_week, week_window)
+    window_expr: pl.Expr = (pl.col("season").eq(min_year) & pl.col("week").ge(min_week)) | (
+        pl.col("season") > min_year
+    )
+
+    data = (
         nfl.load_pbp(min_year)
         .lazy()
+        .filter(window_expr)
         # Select only needed columns
         .select(PBP_COLUMNS)
         # Include punts and field goals (play=0) alongside regular plays (play=1)
@@ -153,6 +158,10 @@ def pull_game_data(
         .collect()
     )
 
+    assert len(data) > 0, "No game data found!"
+
+    return data
+
 
 class ScheduleData:
     """Wrapper around schedule DataFrame with convenience methods.
@@ -163,6 +172,8 @@ class ScheduleData:
 
     REQUIRED_COLUMNS: tuple[str, ...] = ("home_team", "away_team", "week", "result")
 
+    __cache = "data/schedules.parquet"
+
     def __init__(self, df: pl.DataFrame) -> None:
         """Initialize ScheduleData with a DataFrame."""
         missing = set(self.REQUIRED_COLUMNS) - set(df.columns)
@@ -170,6 +181,15 @@ class ScheduleData:
             msg = f"Missing required columns: {missing}"
             raise ValueError(msg)
         self._df = df
+
+    @classmethod
+    def _loader(cls, seasons: int | list[int]) -> pl.DataFrame:  # pragma: no cover
+        if Path(cls.__cache).exists():
+            if isinstance(seasons, int):
+                seasons = [seasons]
+            return pl.read_parquet(cls.__cache).filter(pl.col("season").is_in(seasons))
+
+        return nfl.load_schedules(seasons=seasons)
 
     @property
     def df(self) -> pl.DataFrame:
@@ -207,7 +227,7 @@ class ScheduleData:
         if cur_date is None:
             cur_date = datetime.datetime.now()
         cur_year, cur_week = _cur_week_from_date(cur_date)
-        df = nfl.load_schedules(seasons=cur_year).filter(pl.col("week") == cur_week)
+        df = cls._loader(seasons=cur_year).filter(pl.col("week") == cur_week)
         if rm_complete:
             df = df.filter(pl.col("result").is_null())
         return cls(df)
@@ -224,7 +244,7 @@ class ScheduleData:
             ScheduleData for the requested season/week.
 
         """
-        df = nfl.load_schedules(seasons=season)
+        df = cls._loader(seasons=season)
         if week is not None:
             df = df.filter(pl.col("week") == week)
         return cls(df)
@@ -259,24 +279,6 @@ class ScheduleData:
         weeks = self._df["week"].unique().to_list()
         week_str = f"week {weeks[0]}" if len(weeks) == 1 else f"weeks {min(weeks)}-{max(weeks)}"
         return f"ScheduleData({n_games} games, {week_str})"
-
-
-def fetch_cur_week_metadata(
-    cur_date: datetime.datetime | None = None, rm_complete: bool = True
-) -> ScheduleData:
-    """Fetch schedule data for the current NFL week.
-
-    Convenience wrapper around ScheduleData.from_cur_week().
-
-    Args:
-        cur_date: Reference date for determining current week. Defaults to now.
-        rm_complete: If True (default), excludes games that already have results.
-
-    Returns:
-        ScheduleData for the current week's games.
-
-    """
-    return ScheduleData.from_cur_week(cur_date=cur_date, rm_complete=rm_complete)
 
 
 def game_factory(

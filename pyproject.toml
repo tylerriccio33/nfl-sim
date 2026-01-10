@@ -6,6 +6,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "fire>=0.7.1",
     "loguru>=0.7.3",
     "nflreadpy>=0.1.5",
     "numpy>=2.0.0",
@@ -23,6 +24,9 @@ python-source = "src"
 python-packages = ["nfl_sim"]
 module-name = "nfl_sim_core"
 features = ["pyo3/extension-module"]
+
+[project.scripts]
+nfl-sim = "nfl_sim.__main__:main"
 
 [dependency-groups]
 dev = [
@@ -43,7 +47,6 @@ dev = [
 [tool.ruff]
 line-length = 100
 fix = true
-
 
 [tool.ruff.lint]
 select = [
