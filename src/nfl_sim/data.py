@@ -4,16 +4,47 @@ from __future__ import annotations
 
 import datetime
 import tomllib
+from functools import lru_cache
 from pathlib import Path
-from nfl_sim.game import _GameOrchestrator, GameMetadata
-from nfl_sim._sampling import build_sample_pairs
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, TypeIs, cast
+
 import nflreadpy as nfl
 import polars as pl
-from typing import TYPE_CHECKING, Any
-from nflreadpy.utils_date import get_current_week, get_current_season
+from nflreadpy.utils_date import get_current_season, get_current_week
+
+from nfl_sim._sampling import build_sample_pairs
+from nfl_sim.game import _GameOrchestrator
 
 if TYPE_CHECKING:
     from nfl_sim._sampling import _SamplePair
+
+
+class GameMetadata(TypedDict):
+    """Metadata for a game from the schedule data."""
+
+    home_team: str
+    away_team: str
+    game_id: NotRequired[str]
+    season: NotRequired[int]
+    week: NotRequired[int]
+    gameday: NotRequired[str]
+    game_type: NotRequired[str]
+
+
+def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
+    """Type guard to verify an object is valid GameMetadata.
+
+    Checks for required keys (home_team, away_team) with string values.
+    """
+    if not isinstance(obj, dict):
+        return False
+    d = cast(dict[str, object], obj)
+    return (
+        "home_team" in d
+        and "away_team" in d
+        and isinstance(d["home_team"], str)
+        and isinstance(d["away_team"], str)
+    )
 
 
 def _load_pbp_columns() -> list[str]:
@@ -48,12 +79,20 @@ PBP_COLUMNS: list[str] = _load_pbp_columns()
 MAX_WEEKS = 18
 """Number of weeks in a season, used for getting the window."""
 
-# TODO: Should transition all of this to nflreadrpy or whatever that is
 
-
-# TODO: Cache this
+@lru_cache(maxsize=1)
 def _cur_week_from_date(cur_date: datetime.date) -> tuple[int, int]:
-    """Get current week from date, e.g. 2023-09-11 -> 2024, 1"""
+    """Get current NFL week from a date.
+
+    Uses nflreadpy to determine the current week and season based on the
+    NFL calendar. Results are cached since they only change once per week.
+
+    Args:
+        cur_date: Reference date (used as cache key, not for calculation).
+
+    Returns:
+        Tuple of (season_year, week_number), e.g. (2024, 1).
+    """
     cur_week = get_current_week()
     cur_season = get_current_season()
     return cur_season, cur_week
@@ -76,8 +115,9 @@ def pull_game_data(cur_date=datetime.datetime.now(), week_window: int = 10) -> p
     regular plays plus punts/field goals).
 
     Args:
-        cur_date: Current date for determining year range. Defaults to now.
-        week_window: Number of weeks to include (currently unused).
+        cur_date: Reference date for determining season. Defaults to now.
+        week_window: Number of weeks back from current week to include in the
+            historical sample. Used to calculate the minimum year boundary.
 
     Returns:
         pl.DataFrame: Filtered play-by-play data with columns from pbp_columns.toml.
@@ -86,7 +126,6 @@ def pull_game_data(cur_date=datetime.datetime.now(), week_window: int = 10) -> p
         Column selection is configured in `src/nfl_sim/pbp_columns.toml`.
         Reference: nflverse dictionary/pbp.csv (374 total fields available).
     """
-    # TODO: Update docs
     cur_year, cur_week = _cur_week_from_date(cur_date)
     min_year, min_week = _get_min_window_dates(cur_year, cur_week, week_window)
 
@@ -107,42 +146,154 @@ def pull_game_data(cur_date=datetime.datetime.now(), week_window: int = 10) -> p
     )
 
 
+class ScheduleData:
+    """Wrapper around schedule DataFrame with convenience methods.
+
+    Provides typed access to schedule data and conversion to GameMetadata.
+    Uses composition rather than inheritance from pl.DataFrame.
+    """
+
+    REQUIRED_COLUMNS: tuple[str, ...] = ("home_team", "away_team", "week", "result")
+
+    def __init__(self, df: pl.DataFrame) -> None:
+        missing = set(self.REQUIRED_COLUMNS) - set(df.columns)
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+        self._df = df
+
+    @property
+    def df(self) -> pl.DataFrame:
+        """Access the underlying DataFrame."""
+        return self._df
+
+    def __len__(self) -> int:
+        return len(self._df)
+
+    def __iter__(self):
+        return iter(self._df.iter_rows(named=True))
+
+    def __getitem__(self, idx: int) -> GameMetadata:
+        """Get a game by index, returning as GameMetadata dict."""
+        row = self._df.row(idx, named=True)
+        if not _is_game_metadata(row):
+            raise ValueError(f"Row {idx} is not valid GameMetadata")
+        return row
+
+    @classmethod
+    def from_cur_week(
+        cls, cur_date: datetime.datetime | None = None, rm_complete: bool = True
+    ) -> ScheduleData:
+        """Load schedule data for the current NFL week.
+
+        Args:
+            cur_date: Reference date for determining current week. Defaults to now.
+            rm_complete: If True (default), excludes games with results.
+
+        Returns:
+            ScheduleData for the current week's games.
+        """
+        if cur_date is None:
+            cur_date = datetime.datetime.now()
+        cur_year, cur_week = _cur_week_from_date(cur_date)
+        df = nfl.load_schedules(seasons=cur_year).filter(pl.col("week") == cur_week)
+        if rm_complete:
+            df = df.filter(pl.col("result").is_null())
+        return cls(df)
+
+    @classmethod
+    def from_season(cls, season: int, week: int | None = None) -> ScheduleData:
+        """Load schedule data for an entire season or specific week.
+
+        Args:
+            season: NFL season year (e.g., 2024).
+            week: Optional week number to filter to.
+
+        Returns:
+            ScheduleData for the requested season/week.
+        """
+        df = nfl.load_schedules(seasons=season)
+        if week is not None:
+            df = df.filter(pl.col("week") == week)
+        return cls(df)
+
+    def filter_incomplete(self) -> ScheduleData:
+        """Return new ScheduleData with only incomplete (unplayed) games."""
+        return ScheduleData(self._df.filter(pl.col("result").is_null()))
+
+    def filter_complete(self) -> ScheduleData:
+        """Return new ScheduleData with only completed games."""
+        return ScheduleData(self._df.filter(pl.col("result").is_not_null()))
+
+    def as_metadata(self) -> list[GameMetadata]:
+        """Convert schedule rows to typed GameMetadata dicts.
+
+        Returns:
+            List of GameMetadata dicts for each game in the schedule.
+        """
+        rows = list(self._df.iter_rows(named=True))
+        return [row for row in rows if _is_game_metadata(row)]
+
+    @property
+    def teams(self) -> set[str]:
+        """Get all unique teams in the schedule."""
+        home = set(self._df["home_team"].unique().to_list())
+        away = set(self._df["away_team"].unique().to_list())
+        return home | away
+
+    def __repr__(self) -> str:
+        n_games = len(self._df)
+        weeks = self._df["week"].unique().to_list()
+        week_str = f"week {weeks[0]}" if len(weeks) == 1 else f"weeks {min(weeks)}-{max(weeks)}"
+        return f"ScheduleData({n_games} games, {week_str})"
+
+
 def fetch_cur_week_metadata(
-    cur_date=datetime.datetime.now(), rm_complete: bool = True
-) -> list[GameMetadata]:
-    # TODO: Better documentation
+    cur_date: datetime.datetime | None = None, rm_complete: bool = True
+) -> ScheduleData:
+    """Fetch schedule data for the current NFL week.
 
-    cur_year, cur_week = _cur_week_from_date(cur_date)
+    Convenience wrapper around ScheduleData.from_cur_week().
 
-    schedule_data = nfl.load_schedules(seasons=cur_year).filter(pl.col("week") == cur_week)
+    Args:
+        cur_date: Reference date for determining current week. Defaults to now.
+        rm_complete: If True (default), excludes games that already have results.
 
-    if rm_complete:
-        schedule_data = schedule_data.filter(pl.col("result").is_null())
-
-    # TODO: Implement a TypeIs function for this to remove the ignore
-    return list(schedule_data.iter_rows(named=True))  # ty: ignore
+    Returns:
+        ScheduleData for the current week's games.
+    """
+    return ScheduleData.from_cur_week(cur_date=cur_date, rm_complete=rm_complete)
 
 
 def game_factory(
-    all_data: pl.DataFrame,  # TODO: All data? What does that mean?
-    game_metadata: list[GameMetadata],
+    pbp_data: pl.DataFrame,
+    schedule: ScheduleData | list[GameMetadata],
 ) -> list[_GameOrchestrator]:
-    """Create a list of `GameOrchestrator` instances from incoming game metadata.
+    """Create GameOrchestrator instances for each scheduled game.
+
+    Partitions play-by-play data by team and builds sample pairs for each
+    matchup. Each orchestrator contains historical plays for both teams
+    (offensive and defensive) to use during simulation.
 
     Args:
-        all_data (pl.DataFrame): _description_
-        game_metadata (list[GameMetadata]): _description_
+        pbp_data: Historical play-by-play data from `pull_game_data()`.
+        schedule: ScheduleData or list of GameMetadata dicts.
 
     Returns:
-        list[GameOrchestrator]: _description_
+        List of configured GameOrchestrator instances ready for simulation.
     """
-    # TODO: Documentation!
-    # Split the data up once so we don't have to repeat it.
+    # Normalize input to list of GameMetadata
+    game_metadata: list[GameMetadata]
+    if isinstance(schedule, ScheduleData):
+        game_metadata = schedule.as_metadata()
+    else:
+        game_metadata = schedule
+
+    # Partition data once upfront rather than filtering per-game.
     all_teams: set[str] = {game["home_team"] for game in game_metadata} | {
         game["away_team"] for game in game_metadata
     }
-    posteam_data = all_data
-    defteam_data = all_data
+    posteam_data = pbp_data
+    defteam_data = pbp_data
     if len(all_teams) <= 32:  # No need to do an expensive partition if not all teams
         posteam_data = posteam_data.filter(pl.col("posteam").is_in(all_teams))
         defteam_data = defteam_data.filter(pl.col("defteam").is_in(all_teams))
@@ -163,7 +314,7 @@ def game_factory(
         team_key[0]: data for team_key, data in defteam_partitions.items()
     }
 
-    # TODO: Not really sure what we're trying to accomplish here frankly
+    # Build orchestrator for each game by combining team's offensive and defensive plays.
     games = []
     for meta in game_metadata:
         home_team = meta["home_team"]

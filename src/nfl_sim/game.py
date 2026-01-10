@@ -15,22 +15,11 @@ from nfl_sim._event import (
     _ScorePlay,
 )
 
-from typing import TYPE_CHECKING, TypedDict, NotRequired, Any
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nfl_sim._sampling import _SamplePair
-
-
-class GameMetadata(TypedDict):  # TODO: This needs a TypeIs
-    """Metadata for a game from the schedule data."""
-
-    home_team: str
-    away_team: str
-    game_id: NotRequired[str]
-    season: NotRequired[int]
-    week: NotRequired[int]
-    gameday: NotRequired[str]
-    game_type: NotRequired[str]
+    from nfl_sim.data import GameMetadata
 
 
 class _GameOrchestrator:
