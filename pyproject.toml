@@ -10,7 +10,6 @@ dependencies = [
     "flask>=3.0.0",
     "loguru>=0.7.3",
     "nflreadpy>=0.1.5",
-    "numba>=0.63.1",
     "numpy>=2.0.0",
     "polars>=1.36.1",
     "rich>=14.2.0",
