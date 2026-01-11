@@ -58,7 +58,24 @@ class _ScorePlay(Protocol):
 class MoveChains(_Event): ...
 
 
-class Flip(_Event, _SetsYardline):
+class _MetaEvent(_Event):
+    """Events that supersede regular game engine flow.
+
+    Meta events bypass normal down/distance tracking and require special
+    handling by the game orchestrator: possession flips, score changes,
+    or field position resets.
+    """
+
+
+class _FlipsPossession(_MetaEvent):
+    """Meta events that cause a possession change.
+
+    After these events, teams swap offense/defense roles.
+    Examples: turnovers, punts, scores followed by kickoff.
+    """
+
+
+class Flip(_FlipsPossession, _SetsYardline):
     """Possession change without score reset."""
 
     def get_new_yardline(self, game: _GameOrchestrator, play_row: pl.DataFrame) -> int:
@@ -149,7 +166,7 @@ class FieldGoalFail(Flip):
         logger.info("FG missed by {} | {} takes over", posteam, defteam)
 
 
-class FlipReset(_Event, _SetsYardline):
+class FlipReset(_FlipsPossession, _SetsYardline):
     """Possession change with field position reset (touchback)."""
 
     def get_new_yardline(self, game: _GameOrchestrator, play_row: pl.DataFrame) -> int:
@@ -215,7 +232,7 @@ class FieldGoalSuccess(FlipReset, _ScorePlay):
         game._posteam_score += 3
 
 
-class Safety(_Event, _ScorePlay, _SetsYardline):
+class Safety(_FlipsPossession, _ScorePlay, _SetsYardline):
     def get_new_yardline(self, game: _GameOrchestrator, play_row: pl.DataFrame) -> int:
         return 75  # safety kick (own 25 = yardline_100 of 75)
 
@@ -241,8 +258,18 @@ class Safety(_Event, _ScorePlay, _SetsYardline):
         game._defteam_score += 2
 
 
-class ScoreReset(_Event):  # TODO: Combine with score play?
-    """Score change; reset but not flip."""
+class ScoreReset(_MetaEvent, _ScorePlay, _SetsYardline):
+    """Defensive score without possession flip (e.g. pick-six, fumble-six).
+
+    After these events, the defense scores but the original offense
+    receives the kickoff (so no flip occurs).
+    """
+
+    def get_new_yardline(self, game: _GameOrchestrator, play_row: pl.DataFrame) -> int:
+        return 75  # kickoff position (own 25 = yardline_100 of 75)
+
+    def apply_score(self, game: _GameOrchestrator) -> None:
+        game._defteam_score += 7
 
 
 class PickSix(ScoreReset):

@@ -10,11 +10,11 @@ import polars.selectors as cs
 from loguru import logger
 
 from nfl_sim._event import (
-    Flip,
-    FlipReset,
     HalfOver,
-    Safety,
+    _FlipsPossession,
+    _MetaEvent,
     _ScorePlay,
+    _SetsYardline,
 )
 from nfl_sim._sampling import _FilterMatrix, fetch_like_play
 from nfl_sim.play import GameEngine, PlayRecord
@@ -67,8 +67,8 @@ class _GameOrchestrator:
             self._posteam_score,
         )
 
-    def _handle_turnover(self, event: Flip | FlipReset | Safety, play_row: pl.DataFrame) -> None:
-        """Handle possession changes from turnovers, punts, scores, and safeties."""
+    def _handle_meta_event(self, event: _MetaEvent, play_row: pl.DataFrame) -> None:
+        """Handle meta events: turnovers, punts, scores, and safeties."""
         drive_plays: list[PlayRecord] = self._engine.collect_drive()
         self.drives.append(drive_plays)
         logger.debug(
@@ -77,7 +77,7 @@ class _GameOrchestrator:
             type(event).__name__,
         )
 
-        # Score updates
+        # Apply score if this event awards points
         if isinstance(event, _ScorePlay):
             event.apply_score(self)
 
@@ -89,16 +89,21 @@ class _GameOrchestrator:
             defteam_score=self._defteam_score,
         )
 
-        # Determine new yardline
-        new_yardline = event.get_new_yardline(self, play_row)
+        # Determine new yardline (default to kickoff position)
+        new_yardline = (
+            event.get_new_yardline(self, play_row) if isinstance(event, _SetsYardline) else 75
+        )
 
         self._engine.reset_series(yardline=new_yardline)
-        self._flip_teams()
-        logger.debug(
-            "Possession change: {} now has ball at {}",
-            self._posteam,
-            new_yardline,
-        )
+
+        # Only flip possession for events that cause a turnover
+        if isinstance(event, _FlipsPossession):
+            self._flip_teams()
+            logger.debug(
+                "Possession change: {} now has ball at {}",
+                self._posteam,
+                new_yardline,
+            )
 
     def _run_half(self) -> None:
         """Run plays until the half ends."""
@@ -129,8 +134,8 @@ class _GameOrchestrator:
             )
             try:
                 self._engine.ingest_new_play(play_row)
-            except (Flip, FlipReset, Safety) as e:
-                self._handle_turnover(e, play_row)
+            except _MetaEvent as e:
+                self._handle_meta_event(e, play_row)
 
             # Consume time after each play
             try:

@@ -4,7 +4,7 @@ import polars as pl
 import pytest
 from conftest import make_play_row
 
-from nfl_sim._event import Flip, FlipReset, Safety
+from nfl_sim._event import _MetaEvent
 from nfl_sim._sampling import build_sample_pairs
 from nfl_sim.game import _GameOrchestrator
 
@@ -13,8 +13,8 @@ def process_play(game: _GameOrchestrator, play_row: pl.DataFrame) -> None:
     """Helper to process a play in tests - mirrors the inline logic in _run_half."""
     try:
         game._engine.ingest_new_play(play_row)
-    except (Flip, FlipReset, Safety) as e:
-        game._handle_turnover(e, play_row)
+    except _MetaEvent as e:
+        game._handle_meta_event(e, play_row)
 
 
 @pytest.fixture

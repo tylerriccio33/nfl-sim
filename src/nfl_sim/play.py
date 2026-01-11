@@ -10,8 +10,6 @@ from loguru import logger
 from nfl_sim._event import (
     FieldGoalFail,
     FieldGoalSuccess,
-    Flip,
-    FlipReset,
     HalfOver,
     Interception,
     MoveChains,
@@ -20,22 +18,14 @@ from nfl_sim._event import (
     PuntEndzone,
     PuntRegular,
     Safety,
-    ScoreReset,
     Touchdown,
     TurnoverOnDowns,
+    _MetaEvent,
 )
 from nfl_sim._model import calc_wp
 
 # Game events that should be logged when raised
-GAME_EVENTS = (
-    Flip,
-    FlipReset,
-    ScoreReset,
-    Safety,
-    MoveChains,
-    TurnoverOnDowns,
-    Touchdown,
-)
+GAME_EVENTS = (_MetaEvent, MoveChains)
 
 
 def log_game_events[**P, R](func: Callable[P, R]) -> Callable[P, R]:
@@ -66,6 +56,7 @@ AVG_PLAY_TIME = 25
 PLAY_TIME_STD = 16
 GAUSS_DISTRO: list[int] = [int(random.gauss(AVG_PLAY_TIME, PLAY_TIME_STD)) for _ in range(1_000)]
 # TODO: Make sure this caches and isn't regnerated
+
 
 class GameEngine:
     """Game state machine tracking down, distance, and field position.
@@ -194,19 +185,13 @@ class GameEngine:
     @log_game_events
     def ingest_new_play(self, play_row: pl.DataFrame) -> None:
         """Method for updating the play completely, triggering properties."""
-        self._yards_gained = int(play_row["yards_gained"][0])
+        # This is a hot function, order it intelligently!
+        self.yards_gained = int(play_row["yards_gained"][0])
         self.add_play_to_drive(play_row["desc"][0])
 
-        ## Touchdown in sample
-        if play_row["touchdown"][0] == 1:
-            raise Touchdown
+        # TODO: The access to the `play_row` is deceptively expensive
 
-        ## FG in sample
-        fg_result = play_row["field_goal_result"][0]
-        if fg_result == "made":
-            raise FieldGoalSuccess
-        if fg_result in ("missed", "blocked"):
-            raise FieldGoalFail
+        # TODO: Replace with the new pl-enum-map logic
 
         ## Punt in real sample
         if play_row["punt_attempt"][0] == 1:
@@ -215,6 +200,17 @@ class GameEngine:
             if play_row["punt_in_endzone"][0] == 1:
                 raise PuntEndzone
             raise PuntRegular
+
+        ## FG in sample
+        fg_result = play_row["field_goal_result"][0]
+        if fg_result == "made":
+            raise FieldGoalSuccess
+        if fg_result in ("missed", "blocked"):
+            raise FieldGoalFail
+
+        ## Touchdown in sample
+        if play_row["touchdown"][0] == 1:
+            raise Touchdown
 
         ## Interception
         if play_row["interception"][0] == 1:
@@ -225,17 +221,17 @@ class GameEngine:
         ## TODO: Fumble
 
         ## SIMULATION: Update yardline (subtract yards gained since yardline_100 decreases as you advance)
-        self.yardline = self.yardline - self._yards_gained
+        self.yardline = self.yardline - self.yards_gained
 
         # Regular first down
         try:
-            self.dist = self.dist - self._yards_gained
+            self.dist = self.dist - self.yards_gained
         except MoveChains:
             self.down = 1
             self.dist = 10
             return
 
-        self.down = self.down + 1
+        self.down: int = self.down + 1
 
     def __repr__(self) -> str:
         return f"Down: {self.down}, Dist: {self.dist}, Yardline: {self.yardline}, Yards Gained: {self._yards_gained}"
