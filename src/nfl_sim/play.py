@@ -64,7 +64,8 @@ type PlayRecord = tuple[int, int, int, int | None, str | None]
 # Distribution: mean=25s, median=29s, std=16s
 AVG_PLAY_TIME = 25
 PLAY_TIME_STD = 16
-
+GAUSS_DISTRO: list[int] = [int(random.gauss(AVG_PLAY_TIME, PLAY_TIME_STD)) for _ in range(1_000)]
+# TODO: Make sure this caches and isn't regnerated
 
 class GameEngine:
     """Game state machine tracking down, distance, and field position.
@@ -152,10 +153,9 @@ class GameEngine:
         """Seconds remaining in current half."""
         return self._half_seconds_remaining
 
-    def consume_time(self, seconds: int | None = None) -> None:
+    def consume_time(self) -> None:
         """Consume game clock time. Raises HalfOver when clock expires."""
-        if seconds is None:
-            seconds = max(5, min(60, int(random.gauss(AVG_PLAY_TIME, PLAY_TIME_STD))))
+        seconds = max(5, min(60, random.choice(GAUSS_DISTRO)))
 
         self._half_seconds_remaining -= seconds
 

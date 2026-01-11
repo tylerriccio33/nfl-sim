@@ -17,16 +17,13 @@ from nfl_sim.data import ScheduleData, game_factory, pull_game_data
 ## == Profile These ==============================================
 from nfl_sim.game import _GameOrchestrator
 from nfl_sim.play import GameEngine
-from nfl_sim.simulate import _run_single_simulation, simulate_n_games
+from nfl_sim.simulate import simulate_n_games
 
 FUNCTIONS = (
-    ## Simulation (high-level):
-    simulate_n_games,
-    _run_single_simulation,
     ## Game Orchestration:
     _GameOrchestrator._run_half,
-    _GameOrchestrator._handle_turnover,
-    ## Sampling (filter_window is now in Rust - nfl_sim_core):
+    _GameOrchestrator.play_game,
+    ## Sampling:
     fetch_like_play,
     build_sample_pairs,
     ## Game Engine:

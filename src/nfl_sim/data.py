@@ -233,7 +233,7 @@ class ScheduleData:
         return cls(df)
 
     @classmethod
-    def from_season(cls, season: int, week: int | None = None) -> ScheduleData:
+    def from_season(cls, season: int | list[int], week: int | None = None) -> ScheduleData:
         """Load schedule data for an entire season or specific week.
 
         Args:

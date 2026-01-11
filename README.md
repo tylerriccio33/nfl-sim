@@ -261,6 +261,7 @@ data/                  # Created at runtime
 
 - **Web App** : Build a user interface for simulations and visualizations
 - **Penalty Handling:** Integrate penalties into game flow
+- **Smarter Time Consumption:** Clock stoppages are randomly sampled and should be modeled more realistically
 - **Player-Level Simulation:** Incorporate player statistics and depth charts
 - **Defense Play Selection:** Combine offense and defense play choices for realism
 - **Advanced Analytics:** Add more detailed statistics and analysis tools

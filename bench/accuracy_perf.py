@@ -10,8 +10,8 @@ from rich.table import Table
 from nfl_sim.data import ScheduleData, game_factory, pull_game_data
 from nfl_sim.simulate import simulate_n_games
 
-NGAMES = 100
-NSIMS = 50
+NGAMES = 500
+NSIMS = 10
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -27,7 +27,7 @@ def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> Sche
     filters (spread_line for Vegas comparison, min_season for team code consistency).
     """
     seasons = list(range(min_season, 2025))
-    schedule_df = ScheduleData._loader(seasons)
+    schedule_df = ScheduleData.from_season(seasons).df
 
     # Filter to completed regular season games with results
     # Use min_season to avoid old team codes (STL, SD, OAK) not in play-by-play data
