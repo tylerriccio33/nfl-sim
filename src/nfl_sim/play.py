@@ -1,11 +1,8 @@
 """Game engine state machine for play-by-play simulation."""
 
 import random
-from collections.abc import Callable
-from functools import wraps
 
 import polars as pl
-from loguru import logger
 
 from nfl_sim._event import (
     EVENT_KEY_MAP,
@@ -14,32 +11,8 @@ from nfl_sim._event import (
     Safety,
     Touchdown,
     TurnoverOnDowns,
-    _MetaEvent,
 )
 from nfl_sim._model import calc_wp
-
-# Game events that should be logged when raised
-GAME_EVENTS = (_MetaEvent, MoveChains)
-
-
-def log_game_events[**P, R](func: Callable[P, R]) -> Callable[P, R]:
-    """Decorator that logs game events when they are raised as exceptions."""
-
-    @wraps(func)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        try:
-            return func(*args, **kwargs)
-        except GAME_EVENTS as e:
-            # Convert class name to readable format (e.g., PickSix -> Pick Six)
-            event_name = type(e).__name__
-            readable = "".join(
-                f" {c}" if c.isupper() and i > 0 else c for i, c in enumerate(event_name)
-            ).strip()
-            logger.debug("Play result: {}", readable)
-            raise
-
-    return wrapper
-
 
 # Type alias for a single play record: (down, dist, yardline, yards_gained, desc)
 type PlayRecord = tuple[int, int, int, int | None, str | None]
@@ -176,15 +149,20 @@ class GameEngine:
         self._drive = []
         return cur_drive
 
-    @log_game_events
     def ingest_new_play(self, play_row: pl.DataFrame) -> None:
         """Method for updating the play completely, triggering properties."""
         # This is a hot function, order it intelligently!
-        self.yards_gained = int(play_row["yards_gained"][0])
-        self.add_play_to_drive(play_row["desc"][0])
+        row = play_row.row(0, named=True)
+
+        yards = int(row["yards_gained"])
+        desc = row["desc"]
+        event_key = row["__EVENT_KEY"]
+
+        self.yards_gained = yards
+        self.add_play_to_drive(desc)
 
         # Check for meta events via pre-computed __EVENT_KEY column
-        event_key: int | None = play_row["__EVENT_KEY"][0]
+        event_key: int | None = event_key
         if event_key is not None:
             raise EVENT_KEY_MAP[event_key]
 

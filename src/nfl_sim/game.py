@@ -132,6 +132,7 @@ class _GameOrchestrator:
                 yardline=self._engine.yardline,
                 wp=self._engine.wp,
             )
+
             try:
                 self._engine.ingest_new_play(play_row)
             except _MetaEvent as e:
