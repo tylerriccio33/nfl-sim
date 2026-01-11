@@ -1,4 +1,7 @@
 
+server: ## Run the Web Server
+	@uv run nfl-sim server
+
 lint: ## Run ruff and typer
 	@uv run ruff check --fix
 	@uv run ruff format

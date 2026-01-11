@@ -7,40 +7,62 @@
             <thead class="bg-gray-700 sticky top-0">
                 <tr>
                     <th class="p-2 text-left text-gray-300">#</th>
-                    <th class="p-2 text-left text-gray-300">Down</th>
-                    <th class="p-2 text-left text-gray-300">Dist</th>
+                    <th class="p-2 text-left text-gray-300">Team</th>
+                    <th class="p-2 text-left text-gray-300">Situation</th>
                     <th class="p-2 text-left text-gray-300">Yard</th>
                     <th class="p-2 text-left text-gray-300">Gain</th>
-                    <th class="p-2 text-left text-gray-300">Description</th>
+                    <th class="p-2 text-left text-gray-300">Result</th>
                 </tr>
             </thead>
             <tbody>
                 {% for play in plays %}
-                <tr class="border-b border-gray-700 hover:bg-gray-700">
+                <tr class="border-b border-gray-700 hover:bg-gray-700 {% if play.event %}bg-gray-750{% endif %}">
                     <td class="p-2 text-gray-500">{{ loop.index }}</td>
+                    <td class="p-2 font-semibold {% if play.team == home %}text-green-400{% else %}text-blue-400{% endif %}">
+                        {{ play.team or '-' }}
+                    </td>
+                    <td class="p-2 {% if play.down == 4 %}text-yellow-400{% endif %}">
+                        {% if play.yardline and play.yardline <= play.dist %}
+                            {{ play.down }}{{ 'st' if play.down == 1 else ('nd' if play.down == 2 else ('rd' if play.down == 3 else 'th')) }} & Goal
+                        {% else %}
+                            {{ play.down }}{{ 'st' if play.down == 1 else ('nd' if play.down == 2 else ('rd' if play.down == 3 else 'th')) }} & {{ play.dist }}
+                        {% endif %}
+                    </td>
                     <td class="p-2">
-                        <span class="{% if play.down == 4 %}text-yellow-400{% endif %}">
-                            {{ play.down }}
+                        <span class="{% if play.yardline and play.yardline <= 20 %}text-red-400{% elif play.yardline and play.yardline >= 80 %}text-blue-400{% endif %}">
+                            {{ play.yardline or '-' }}
                         </span>
                     </td>
-                    <td class="p-2">{{ play.dist }}</td>
-                    <td class="p-2">
-                        <span class="{% if play.yardline <= 20 %}text-red-400{% elif play.yardline >= 80 %}text-blue-400{% endif %}">
-                            {{ play.yardline }}
-                        </span>
-                    </td>
-                    <td class="p-2 {% if play.yards_gained and play.yards_gained > 0 %}text-green-400{% elif play.yards_gained and play.yards_gained < 0 %}text-red-400{% endif %}">
+                    <td class="p-2 {% if play.yards_gained is not none and play.yards_gained > 0 %}text-green-400{% elif play.yards_gained is not none and play.yards_gained < 0 %}text-red-400{% endif %}">
                         {% if play.yards_gained is not none %}
                             {{ "%+d"|format(play.yards_gained) }}
                         {% else %}
                             -
                         {% endif %}
                     </td>
-                    <td class="p-2 text-gray-400 truncate max-w-xs" title="{{ play.desc or '' }}">
-                        {% if play.desc %}
-                            {{ play.desc[:60] }}{% if play.desc|length > 60 %}...{% endif %}
+                    <td class="p-2">
+                        {% if play.event %}
+                            <span class="px-2 py-1 rounded text-xs font-bold
+                                {% if play.event == 'Touchdown' %}bg-green-600 text-white
+                                {% elif play.event == 'FieldGoalSuccess' %}bg-green-700 text-white
+                                {% elif play.event == 'FieldGoalFail' %}bg-red-700 text-white
+                                {% elif play.event in ['Interception', 'PickSix', 'FumbleSix'] %}bg-red-600 text-white
+                                {% elif play.event in ['PuntRegular', 'PuntEndzone', 'PuntBlocked'] %}bg-yellow-600 text-black
+                                {% elif play.event == 'Safety' %}bg-purple-600 text-white
+                                {% else %}bg-gray-600 text-white
+                                {% endif %}">
+                                {% if play.event == 'FieldGoalSuccess' %}FG Made
+                                {% elif play.event == 'FieldGoalFail' %}FG Miss
+                                {% elif play.event == 'PuntRegular' %}Punt
+                                {% elif play.event == 'PuntEndzone' %}Touchback
+                                {% elif play.event == 'PuntBlocked' %}Blocked Punt
+                                {% elif play.event == 'PickSix' %}Pick 6
+                                {% elif play.event == 'FumbleSix' %}Fumble 6
+                                {% else %}{{ play.event }}
+                                {% endif %}
+                            </span>
                         {% else %}
-                            -
+                            <span class="text-gray-500">-</span>
                         {% endif %}
                     </td>
                 </tr>

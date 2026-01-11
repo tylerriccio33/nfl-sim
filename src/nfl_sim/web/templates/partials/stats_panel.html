@@ -21,6 +21,56 @@
         </div>
     </div>
 
+    <!-- Margin Distribution Chart -->
+    {% if margin_hist %}
+    <div class="bg-gray-700 rounded-lg p-3">
+        <div class="text-gray-400 text-sm mb-2">Margin Distribution</div>
+        <div class="flex items-end justify-center gap-px h-16">
+            {% for bar in margin_hist %}
+            <div class="w-3 {% if bar.is_negative %}bg-blue-500{% elif bar.is_positive %}bg-green-500{% else %}bg-gray-500{% endif %} rounded-t"
+                 style="height: {{ bar.height_pct }}%"
+                 title="{{ bar.bucket }} to {{ bar.bucket + 6 }}: {{ bar.count }} games"></div>
+            {% endfor %}
+        </div>
+        <div class="flex justify-between text-xs text-gray-500 mt-1">
+            <span>{{ result.away_team }}</span>
+            <span>0</span>
+            <span>{{ result.home_team }}</span>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Score Distribution Charts -->
+    {% if home_score_hist or away_score_hist %}
+    <div class="bg-gray-700 rounded-lg p-3">
+        <div class="text-gray-400 text-sm mb-2">Score Distributions</div>
+
+        <!-- Home Score Distribution -->
+        <div class="mb-3">
+            <div class="text-xs text-green-400 mb-1">{{ result.home_team }}</div>
+            <div class="flex items-end gap-px h-10">
+                {% for bar in home_score_hist %}
+                <div class="flex-1 bg-green-600 rounded-t"
+                     style="height: {{ bar.height_pct }}%"
+                     title="{{ bar.bucket }}-{{ bar.bucket + 6 }} pts: {{ bar.count }}"></div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Away Score Distribution -->
+        <div>
+            <div class="text-xs text-blue-400 mb-1">{{ result.away_team }}</div>
+            <div class="flex items-end gap-px h-10">
+                {% for bar in away_score_hist %}
+                <div class="flex-1 bg-blue-600 rounded-t"
+                     style="height: {{ bar.height_pct }}%"
+                     title="{{ bar.bucket }}-{{ bar.bucket + 6 }} pts: {{ bar.count }}"></div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Win Probabilities -->
     <div class="bg-gray-700 rounded-lg p-3">
         <div class="text-gray-400 text-sm mb-2">Win Probabilities</div>

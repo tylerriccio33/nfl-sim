@@ -29,10 +29,13 @@ def get_pbp_data() -> pl.DataFrame:
 
 
 def get_schedule() -> ScheduleData:
-    """Lazy-load and cache current week schedule."""
+    """Lazy-load and cache current week schedule, sorted by game date."""
     global _schedule
     if _schedule is None:
-        _schedule = ScheduleData.from_cur_week(cur_date=datetime.datetime.now(), rm_complete=True)
+        schedule = ScheduleData.from_cur_week(cur_date=datetime.datetime.now(), rm_complete=True)
+        # Sort by gameday to show games in chronological order
+        sorted_df = schedule.df.sort("gameday")
+        _schedule = ScheduleData(sorted_df)
     return _schedule
 
 
@@ -45,7 +48,7 @@ def index():
 
 
 @bp.route("/games")
-def games():
+def refresh_games():
     """Refresh game list (htmx partial)."""
     global _schedule
     _schedule = None  # Force refresh
@@ -109,10 +112,60 @@ def play_by_play(home: str, away: str, sim_idx: int):
     return render_template("partials/play_by_play.html", plays=plays, home=home, away=away)
 
 
+def _compute_histogram(values: list[int], bucket_size: int = 7) -> list[dict]:
+    """Compute histogram buckets for a list of values."""
+    if not values:
+        return []
+
+    min_val = min(values)
+    max_val = max(values)
+
+    # Create buckets
+    buckets: dict[int, int] = {}
+    for val in values:
+        bucket = (val // bucket_size) * bucket_size
+        buckets[bucket] = buckets.get(bucket, 0) + 1
+
+    # Build result list
+    max_count = max(buckets.values()) if buckets else 1
+    result = []
+    for bucket in range(
+        (min_val // bucket_size) * bucket_size,
+        (max_val // bucket_size) * bucket_size + bucket_size,
+        bucket_size,
+    ):
+        count = buckets.get(bucket, 0)
+        height_pct = (count / max_count * 100) if max_count > 0 else 0
+        result.append(
+            {
+                "bucket": bucket,
+                "count": count,
+                "height_pct": height_pct,
+                "is_negative": bucket < 0,
+                "is_positive": bucket > 0,
+            }
+        )
+    return result
+
+
 @bp.route("/game/<home>/<away>/stats")
 def stats_panel(home: str, away: str):
     """Get statistics panel for current simulation."""
     result_dict = session.get(f"sim_{home}_{away}")
     if not result_dict:
         return render_template("partials/stats_panel.html", result=None)
-    return render_template("partials/stats_panel.html", result=result_dict, home=home, away=away)
+
+    # Pre-compute histograms for the template
+    margin_hist = _compute_histogram(result_dict.get("margins", []), bucket_size=7)
+    home_score_hist = _compute_histogram(result_dict.get("home_scores", []), bucket_size=7)
+    away_score_hist = _compute_histogram(result_dict.get("away_scores", []), bucket_size=7)
+
+    return render_template(
+        "partials/stats_panel.html",
+        result=result_dict,
+        home=home,
+        away=away,
+        margin_hist=margin_hist,
+        home_score_hist=home_score_hist,
+        away_score_hist=away_score_hist,
+    )

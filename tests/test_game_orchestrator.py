@@ -143,10 +143,13 @@ def test_repr_swapped_possession(game_with_samples: _GameOrchestrator):
 def test_game_data_with_drives(game_with_samples: _GameOrchestrator):
     """Test game_data when there are plays in drives."""
     game_with_samples.drives = [
-        [(1, 10, 25, 5, "Rush for 5"), (2, 5, 30, 10, "Pass for 10")],
-        [(1, 10, 40, 7, "Rush for 7")],
+        [(1, 10, 25, 5, "Rush for 5", None), (2, 5, 30, 10, "Pass for 10", "Touchdown")],
+        [(1, 10, 40, 7, "Rush for 7", None)],
     ]
+    game_with_samples._drive_teams = ["KC", "KC"]
     df = game_with_samples.game_data
     assert len(df) == 3
     assert df["down"].to_list() == [1, 2, 1]
     assert df["yards_gained"].to_list() == [5, 10, 7]
+    assert df["team"].to_list() == ["KC", "KC", "KC"]
+    assert df["event"].to_list() == [None, "Touchdown", None]

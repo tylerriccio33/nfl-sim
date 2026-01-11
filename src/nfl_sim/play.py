@@ -14,8 +14,8 @@ from nfl_sim._event import (
 )
 from nfl_sim._model import calc_wp
 
-# Type alias for a single play record: (down, dist, yardline, yards_gained, desc)
-type PlayRecord = tuple[int, int, int, int | None, str | None]
+# Type alias for a single play record: (down, dist, yardline, yards_gained, desc, event_name)
+type PlayRecord = tuple[int, int, int, int | None, str | None, str | None]
 
 # Average time consumed per play based on 2024 NFL data
 # Distribution: mean=25s, median=29s, std=16s
@@ -132,7 +132,9 @@ class GameEngine:
         self._dist = 10
         self._yardline = yardline
 
-    def add_play_to_drive(self, original_desc: str | None = None) -> None:
+    def add_play_to_drive(
+        self, original_desc: str | None = None, event_name: str | None = None
+    ) -> None:
         """Record current play to the drive history."""
         play: PlayRecord = (
             self._down,
@@ -140,8 +142,23 @@ class GameEngine:
             self._yardline,
             self._yards_gained,
             original_desc,
+            event_name,
         )
         self._drive.append(play)
+
+    def set_last_play_event(self, event_name: str) -> None:
+        """Update the event_name of the last play in the drive."""
+        if self._drive:
+            last_play = self._drive[-1]
+            # Replace the last play with updated event_name
+            self._drive[-1] = (
+                last_play[0],
+                last_play[1],
+                last_play[2],
+                last_play[3],
+                last_play[4],
+                event_name,
+            )
 
     def collect_drive(self) -> list[PlayRecord]:
         """Collect all plays from current drive and reset."""
@@ -158,7 +175,7 @@ class GameEngine:
         desc = row["desc"]
         event_key = row["__EVENT_KEY"]
 
-        self.yards_gained = yards
+        self._yards_gained = yards
         self.add_play_to_drive(desc)
 
         # Check for meta events via pre-computed __EVENT_KEY column
@@ -167,11 +184,11 @@ class GameEngine:
             raise EVENT_KEY_MAP[event_key]
 
         ## SIMULATION: Update yardline (subtract yards gained since yardline_100 decreases as you advance)
-        self.yardline = self.yardline - self.yards_gained
+        self.yardline = self.yardline - self._yards_gained
 
         # Regular first down
         try:
-            self.dist = self.dist - self.yards_gained
+            self.dist = self.dist - self._yards_gained
         except MoveChains:
             self.down = 1
             self.dist = 10

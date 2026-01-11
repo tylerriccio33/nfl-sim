@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import itertools
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
@@ -41,6 +40,8 @@ class _GameOrchestrator:
         self.home_samples: _SamplePair = home_samples
         self.away_samples: _SamplePair = away_samples
         self.drives: list[list[PlayRecord]] = []
+        # Track which team was on offense for each drive
+        self._drive_teams: list[str] = []
         self._engine = GameEngine()
         # Fixed order: (home, away) - doesn't change when possession flips
         self._team_order: tuple[str, str] = (home_team, away_team)
@@ -69,8 +70,11 @@ class _GameOrchestrator:
 
     def _handle_meta_event(self, event: _MetaEvent, play_row: pl.DataFrame) -> None:
         """Handle meta events: turnovers, punts, scores, and safeties."""
+        # Mark the last play with the event type
+        self._engine.set_last_play_event(type(event).__name__)
         drive_plays: list[PlayRecord] = self._engine.collect_drive()
         self.drives.append(drive_plays)
+        self._drive_teams.append(self._posteam)
         logger.debug(
             "Drive ended: {} plays, reason: {}",
             len(drive_plays),
@@ -178,17 +182,22 @@ class _GameOrchestrator:
 
     @property
     def game_data(self) -> pl.DataFrame:
-        plays: list[PlayRecord] = list(itertools.chain.from_iterable(self.drives))
-        labeled_plays = [
-            {
-                "down": down,
-                "dist": dist,
-                "yardline": yardline,
-                "yards_gained": yards_gained,
-                "desc": desc,
-            }
-            for (down, dist, yardline, yards_gained, desc) in plays
-        ]
+        labeled_plays = []
+        for drive_idx, drive in enumerate(self.drives):
+            # Get the team that was on offense for this drive
+            team = self._drive_teams[drive_idx] if drive_idx < len(self._drive_teams) else None
+            for down, dist, yardline, yards_gained, desc, event_name in drive:
+                labeled_plays.append(
+                    {
+                        "team": team,
+                        "down": down,
+                        "dist": dist,
+                        "yardline": yardline,
+                        "yards_gained": yards_gained,
+                        "desc": desc,
+                        "event": event_name,
+                    }
+                )
         return pl.DataFrame(labeled_plays)
 
     @property

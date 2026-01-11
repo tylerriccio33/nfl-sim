@@ -71,8 +71,13 @@ class SimulationResult:
             f"  Win%: {self.home_team} {self.home_win_pct:.1%}, {self.away_team} {self.away_win_pct:.1%}, Tie {self.tie_pct:.1%}"
         )
 
-    def to_dict(self) -> dict[str, float | int | str]:
+    def to_dict(self) -> dict[str, float | int | str | list]:
         """Convert to dictionary for DataFrame creation."""
+        # Compute histogram buckets for margin distribution
+        margins = [r.margin for r in self.individual_results]
+        home_scores = [r.home_score for r in self.individual_results]
+        away_scores = [r.away_score for r in self.individual_results]
+
         return {
             "home_team": self.home_team,
             "away_team": self.away_team,
@@ -94,6 +99,10 @@ class SimulationResult:
             "tie_pct": self.tie_pct,
             "avg_drives": self.avg_drives,
             "avg_plays": self.avg_plays,
+            # Include individual values for distribution charts
+            "margins": margins,
+            "home_scores": home_scores,
+            "away_scores": away_scores,
         }
 
 
