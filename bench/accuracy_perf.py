@@ -1,15 +1,13 @@
 """Benchmark the accuracy of game predictions against actual results."""
 
 import sys
-from pathlib import Path
 
 import polars as pl
 from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim._sampling import build_sample_pairs
-from nfl_sim.data import pull_game_data
+from nfl_sim.data import ScheduleData, game_factory, pull_game_data
 from nfl_sim.simulate import simulate_n_games
 
 NGAMES = 100
@@ -22,33 +20,31 @@ def configure_logging(level: str = "WARNING") -> None:
     logger.add(sys.stderr, level=level)
 
 
-# TODO: Consolidate with data functions from the package?
-def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> pl.DataFrame:
-    """Fetch completed games with actual results for validation."""
-    spath = Path("data") / "games.csv"
-    if not spath.exists():
-        schedule_data = pl.read_csv(r"http://www.habitatring.com/games.csv")
-        schedule_data.write_csv(spath)
-    else:
-        schedule_data = pl.read_csv(spath)
+def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> ScheduleData:
+    """Fetch completed games with actual results for validation.
+
+    Uses ScheduleData._loader() to leverage caching, then applies benchmark-specific
+    filters (spread_line for Vegas comparison, min_season for team code consistency).
+    """
+    seasons = list(range(min_season, 2025))
+    schedule_df = ScheduleData._loader(seasons)
 
     # Filter to completed regular season games with results
     # Use min_season to avoid old team codes (STL, SD, OAK) not in play-by-play data
     # Require spread_line for comparison against Vegas
-    completed = schedule_data.filter(
+    completed = schedule_df.filter(
         pl.col("result").is_not_null(),
         pl.col("game_type") == "REG",
         pl.col("home_score").is_not_null(),
         pl.col("away_score").is_not_null(),
         pl.col("spread_line").is_not_null(),
-        pl.col("season") >= min_season,
     )
 
     # Sample n_games randomly
     if len(completed) > n_games:
         completed = completed.sample(n_games, seed=42)
 
-    return completed
+    return ScheduleData(completed)
 
 
 def run_accuracy_benchmark(
@@ -73,29 +69,39 @@ def run_accuracy_benchmark(
 
     # Get completed games with actual results
     with console.status(f"[bold blue]Fetching {n_games} completed games..."):
-        games_df = fetch_completed_games(n_games)
+        schedule = fetch_completed_games(n_games)
+
+    # Build game orchestrators using game_factory (partitions data once upfront)
+    with console.status("[bold blue]Building game orchestrators..."):
+        orchestrators = game_factory(play_data, schedule)
+
+    # Build lookup for actual results by game (home_team, away_team)
+    actual_results: dict[tuple[str, str], dict[str, object]] = {}
+    for row in schedule:
+        key = (row["home_team"], row["away_team"])
+        actual_results[key] = row
 
     # Run simulations
     results = []
-    console.print(f"[bold green]Simulating {len(games_df)} games ({n_sims_per_game} sims each)...")
+    console.print(
+        f"[bold green]Simulating {len(orchestrators)} games ({n_sims_per_game} sims each)..."
+    )
 
-    for i, row in enumerate(games_df.iter_rows(named=True)):
+    for i, game in enumerate(orchestrators):
         if (i + 1) % 10 == 0:
-            console.print(f"  Progress: {i + 1}/{len(games_df)}")
+            console.print(f"  Progress: {i + 1}/{len(orchestrators)}")
 
-        home_team = row["home_team"]
-        away_team = row["away_team"]
-        actual_home = row["home_score"]
-        actual_away = row["away_score"]
-        spread = row["spread_line"]  # Negative = home favored
+        home_team = game.metadata["home_team"]
+        away_team = game.metadata["away_team"]
+        actual = actual_results[(home_team, away_team)]
+        actual_home = actual["home_score"]
+        actual_away = actual["away_score"]
+        spread = actual["spread_line"]  # Negative = home favored
 
-        # Build samples and run N simulations
-        home_samples = build_sample_pairs(play_data, home_team)
-        away_samples = build_sample_pairs(play_data, away_team)
-
+        # Run N simulations using pre-built sample pairs
         sim_result = simulate_n_games(
-            home_samples=home_samples,
-            away_samples=away_samples,
+            home_samples=game.home_samples,
+            away_samples=game.away_samples,
             home_team=home_team,
             away_team=away_team,
             n=n_sims_per_game,
@@ -105,12 +111,13 @@ def run_accuracy_benchmark(
         # Model prediction (home margin)
         pred_diff = sim_result.home_score_avg - sim_result.away_score_avg
         # Vegas prediction: spread_line negative = home favored
-        vegas_diff = -spread
+        vegas_diff = spread
 
         results.append(
             {
                 "home_team": home_team,
                 "away_team": away_team,
+                "game_date": actual["gameday"],
                 "actual_home": actual_home,
                 "actual_away": actual_away,
                 "pred_differential": pred_diff,
@@ -184,6 +191,7 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
     samples_table = Table(title=f"Sample Results (First {sample_size})")
     samples_table.add_column("Home", style="cyan")
     samples_table.add_column("Away", style="cyan")
+    samples_table.add_column("Date", style="cyan")
     samples_table.add_column("Actual", style="green", justify="right")
     samples_table.add_column("Model", style="yellow", justify="right")
     samples_table.add_column("Vegas", style="blue", justify="right")
@@ -192,6 +200,7 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
         samples_table.add_row(
             row["home_team"],
             row["away_team"],
+            row["game_date"],
             f"{row['actual_margin']:+.0f}",
             f"{row['pred_differential']:+.0f}",
             f"{row['vegas_differential']:+.1f}",

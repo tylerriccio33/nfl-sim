@@ -4,13 +4,11 @@ import datetime
 import sys
 import time
 
-import polars as pl
 from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim._sampling import build_sample_pairs
-from nfl_sim.data import ScheduleData, pull_game_data
+from nfl_sim.data import ScheduleData, game_factory, pull_game_data
 from nfl_sim.simulate import simulate_n_games
 
 
@@ -35,31 +33,17 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
     console = Console()
 
     with console.status("[bold blue]Loading game data..."):
-        game_metadata_list = ScheduleData.from_cur_week(datetime.datetime.now(), rm_complete=True)
+        schedule = ScheduleData.from_cur_week(datetime.datetime.now(), rm_complete=True)
         data = pull_game_data()
 
-    # Get multiple matchups for benchmarking
-    meta = game_metadata_list[0]
-    home_team = meta["home_team"]
-    away_team = meta["away_team"]
+    # Build game orchestrator using game_factory (partitions data once upfront)
+    with console.status("[bold blue]Building game orchestrators..."):
+        orchestrators = game_factory(data, schedule)
 
-    # Build sample pairs once
-    with console.status("[bold blue]Building sample pairs..."):
-        all_teams = {home_team, away_team}
-        posteam_data = data.filter(pl.col("posteam").is_in(all_teams))
-        defteam_data = data.filter(pl.col("defteam").is_in(all_teams))
-
-        posteam_partitions = posteam_data.partition_by("posteam", as_dict=True)
-        defteam_partitions = defteam_data.partition_by("defteam", as_dict=True)
-
-        posteam_partitions = {k[0]: v for k, v in posteam_partitions.items()}
-        defteam_partitions = {k[0]: v for k, v in defteam_partitions.items()}
-
-        home_data = pl.concat([posteam_partitions[home_team], defteam_partitions[home_team]])
-        away_data = pl.concat([posteam_partitions[away_team], defteam_partitions[away_team]])
-
-        home_samples = build_sample_pairs(home_data, home_team)
-        away_samples = build_sample_pairs(away_data, away_team)
+    # Use first orchestrator for benchmarking
+    game = orchestrators[0]
+    home_team = game.metadata["home_team"]
+    away_team = game.metadata["away_team"]
 
     # Run simulations
     total_simulations = n_sims_per_game * n_matchups
@@ -70,8 +54,8 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
     start = time.perf_counter()
     for _ in range(n_matchups):
         simulate_n_games(
-            home_samples=home_samples,
-            away_samples=away_samples,
+            home_samples=game.home_samples,
+            away_samples=game.away_samples,
             home_team=home_team,
             away_team=away_team,
             n=n_sims_per_game,
