@@ -97,4 +97,5 @@ def fetch_like_play(
     idx_int = int(idx[0])
     # For now, we just take the top play per the filter which is weighted by time, at least.
     # In the future, we could incorporate an interesting system of play selection.
-    return offensive_df[idx_int]  # TODO: Use slice or filter
+    # `__getitem__` calls `slice` wayyy under the hood, so this is fastpath
+    return offensive_df.slice(idx_int, 1)

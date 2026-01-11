@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import tomllib
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, TypeIs, cast
@@ -12,6 +11,7 @@ import nflreadpy as nfl
 import polars as pl
 from nflreadpy.utils_date import get_current_season, get_current_week
 
+from nfl_sim._columns import PBP_COLUMNS
 from nfl_sim._event import build_event_expr
 from nfl_sim._sampling import build_sample_pairs
 from nfl_sim.game import _GameOrchestrator
@@ -47,8 +47,6 @@ def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
         and isinstance(d["away_team"], str)
     )
 
-
-from nfl_sim._columns import PBP_COLUMNS
 
 MAX_WEEKS = 18
 """Number of weeks in a season, used for getting the window."""
