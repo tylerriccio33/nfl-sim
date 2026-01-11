@@ -27,7 +27,8 @@ bench-time: ## Run performance benchmarks for time
 	@uv run bench/time_perf.py
 
 bench-profile: ## Run line profiler on single game
-	@uv run python bench/profile_time.py
+	@uv run python bench/profile_time.py > bench/profile_results.txt
+	@echo "Profile results written to bench/profile_results.txt"
 	
 bench-results: ## Run performance of results against real
 	@uv run bench/accuracy_perf.py

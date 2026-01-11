@@ -1,4 +1,5 @@
 import pickle
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
@@ -8,6 +9,7 @@ import numpy as np
 _MODEL_CACHE: dict[str, np.ndarray] = {}
 
 
+@lru_cache(maxsize=1)
 def _load_weights() -> np.ndarray:
     """Load model weights from pickle file (cached)."""
     if "weights" not in _MODEL_CACHE:
@@ -19,13 +21,6 @@ def _load_weights() -> np.ndarray:
             model_data = pickle.load(f)
         _MODEL_CACHE["weights"] = model_data["weights"]
     return _MODEL_CACHE["weights"]
-
-
-def _sigmoid(z: float) -> float:
-    """Numerically stable sigmoid for single value."""
-    if z >= 0:
-        return 1 / (1 + np.exp(-z))
-    return np.exp(z) / (1 + np.exp(z))
 
 
 def _transform_wp(
@@ -52,7 +47,7 @@ def _transform_wp(
     score_norm = score / 28.0
 
     # Build feature vector (must match training order)
-    features = np.array(
+    return np.array(
         [
             1.0,  # Intercept
             # Base features
@@ -73,8 +68,6 @@ def _transform_wp(
             yard_norm**2,
         ]
     )
-
-    return features
 
 
 def calc_wp(
@@ -106,5 +99,5 @@ def calc_wp(
     """
     weights = _load_weights()
     features = _transform_wp(down, dist, yardline_100, half, half_seconds_remaining, score)
-    z = float(np.dot(features, weights))
-    return float(_sigmoid(z))
+    z = -np.dot(features, weights)
+    return float(1 / (1 + np.exp(z)))

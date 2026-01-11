@@ -263,6 +263,7 @@ data/                  # Created at runtime
 ## Web Interface
 
 Web interface is a flask-based one page app to:
+
 - Review current week results (left sidebar)
 - When you click on a game, it pulls up a list of simulation results in the main panel.
 - When you click on the simulation result, it shows a play by play table of the simulated game.
@@ -270,10 +271,11 @@ Web interface is a flask-based one page app to:
 
 ## Future Enhancements
 
-- **Web App** : Build a user interface for simulations and visualizations
 - **Penalty Handling:** Integrate penalties into game flow
 - **Smarter Time Consumption:** Clock stoppages are randomly sampled and should be modeled more realistically
 - **Player-Level Simulation:** Incorporate player statistics and depth charts
 - **Defense Play Selection:** Combine offense and defense play choices for realism
-- **Advanced Analytics:** Add more detailed statistics and analysis tools
+- **Advanced Analytics:** Add more detailed statistics (EPA, success rate, etc.)
+- **Narratives & Scripts**: Generate game summaries and narratives based on play-by-play
 - **Smarter Play Selection:** Include more context in selection criteria to bias towards realistic plays (e.g. cur QB, is home, other things). This may require a new model.
+- **Web Interface Improvements:** Team logos, player stats, better PBP, game scripts, summaries, etc.

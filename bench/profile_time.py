@@ -27,7 +27,7 @@ FUNCTIONS = (
     fetch_like_play,
     build_sample_pairs,
     ## Game Engine:
-    GameEngine.ingest_new_play.__wrapped__,  # ty: ignore (this is decorated)
+    GameEngine.ingest_new_play,
     GameEngine.consume_time,
 )
 
