@@ -367,10 +367,64 @@ def test_leakage(game_data: pl.DataFrame, available_teams: list[str]):
     )
 
 
-@pytest.mark.xfail(reason="not yet implemented")
-def test_game_rerun_yields_same_result():
-    # Test a rerun of the same game's simulations yield the same results/convergance.
-    raise NotImplementedError
+def test_prediction_stability_across_simulations(sample_matchup):
+    """Test that repeated simulations with same inputs converge to similar statistics.
+
+    Since the simulation uses randomness (Rust RNG for play selection, Python random
+    for time consumption), we can't expect exact determinism. Instead, we verify
+    that running the same simulation twice produces statistically similar results,
+    demonstrating convergence and stability.
+    """
+    home_samples, away_samples, home_team, away_team = sample_matchup
+
+    # Run the same simulation twice with enough samples for stable statistics
+    n_sims = 100
+
+    result1 = simulate_n_games(
+        home_samples=home_samples,
+        away_samples=away_samples,
+        home_team=home_team,
+        away_team=away_team,
+        n=n_sims,
+    )
+
+    result2 = simulate_n_games(
+        home_samples=home_samples,
+        away_samples=away_samples,
+        home_team=home_team,
+        away_team=away_team,
+        n=n_sims,
+    )
+
+    # Average scores should be within some distance from eachother
+    # With 100 simulations, random variation should be bounded
+    home_score_diff = abs(result1.home_score_avg - result2.home_score_avg)
+    away_score_diff = abs(result1.away_score_avg - result2.away_score_avg)
+
+    allowable_score_pts_difference = 4  # Predictions should not differ by more than 4
+    assert home_score_diff < allowable_score_pts_difference, (
+        f"Home score averages differ too much: {result1.home_score_avg:.1f} vs {result2.home_score_avg:.1f}"
+    )
+    assert away_score_diff < allowable_score_pts_difference, (
+        f"Away score averages differ too much: {result1.away_score_avg:.1f} vs {result2.away_score_avg:.1f}"
+    )
+
+    # Win percentages should be within ~10 percentage points
+    home_win_diff = abs(result1.home_win_pct - result2.home_win_pct)
+    away_win_diff = abs(result1.away_win_pct - result2.away_win_pct)
+
+    assert home_win_diff < 0.1, (
+        f"Home win % differs too much: {result1.home_win_pct:.1%} vs {result2.home_win_pct:.1%}"
+    )
+    assert away_win_diff < 0.1, (
+        f"Away win % differs too much: {result1.away_win_pct:.1%} vs {result2.away_win_pct:.1%}"
+    )
+
+    # Margin averages should be within reasonable bounds
+    margin_diff = abs(result1.margin_avg - result2.margin_avg)
+    assert margin_diff < 5, (
+        f"Margin averages differ too much: {result1.margin_avg:.1f} vs {result2.margin_avg:.1f}"
+    )
 
 
 if __name__ == "__main__":
