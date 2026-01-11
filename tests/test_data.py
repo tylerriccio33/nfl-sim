@@ -41,15 +41,16 @@ class TestPullGameData:
         assert isinstance(result, pl.DataFrame)
 
     def test_filters_to_expected_columns(self, mocker, mock_pbp_data: pl.DataFrame):
-        """Verify only configured columns are returned."""
+        """Verify only configured columns are returned (plus generated columns)."""
         mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
         mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 15))
 
         result = pull_game_data()
 
-        # All columns should be from the PBP_COLUMNS config
+        # All columns should be from the PBP_COLUMNS config or generated columns
+        allowed_columns = set(PBP_COLUMNS) | {"__EVENT_KEY"}
         for col in result.columns:
-            assert col in PBP_COLUMNS, f"Unexpected column: {col}"
+            assert col in allowed_columns, f"Unexpected column: {col}"
 
     def test_excludes_penalty_plays(self, mocker, mock_pbp_data: pl.DataFrame):
         """Verify penalty plays are filtered out."""

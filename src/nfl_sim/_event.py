@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, ClassVar, Protocol, runtime_checkable
 
+import polars as pl
 from loguru import logger
 
 if TYPE_CHECKING:
-    import polars as pl
-
     from nfl_sim.game import _GameOrchestrator
 
 
@@ -15,7 +14,16 @@ class _Event(Exception):
 
     Events are raised as exceptions to control game flow and can log
     themselves with consistent formatting via the `log` classmethod.
+
+    Subclasses configure logging via class variables:
+        log_template: Format string with {posteam} and {defteam} placeholders.
+        log_level: "debug" or "info" (default: "debug").
+        include_score: Whether to append score to the message (default: False).
     """
+
+    log_template: ClassVar[str] = ""
+    log_level: ClassVar[str] = "debug"
+    include_score: ClassVar[bool] = False
 
     @classmethod
     def log(
@@ -24,19 +32,17 @@ class _Event(Exception):
         defteam: str,
         posteam_score: int,
         defteam_score: int,
-        **extra: object,
     ) -> None:  # pragma: no cover
-        """Log the event with game context.
+        """Log the event with game context."""
+        if not cls.log_template:
+            logger.debug("{}", cls.__name__)
+            return
 
-        Args:
-            posteam: Current possession team.
-            defteam: Current defensive team.
-            posteam_score: Possession team's score.
-            defteam_score: Defensive team's score.
-            **extra: Additional context for subclass-specific logging.
+        msg = cls.log_template.format(posteam=posteam, defteam=defteam)
+        if cls.include_score:
+            msg = f"{msg} | Score: {posteam} {posteam_score}, {defteam} {defteam_score}"
 
-        """
-        logger.debug("{}", cls.__name__)
+        getattr(logger, cls.log_level)("{}", msg)
 
 
 @runtime_checkable
@@ -66,6 +72,9 @@ class _MetaEvent(_Event):
     or field position resets.
     """
 
+    expr: ClassVar[pl.Expr]
+    """How to determine if the row is this meta event."""
+
 
 class _FlipsPossession(_MetaEvent):
     """Meta events that cause a possession change.
@@ -84,42 +93,23 @@ class Flip(_FlipsPossession, _SetsYardline):
 
 
 class Interception(Flip):
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info("INT by {} | {} -> {}", defteam, posteam, defteam)
+    expr: ClassVar[pl.Expr] = (pl.col("interception") == 1) & (pl.col("return_touchdown") != 1)
+    log_template: ClassVar[str] = "INT by {defteam} | {posteam} -> {defteam}"
+    log_level: ClassVar[str] = "info"
 
 
 class TurnoverOnDowns(Flip):
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info("Turnover on downs | {} -> {}", posteam, defteam)
+    log_template: ClassVar[str] = "Turnover on downs | {posteam} -> {defteam}"
+    log_level: ClassVar[str] = "info"
 
 
 class PuntRegular(Flip, _SetsYardline):
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.debug("Punt {} -> {}", posteam, defteam)
+    expr: ClassVar[pl.Expr] = (
+        (pl.col("punt_attempt") == 1)
+        & (pl.col("punt_blocked") != 1)
+        & (pl.col("punt_in_endzone") != 1)
+    )
+    log_template: ClassVar[str] = "Punt {posteam} -> {defteam}"
 
     def get_new_yardline(self, game: _GameOrchestrator, play_row: pl.DataFrame) -> int:
         punt_dist = play_row["kick_distance"][0]
@@ -137,33 +127,19 @@ class PuntRegular(Flip, _SetsYardline):
 
 
 class PuntBlocked(Flip):
+    expr: ClassVar[pl.Expr] = (pl.col("punt_attempt") == 1) & (pl.col("punt_blocked") == 1)
+    log_template: ClassVar[str] = "Blocked punt! {defteam} recovers"
+    log_level: ClassVar[str] = "info"
+
     def get_new_yardline(self, game: _GameOrchestrator, play_row: pl.DataFrame) -> int:
         # Defense recovers at LOS (simplified)
         return 100 - game._engine.yardline
 
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info("Blocked punt! {} recovers", defteam)
-
 
 class FieldGoalFail(Flip):
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info("FG missed by {} | {} takes over", posteam, defteam)
+    expr: ClassVar[pl.Expr] = pl.col("field_goal_result").is_in(["missed", "blocked"])
+    log_template: ClassVar[str] = "FG missed by {posteam} | {defteam} takes over"
+    log_level: ClassVar[str] = "info"
 
 
 class FlipReset(_FlipsPossession, _SetsYardline):
@@ -174,85 +150,37 @@ class FlipReset(_FlipsPossession, _SetsYardline):
 
 
 class Touchdown(FlipReset, _ScorePlay):
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info(
-            "TD {} | Score: {} {}, {} {}",
-            posteam,
-            posteam,
-            posteam_score,
-            defteam,
-            defteam_score,
-        )
+    expr: ClassVar[pl.Expr] = (pl.col("touchdown") == 1) & (pl.col("return_touchdown") != 1)
+    log_template: ClassVar[str] = "TD {posteam}"
+    log_level: ClassVar[str] = "info"
+    include_score: ClassVar[bool] = True
 
     def apply_score(self, game):
         game._posteam_score += 7
 
 
 class PuntEndzone(FlipReset):
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.debug("Punt into endzone, touchback | {} ball", defteam)
+    expr: ClassVar[pl.Expr] = (pl.col("punt_attempt") == 1) & (pl.col("punt_in_endzone") == 1)
+    log_template: ClassVar[str] = "Punt into endzone, touchback | {defteam} ball"
 
 
 class FieldGoalSuccess(FlipReset, _ScorePlay):
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info(
-            "FG {} | Score: {} {}, {} {}",
-            posteam,
-            posteam,
-            posteam_score,
-            defteam,
-            defteam_score,
-        )
+    expr: ClassVar[pl.Expr] = pl.col("field_goal_result") == "made"
+    log_template: ClassVar[str] = "FG {posteam}"
+    log_level: ClassVar[str] = "info"
+    include_score: ClassVar[bool] = True
 
     def apply_score(self, game):
         game._posteam_score += 3
 
 
 class Safety(_FlipsPossession, _ScorePlay, _SetsYardline):
+    log_template: ClassVar[str] = "Safety! {defteam} scores 2"
+    log_level: ClassVar[str] = "info"
+    include_score: ClassVar[bool] = True
+
     def get_new_yardline(self, game: _GameOrchestrator, play_row: pl.DataFrame) -> int:
         return 75  # safety kick (own 25 = yardline_100 of 75)
-
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info(
-            "Safety! {} scores 2 | Score: {} {}, {} {}",
-            defteam,
-            posteam,
-            posteam_score,
-            defteam,
-            defteam_score,
-        )
 
     def apply_score(self, game):
         game._defteam_score += 2
@@ -273,61 +201,63 @@ class ScoreReset(_MetaEvent, _ScorePlay, _SetsYardline):
 
 
 class PickSix(ScoreReset):
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info(
-            "PICK SIX {} | Score: {} {}, {} {}",
-            defteam,
-            posteam,
-            posteam_score,
-            defteam,
-            defteam_score,
-        )
+    expr: ClassVar[pl.Expr] = (pl.col("interception") == 1) & (pl.col("return_touchdown") == 1)
+    log_template: ClassVar[str] = "PICK SIX {defteam}"
+    log_level: ClassVar[str] = "info"
+    include_score: ClassVar[bool] = True
 
 
 class FumbleSix(ScoreReset):
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info(
-            "FUMBLE SIX {} | Score: {} {}, {} {}",
-            defteam,
-            posteam,
-            posteam_score,
-            defteam,
-            defteam_score,
-        )
+    expr: ClassVar[pl.Expr] = (
+        (pl.col("fumble_lost") == 1)
+        & (pl.col("return_touchdown") == 1)
+        & (pl.col("interception") != 1)
+    )
+    log_template: ClassVar[str] = "FUMBLE SIX {defteam}"
+    log_level: ClassVar[str] = "info"
+    include_score: ClassVar[bool] = True
 
 
 class HalfOver(_Event):
     """Raised when half clock expires."""
 
-    @classmethod
-    def log(
-        cls,
-        posteam: str,
-        defteam: str,
-        posteam_score: int,
-        defteam_score: int,
-        **extra: object,
-    ) -> None:
-        logger.info(
-            "Half Over | Score: {} {}, {} {}",
-            posteam,
-            posteam_score,
-            defteam,
-            defteam_score,
-        )
+    log_template: ClassVar[str] = "Half Over"
+    log_level: ClassVar[str] = "info"
+    include_score: ClassVar[bool] = True
+
+
+# Map of event classes to integer keys for the __EVENT_KEY column
+# Order matters for when-then precedence: more specific events should come first
+EVENT_EXPR_MAP: dict[type[_MetaEvent], int] = {
+    PuntBlocked: 1,
+    PuntEndzone: 2,
+    PuntRegular: 3,
+    FieldGoalSuccess: 4,
+    FieldGoalFail: 5,
+    PickSix: 6,
+    FumbleSix: 7,
+    Interception: 8,
+    Touchdown: 9,
+}
+
+# Reverse map: integer key -> event class
+EVENT_KEY_MAP: dict[int, type[_MetaEvent]] = {v: k for k, v in EVENT_EXPR_MAP.items()}
+
+
+def build_event_expr() -> pl.Expr:
+    """Build a when-then expression that maps play rows to event keys.
+
+    Returns a Polars expression that produces an integer column where each value
+    corresponds to a key in EVENT_KEY_MAP (or None for regular plays).
+    """
+    expr: pl.Expr | None = None
+
+    for event_cls, key in EVENT_EXPR_MAP.items():
+        if expr is None:
+            expr = pl.when(event_cls.expr).then(pl.lit(key))
+        else:
+            expr = expr.when(event_cls.expr).then(pl.lit(key))
+
+    # Default to None for regular plays (no meta event)
+    assert expr is not None
+    return expr.otherwise(pl.lit(None)).alias("__EVENT_KEY")

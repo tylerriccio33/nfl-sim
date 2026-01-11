@@ -9,6 +9,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
+from nfl_sim._event import build_event_expr
 from nfl_sim._sampling import build_sample_pairs
 from nfl_sim.simulate import simulate_n_games
 
@@ -79,6 +80,7 @@ def game_data(mock_pbp_data: pl.DataFrame) -> pl.DataFrame:
             pl.col("penalty") != 1,
             (pl.col("play") == 1) | (pl.col("play_type").is_in(["punt", "field_goal"])),
         )
+        .with_columns(build_event_expr())
         .collect()
     )
 

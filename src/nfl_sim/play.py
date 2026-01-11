@@ -8,15 +8,9 @@ import polars as pl
 from loguru import logger
 
 from nfl_sim._event import (
-    FieldGoalFail,
-    FieldGoalSuccess,
+    EVENT_KEY_MAP,
     HalfOver,
-    Interception,
     MoveChains,
-    PickSix,
-    PuntBlocked,
-    PuntEndzone,
-    PuntRegular,
     Safety,
     Touchdown,
     TurnoverOnDowns,
@@ -189,36 +183,10 @@ class GameEngine:
         self.yards_gained = int(play_row["yards_gained"][0])
         self.add_play_to_drive(play_row["desc"][0])
 
-        # TODO: The access to the `play_row` is deceptively expensive
-
-        # TODO: Replace with the new pl-enum-map logic
-
-        ## Punt in real sample
-        if play_row["punt_attempt"][0] == 1:
-            if play_row["punt_blocked"][0] == 1:
-                raise PuntBlocked
-            if play_row["punt_in_endzone"][0] == 1:
-                raise PuntEndzone
-            raise PuntRegular
-
-        ## FG in sample
-        fg_result = play_row["field_goal_result"][0]
-        if fg_result == "made":
-            raise FieldGoalSuccess
-        if fg_result in ("missed", "blocked"):
-            raise FieldGoalFail
-
-        ## Touchdown in sample
-        if play_row["touchdown"][0] == 1:
-            raise Touchdown
-
-        ## Interception
-        if play_row["interception"][0] == 1:
-            if play_row["return_touchdown"][0] == 1:
-                raise PickSix
-            raise Interception
-
-        ## TODO: Fumble
+        # Check for meta events via pre-computed __EVENT_KEY column
+        event_key: int | None = play_row["__EVENT_KEY"][0]
+        if event_key is not None:
+            raise EVENT_KEY_MAP[event_key]
 
         ## SIMULATION: Update yardline (subtract yards gained since yardline_100 decreases as you advance)
         self.yardline = self.yardline - self.yards_gained

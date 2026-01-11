@@ -3,6 +3,7 @@
 import polars as pl
 import pytest
 
+from nfl_sim._event import build_event_expr
 from nfl_sim.play import GameEngine
 
 
@@ -63,10 +64,11 @@ def make_play_row(
     punt_fair_catch: int = 0,
     punt_out_of_bounds: int = 0,
     kick_distance: int | None = None,
+    fumble_lost: int = 0,
     desc: str = "Test play",
 ) -> pl.DataFrame:
     """Helper to create a single play row for GameEngine.ingest_new_play()."""
-    return pl.DataFrame(
+    df = pl.DataFrame(
         {
             "yards_gained": [yards_gained],
             "desc": [desc],
@@ -80,5 +82,7 @@ def make_play_row(
             "interception": [interception],
             "return_touchdown": [return_touchdown],
             "kick_distance": [kick_distance],
+            "fumble_lost": [fumble_lost],
         }
     )
+    return df.with_columns(build_event_expr())

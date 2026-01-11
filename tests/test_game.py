@@ -3,9 +3,8 @@
 import pytest
 from conftest import make_play_row
 
-from nfl_sim.play import (
+from nfl_sim._event import (
     FieldGoalSuccess,
-    GameEngine,
     Interception,
     MoveChains,
     PickSix,
@@ -16,6 +15,7 @@ from nfl_sim.play import (
     Touchdown,
     TurnoverOnDowns,
 )
+from nfl_sim.play import GameEngine
 
 # Init tests
 

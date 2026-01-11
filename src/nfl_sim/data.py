@@ -12,6 +12,7 @@ import nflreadpy as nfl
 import polars as pl
 from nflreadpy.utils_date import get_current_season, get_current_week
 
+from nfl_sim._event import build_event_expr
 from nfl_sim._sampling import build_sample_pairs
 from nfl_sim.game import _GameOrchestrator
 
@@ -154,7 +155,10 @@ def pull_game_data(
             pl.col("penalty") != 1,
             (pl.col("play") == 1) | (pl.col("play_type").is_in(["punt", "field_goal"])),
         )
-        .with_columns(pl.col("game_date").cast(pl.Date))
+        .with_columns(
+            pl.col("game_date").cast(pl.Date),
+            build_event_expr(),
+        )
         .collect()
     )
 
