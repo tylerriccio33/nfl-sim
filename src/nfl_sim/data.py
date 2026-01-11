@@ -48,35 +48,7 @@ def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
     )
 
 
-def _load_pbp_columns() -> list[str]:
-    """Load play-by-play columns from TOML config.
-
-    Returns:
-        list[str]: Combined list of all active column names.
-
-    """
-    config_path = Path(__file__).parent / "pbp_columns.toml"
-    with config_path.open("rb") as f:
-        config = tomllib.load(f)
-
-    columns: list[str] = []
-    # Combine all active column groups in order
-    for section in [
-        "identifiers",
-        "game_state",
-        "play_type",
-        "outcomes",
-        "field_goal",
-        "punt",
-        "description",
-    ]:
-        if section in config:
-            columns.extend(config[section]["columns"])
-
-    return columns
-
-
-PBP_COLUMNS: list[str] = _load_pbp_columns()
+from nfl_sim._columns import PBP_COLUMNS
 
 MAX_WEEKS = 18
 """Number of weeks in a season, used for getting the window."""
@@ -155,10 +127,8 @@ def pull_game_data(
             pl.col("penalty") != 1,
             (pl.col("play") == 1) | (pl.col("play_type").is_in(["punt", "field_goal"])),
         )
-        .with_columns(
-            pl.col("game_date").cast(pl.Date),
-            build_event_expr(),
-        )
+        # This builds `__EVENT_KEY`
+        .with_columns(pl.col("game_date").cast(pl.Date), build_event_expr())
         .collect()
     )
 

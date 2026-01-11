@@ -1,0 +1,42 @@
+# =============================================================================
+# ENGINE-ONLY COLUMN SELECTION
+# =============================================================================
+# Minimal subset of pbp_columns.toml required for the simulation engine.
+# These columns are used by:
+#   - _sampling.py: Filter matrix (down, ydstogo, yardline_100, wp)
+#   - play.py: ingest_new_play() (yards_gained, desc, __EVENT_KEY)
+#   - _event.py: Event detection (touchdown, interception, punt_*, field_goal_*, etc.)
+#
+# This reduced column set creates lighter-weight DataFrames for faster simulation.
+# =============================================================================
+
+# Columns for the Rust filter matrix (play matching/sampling)
+[filter]
+columns = [
+    "down",
+    "ydstogo",
+    "yardline_100",
+    "wp",
+]
+
+# Columns used by ingest_new_play() for play processing
+[play_result]
+columns = [
+    "yards_gained",
+    "desc",
+]
+
+# Columns for event detection (__EVENT_KEY computation)
+# These feed into build_event_expr() in _event.py
+[event_detection]
+columns = [
+    "touchdown",
+    "interception",
+    "return_touchdown",
+    "fumble_lost",
+    "field_goal_result",
+    "punt_attempt",
+    "punt_blocked",
+    "punt_in_endzone",
+    "kick_distance",  # Used by PuntRegular.get_new_yardline()
+]

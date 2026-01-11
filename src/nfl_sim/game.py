@@ -22,6 +22,14 @@ if TYPE_CHECKING:
     from nfl_sim._sampling import _SamplePair
     from nfl_sim.data import GameMetadata
 
+from nfl_sim._columns import ENGINE_COLUMNS
+
+
+def _select_engine_cols(df: pl.DataFrame) -> pl.DataFrame:
+    """Select only engine-required columns from a DataFrame."""
+    engine_cols = [c for c in ENGINE_COLUMNS + ["__EVENT_KEY"] if c in df.columns]
+    return df.select(engine_cols)
+
 
 class _GameOrchestrator:
     def __init__(
@@ -48,6 +56,11 @@ class _GameOrchestrator:
         self._posteam, self._defteam = self._team_order
         self._posteam_score, self._defteam_score = 0, 0
 
+        # Pre-compute engine-only sample DataFrames for faster simulation
+        # home_samples/away_samples: (offense_df, offense_matrix, defense_df, defense_matrix)
+        self._home_engine_df: pl.DataFrame = _select_engine_cols(home_samples[0])
+        self._away_engine_df: pl.DataFrame = _select_engine_cols(away_samples[0])
+
     @property
     def posteam_differential(self) -> int:
         return self._posteam_score - self._defteam_score
@@ -60,6 +73,19 @@ class _GameOrchestrator:
             # home_samples: (offense_df, offense_matrix, defense_df, defense_matrix)
             return (self.home_samples[0], self.home_samples[1])
         return (self.away_samples[0], self.away_samples[1])
+
+    @property
+    def cur_engine_offensive_samples(self) -> tuple[pl.DataFrame, _FilterMatrix]:
+        """Get current possession team's offensive samples with minimal engine columns.
+
+        Returns a pre-computed slimmed-down DataFrame containing only the columns
+        required by the simulation engine (filter, play result, and event detection
+        columns). This reduces memory usage and speeds up play selection.
+        """
+        offense_is_home: bool = self._posteam == self.metadata["home_team"]
+        if offense_is_home:
+            return (self._home_engine_df, self.home_samples[1])
+        return (self._away_engine_df, self.away_samples[1])
 
     def _flip_teams(self) -> None:
         self._posteam, self._defteam = self._defteam, self._posteam
@@ -127,7 +153,8 @@ class _GameOrchestrator:
             ## Update game-level meta features for models:
             self._engine.score = self.posteam_differential
 
-            offensive_df, offensive_matrix = self.cur_offensive_samples
+            # offensive_df, offensive_matrix = self.cur_offensive_samples
+            offensive_df, offensive_matrix = self.cur_engine_offensive_samples
             play_row = fetch_like_play(
                 offensive_df,
                 offensive_matrix,
