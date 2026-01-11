@@ -1,0 +1,64 @@
+<div class="bg-gray-800 rounded-lg p-4">
+    <h3 class="text-lg font-semibold mb-4">Play-by-Play</h3>
+
+    {% if plays %}
+    <div class="overflow-x-auto max-h-96 overflow-y-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-700 sticky top-0">
+                <tr>
+                    <th class="p-2 text-left text-gray-300">#</th>
+                    <th class="p-2 text-left text-gray-300">Down</th>
+                    <th class="p-2 text-left text-gray-300">Dist</th>
+                    <th class="p-2 text-left text-gray-300">Yard</th>
+                    <th class="p-2 text-left text-gray-300">Gain</th>
+                    <th class="p-2 text-left text-gray-300">Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for play in plays %}
+                <tr class="border-b border-gray-700 hover:bg-gray-700">
+                    <td class="p-2 text-gray-500">{{ loop.index }}</td>
+                    <td class="p-2">
+                        <span class="{% if play.down == 4 %}text-yellow-400{% endif %}">
+                            {{ play.down }}
+                        </span>
+                    </td>
+                    <td class="p-2">{{ play.dist }}</td>
+                    <td class="p-2">
+                        <span class="{% if play.yardline <= 20 %}text-red-400{% elif play.yardline >= 80 %}text-blue-400{% endif %}">
+                            {{ play.yardline }}
+                        </span>
+                    </td>
+                    <td class="p-2 {% if play.yards_gained and play.yards_gained > 0 %}text-green-400{% elif play.yards_gained and play.yards_gained < 0 %}text-red-400{% endif %}">
+                        {% if play.yards_gained is not none %}
+                            {{ "%+d"|format(play.yards_gained) }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td class="p-2 text-gray-400 truncate max-w-xs" title="{{ play.desc or '' }}">
+                        {% if play.desc %}
+                            {{ play.desc[:60] }}{% if play.desc|length > 60 %}...{% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="text-gray-500 text-sm mt-2 text-right">
+        {{ plays|length }} plays
+    </div>
+
+    {% elif error %}
+    <div class="text-center text-red-400 p-4">
+        <p>{{ error }}</p>
+    </div>
+    {% else %}
+    <div class="text-center text-gray-500 p-4">
+        <p>No plays to display</p>
+    </div>
+    {% endif %}
+</div>

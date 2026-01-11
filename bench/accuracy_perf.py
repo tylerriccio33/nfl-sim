@@ -42,7 +42,7 @@ def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> Sche
 
     # Sample n_games randomly
     if len(completed) > n_games:
-        completed = completed.sample(n_games, seed=42)
+        completed = completed.sample(n_games)
 
     return ScheduleData(completed)
 

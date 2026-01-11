@@ -9,8 +9,19 @@ class Main:  # pragma: no cover
     """Main class for interacting with NFL simulations."""
 
     @staticmethod
-    def server():  # noqa: D102
-        raise NotImplementedError
+    def server(host: str = "127.0.0.1", port: int = 5000, *, debug: bool = True):
+        """Run the web server.
+
+        Args:
+            host: Host address to bind to.
+            port: Port number to listen on.
+            debug: Enable Flask debug mode.
+
+        """
+        from nfl_sim.web import create_app
+
+        app = create_app()
+        app.run(host=host, port=port, debug=debug)
 
     @staticmethod
     def tui():  # noqa: D102

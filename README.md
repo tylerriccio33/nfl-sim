@@ -37,6 +37,7 @@ A play-by-play NFL game simulation engine that uses historical play data and Rus
 The `GameEngine` class is the state machine that manages play-by-play game state:
 
 **State Properties:**
+
 - `down` (1-4): Current down, auto-raises `TurnoverOnDowns` when > 4
 - `dist`: Yards to first down, raises `MoveChains` when <= 0
 - `yardline` (0-100): Field position from opponent's endzone, raises `Touchdown` at <= 0 or `Safety` at >= 100
@@ -45,6 +46,7 @@ The `GameEngine` class is the state machine that manages play-by-play game state
 - `half_seconds_remaining`: Game clock (1800s per half)
 
 **Key Method - `ingest_new_play(play_row)`:**
+
 1. Check for special play outcomes (TD, FG, punt, interception)
 2. Update yardline based on yards_gained
 3. Update down/distance
@@ -52,6 +54,7 @@ The `GameEngine` class is the state machine that manages play-by-play game state
 5. Raise appropriate exception if event occurred
 
 **Time Management:**
+
 - Average play time: 25 seconds (std: 16s, Gaussian distribution)
 - `consume_time()` advances clock and raises `HalfOver` when expired
 
@@ -60,6 +63,7 @@ The `GameEngine` class is the state machine that manages play-by-play game state
 Play selection uses a Rust-accelerated filtering system for performance.
 
 **Key Components:**
+
 - `_SamplePair`: Tuple of (DataFrame, FilterMatrix) for offense and defense
 - `_FilterMatrix`: NumPy array with columns [down, ydstogo, yardline_100, wp*1000]
 - `fetch_like_play()`: Selects matching play via Rust FFI
@@ -83,12 +87,13 @@ fetch_like_play(down, dist, yardline, wp)
 
 **Data Sources:**
 
-| Source | Format | Description |
-|--------|--------|-------------|
-| nflverse | Parquet | Play-by-play data (cached locally) |
-| habitatring.com | CSV | Game schedule metadata |
+| Source          | Format  | Description                        |
+| --------------- | ------- | ---------------------------------- |
+| nflverse        | Parquet | Play-by-play data (cached locally) |
+| habitatring.com | CSV     | Game schedule metadata             |
 
 **Key Functions:**
+
 - `pull_game_data()`: Downloads/caches play-by-play, filters non-penalty plays
 - `fetch_cur_week_metadata()`: Loads game schedule
 - `game_factory()`: Creates `_GameOrchestrator` instances with team-specific sample pairs
@@ -126,6 +131,7 @@ _Event (base)
 ```
 
 **Key Protocols:**
+
 - `_SetsYardline`: Events that reset field position (implement `get_new_yardline()`)
 - `_ScorePlay`: Events that award points (implement `apply_score()`)
 
@@ -134,6 +140,7 @@ _Event (base)
 The `_GameOrchestrator` class coordinates full game simulation:
 
 **State:**
+
 - `home_samples` / `away_samples`: `_SamplePair` tuples for each team
 - `_posteam` / `_defteam`: Current possession
 - `_posteam_score` / `_defteam_score`: Running scores
@@ -167,6 +174,7 @@ _GameOrchestrator.play()
 Pre-trained logistic regression model for calculating win probability.
 
 **Features (14 total):**
+
 - Base features (normalized): down, dist, yardline, half, time, score
 - Interaction terms: score×time, score×half, yard×down, dist×down
 - Polynomial terms: score², time², yard²
@@ -178,6 +186,7 @@ Pre-trained logistic regression model for calculating win probability.
 Runs multiple game simulations and aggregates statistics.
 
 **Key Classes:**
+
 - `SingleGameResult`: Single game outcome (scores, drives, margin)
 - `SimulationResult`: Aggregated stats (averages, distributions, win percentages)
 
@@ -187,20 +196,21 @@ Runs multiple game simulations and aggregates statistics.
 
 **Key columns from play-by-play data:**
 
-| Column | Description |
-|--------|-------------|
-| `posteam` | Possession team abbreviation |
-| `down` | Current down (1-4) |
-| `ydstogo` | Yards to first down |
-| `yardline_100` | Yards from opponent's endzone (0-100) |
-| `yards_gained` | Play outcome in yards |
-| `wp` | Pre-calculated win probability |
-| `touchdown` | Boolean flag |
-| `field_goal_result` | "made" / "missed" / "blocked" |
-| `interception` | Boolean flag |
-| `punt_*` | Punt outcome flags |
+| Column              | Description                           |
+| ------------------- | ------------------------------------- |
+| `posteam`           | Possession team abbreviation          |
+| `down`              | Current down (1-4)                    |
+| `ydstogo`           | Yards to first down                   |
+| `yardline_100`      | Yards from opponent's endzone (0-100) |
+| `yards_gained`      | Play outcome in yards                 |
+| `wp`                | Pre-calculated win probability        |
+| `touchdown`         | Boolean flag                          |
+| `field_goal_result` | "made" / "missed" / "blocked"         |
+| `interception`      | Boolean flag                          |
+| `punt_*`            | Punt outcome flags                    |
 
 **Yardline Convention (yardline_100):**
+
 - 75 = own 25 yard line
 - 50 = midfield
 - 25 = opponent's 25 (red zone)
@@ -250,12 +260,13 @@ data/                  # Created at runtime
 └── play_by_play_{year}.parquet
 ```
 
-## Current Limitations
+## Web Interface
 
-- **Clock Management:** No 2-minute warning, timeouts, or penalty time adjustments
-- **Overtime:** Not implemented
-- **Play Reconciliation:** Offense/defense play selection not yet combined (priority)
-- **Player Stats:** Depth charts not linked to performance (priority)
+Web interface is a flask-based one page app to:
+- Review current week results (left sidebar)
+- When you click on a game, it pulls up a list of simulation results in the main panel.
+- When you click on the simulation result, it shows a play by play table of the simulated game.
+- On the right panel, it shows some summary statistics of the game.
 
 ## Future Enhancements
 

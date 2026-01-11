@@ -7,6 +7,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "fire>=0.7.1",
+    "flask>=3.0.0",
     "loguru>=0.7.3",
     "nflreadpy>=0.1.5",
     "numpy>=2.0.0",
