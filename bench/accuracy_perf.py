@@ -105,11 +105,12 @@ def run_accuracy_benchmark(
             home_team=home_team,
             away_team=away_team,
             n=n_sims_per_game,
-            store_individual=False,
         )
 
         # Model prediction (home margin)
-        pred_diff = sim_result.home_score_avg - sim_result.away_score_avg
+        pred_diff = sim_result.get_stat(pl.col("home_score").mean()) - sim_result.get_stat(
+            pl.col("away_score").mean()
+        )
         # Vegas prediction: spread_line negative = home favored
         vegas_diff = spread
 

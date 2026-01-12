@@ -1,5 +1,6 @@
 """Terminal interface for interacting with results."""
 
+import polars as pl
 from rich.console import Console
 from rich.table import Table
 
@@ -8,11 +9,13 @@ from nfl_sim.simulate import SimulationResult
 
 def _display_results(result: SimulationResult, console: Console) -> None:
     """Display simulation results using Rich."""
+    n_sims = len(result.individual_results)
+
     # Header
     console.print()
     console.print(
         f"[bold cyan]{result.home_team}[/] vs [bold cyan]{result.away_team}[/] "
-        f"([dim]{result.n_simulations} simulations[/dim])"
+        f"([dim]{n_sims} simulations[/dim])"
     )
     console.print()
 
@@ -26,17 +29,17 @@ def _display_results(result: SimulationResult, console: Console) -> None:
 
     table.add_row(
         result.home_team,
-        f"{result.home_score_avg:.1f}",
-        str(result.home_score_min),
-        str(result.home_score_max),
-        f"{result.home_score_std:.1f}",
+        f"{result.get_stat(pl.col('home_score').mean()):.1f}",
+        str(int(result.get_stat(pl.col("home_score").min()))),
+        str(int(result.get_stat(pl.col("home_score").max()))),
+        f"{result.get_stat(pl.col('home_score').std()):.1f}",
     )
     table.add_row(
         result.away_team,
-        f"{result.away_score_avg:.1f}",
-        str(result.away_score_min),
-        str(result.away_score_max),
-        f"{result.away_score_std:.1f}",
+        f"{result.get_stat(pl.col('away_score').mean()):.1f}",
+        str(int(result.get_stat(pl.col("away_score").min()))),
+        str(int(result.get_stat(pl.col("away_score").max()))),
+        f"{result.get_stat(pl.col('away_score').std()):.1f}",
     )
     console.print(table)
     console.print()
@@ -46,16 +49,23 @@ def _display_results(result: SimulationResult, console: Console) -> None:
     win_table.add_column("Outcome", style="cyan")
     win_table.add_column("Probability", justify="right", style="magenta")
 
-    win_table.add_row(f"{result.home_team} Win", f"{result.home_win_pct:.1%}")
-    win_table.add_row(f"{result.away_team} Win", f"{result.away_win_pct:.1%}")
-    win_table.add_row("Tie", f"{result.tie_pct:.1%}")
+    home_win_pct = result.get_stat(pl.col("home_win").mean())
+    away_win_pct = result.get_stat((~pl.col("home_win") & (pl.col("margin") != 0)).mean())
+    tie_pct = result.get_stat((pl.col("margin") == 0).mean())
+
+    win_table.add_row(f"{result.home_team} Win", f"{home_win_pct:.1%}")
+    win_table.add_row(f"{result.away_team} Win", f"{away_win_pct:.1%}")
+    win_table.add_row("Tie", f"{tie_pct:.1%}")
     console.print(win_table)
     console.print()
 
     # Margin statistics
-    median_margin = sorted([r.margin for r in result.individual_results])[result.n_simulations // 2]
+    median_margin = sorted([r.margin for r in result.individual_results])[n_sims // 2]
+    margin_avg = result.get_stat(pl.col("margin").mean())
+    margin_min = int(result.get_stat(pl.col("margin").min()))
+    margin_max = int(result.get_stat(pl.col("margin").max()))
     console.print("[bold]Margin (home - away):[/]")
-    console.print(f"  Average: [green]{result.margin_avg:+.1f}[/]")
+    console.print(f"  Average: [green]{margin_avg:+.1f}[/]")
     console.print(f"  Median:  [green]{median_margin:+d}[/]")
-    console.print(f"  Range:   {result.margin_min:+d} to {result.margin_max:+d}")
+    console.print(f"  Range:   {margin_min:+d} to {margin_max:+d}")
     console.print()

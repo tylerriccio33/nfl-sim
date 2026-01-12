@@ -59,7 +59,6 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
             home_team=home_team,
             away_team=away_team,
             n=n_sims_per_game,
-            store_individual=False,  # Skip storing for benchmarking
         )
     elapsed = time.perf_counter() - start
 

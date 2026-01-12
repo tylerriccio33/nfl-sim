@@ -372,9 +372,17 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
     )
 
     # Averages should be close
-    home_diff = abs(result1.home_score_avg - result2.home_score_avg)
-    away_diff = abs(result1.away_score_avg - result2.away_score_avg)
-    win_diff = abs(result1.home_win_pct - result2.home_win_pct)
+    home_diff = abs(
+        result1.get_stat(pl.col("home_score").mean())
+        - result2.get_stat(pl.col("home_score").mean())
+    )
+    away_diff = abs(
+        result1.get_stat(pl.col("away_score").mean())
+        - result2.get_stat(pl.col("away_score").mean())
+    )
+    win_diff = abs(
+        result1.get_stat(pl.col("home_win").mean()) - result2.get_stat(pl.col("home_win").mean())
+    )
 
     assert home_diff < 4, f"Home score avg differs by {home_diff:.1f} points"
     assert away_diff < 4, f"Away score avg differs by {away_diff:.1f} points"

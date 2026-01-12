@@ -3,21 +3,67 @@
 from __future__ import annotations
 
 import datetime
-from typing import TYPE_CHECKING
 
+import polars as pl
 from flask import Blueprint, render_template, session
 
 from nfl_sim.data import GameMetadata, ScheduleData, game_factory, pull_game_data
-from nfl_sim.simulate import simulate_n_games
-
-if TYPE_CHECKING:
-    import polars as pl
+from nfl_sim.simulate import SimulationResult, simulate_n_games
 
 bp = Blueprint("main", __name__)
 
 # Module-level cache for expensive data
 _pbp_data: pl.DataFrame | None = None
 _schedule: ScheduleData | None = None
+
+
+def _extract_result_stats(result: SimulationResult) -> dict:
+    """Extract all stats from a SimulationResult for template rendering.
+
+    Uses get_stat() with Polars expressions for each stat needed by templates.
+    """
+    return {
+        # Metadata
+        "home_team": result.home_team,
+        "away_team": result.away_team,
+        "n_simulations": len(result.individual_results),
+        # Win probabilities
+        "home_win_pct": result.get_stat(pl.col("home_win").mean()),
+        "away_win_pct": result.get_stat((~pl.col("home_win") & (pl.col("margin") != 0)).mean()),
+        "tie_pct": result.get_stat((pl.col("margin") == 0).mean()),
+        # Home score stats
+        "home_score_avg": result.get_stat(pl.col("home_score").mean()),
+        "home_score_min": int(result.get_stat(pl.col("home_score").min())),
+        "home_score_max": int(result.get_stat(pl.col("home_score").max())),
+        "home_score_std": result.get_stat(pl.col("home_score").std()),
+        # Away score stats
+        "away_score_avg": result.get_stat(pl.col("away_score").mean()),
+        "away_score_min": int(result.get_stat(pl.col("away_score").min())),
+        "away_score_max": int(result.get_stat(pl.col("away_score").max())),
+        "away_score_std": result.get_stat(pl.col("away_score").std()),
+        # Margin stats
+        "margin_avg": result.get_stat(pl.col("margin").mean()),
+        "margin_min": int(result.get_stat(pl.col("margin").min())),
+        "margin_max": int(result.get_stat(pl.col("margin").max())),
+        "margin_std": result.get_stat(pl.col("margin").std()),
+        # Game flow stats
+        "avg_drives": result.get_stat(pl.col("num_drives").mean()),
+        "avg_plays": result.get_stat(pl.col("total_plays").mean()),
+        # Individual results for iteration (as dicts)
+        "individual_results": [
+            {
+                "home_score": r.home_score,
+                "away_score": r.away_score,
+                "home_win": r.home_win,
+                "margin": r.margin,
+            }
+            for r in result.individual_results
+        ],
+        # Raw lists for histograms
+        "margins": [r.margin for r in result.individual_results],
+        "home_scores": [r.home_score for r in result.individual_results],
+        "away_scores": [r.away_score for r in result.individual_results],
+    }
 
 
 def get_pbp_data() -> pl.DataFrame:
@@ -80,13 +126,13 @@ def simulate(home: str, away: str):
         home_team=home,
         away_team=away,
         n=100,
-        store_individual=True,
     )
 
-    # Store result dict in session for stats panel
-    session[f"sim_{home}_{away}"] = result.to_dict()
+    # Extract stats for template and session storage
+    result_dict = _extract_result_stats(result)
+    session[f"sim_{home}_{away}"] = result_dict
 
-    return render_template("partials/sim_results.html", result=result, home=home, away=away)
+    return render_template("partials/sim_results.html", result=result_dict, home=home, away=away)
 
 
 @bp.route("/game/<home>/<away>/<int:sim_idx>/plays")
