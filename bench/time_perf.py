@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from nfl_sim.data import ScheduleData, game_factory, pull_game_data
-from nfl_sim.simulate import simulate_n_games
+from nfl_sim.simulate import SimulationResult
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -53,7 +53,7 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
 
     start = time.perf_counter()
     for _ in range(n_matchups):
-        simulate_n_games(
+        SimulationResult.simulate(
             home_samples=game.home_samples,
             away_samples=game.away_samples,
             home_team=home_team,

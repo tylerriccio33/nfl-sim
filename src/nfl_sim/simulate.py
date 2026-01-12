@@ -193,23 +193,3 @@ def _run_single_simulation(
         margin=margin,
         event_counts=event_counts,
     )
-
-
-def simulate_n_games(
-    home_samples: _SamplePair,
-    away_samples: _SamplePair,
-    home_team: str,
-    away_team: str,
-    n: int = 100,
-) -> SimulationResult:
-    """Simulate a game N times and return aggregated statistics.
-
-    Deprecated: Use SimulationResult.simulate() instead.
-    """
-    return SimulationResult.simulate(
-        home_samples=home_samples,
-        away_samples=away_samples,
-        home_team=home_team,
-        away_team=away_team,
-        n=n,
-    )

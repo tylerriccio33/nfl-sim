@@ -18,7 +18,7 @@ from nfl_sim.data import ScheduleData, game_factory, pull_game_data
 ## == Profile These ==============================================
 from nfl_sim.game import _GameOrchestrator
 from nfl_sim.play import GameEngine
-from nfl_sim.simulate import simulate_n_games
+from nfl_sim.simulate import SimulationResult
 
 FUNCTIONS = (
     ## Game Orchestration:
@@ -62,7 +62,7 @@ def main() -> None:
     n_sims = 10
     print(f"Profiling {home_team} vs {away_team} ({n_sims} simulations)...")
     profiler.runcall(
-        simulate_n_games,
+        SimulationResult.simulate,
         home_samples=game.home_samples,
         away_samples=game.away_samples,
         home_team=home_team,

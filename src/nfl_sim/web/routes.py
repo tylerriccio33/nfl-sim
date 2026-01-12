@@ -8,7 +8,7 @@ import polars as pl
 from flask import Blueprint, render_template, session
 
 from nfl_sim.data import GameMetadata, ScheduleData, game_factory, pull_game_data
-from nfl_sim.simulate import SimulationResult, simulate_n_games
+from nfl_sim.simulate import SimulationResult
 
 bp = Blueprint("main", __name__)
 
@@ -120,7 +120,7 @@ def simulate(home: str, away: str):
     orchestrator = orchestrators[0]
 
     # Run 100 simulations
-    result = simulate_n_games(
+    result = SimulationResult.simulate(
         home_samples=orchestrator.home_samples,
         away_samples=orchestrator.away_samples,
         home_team=home,

@@ -21,7 +21,7 @@ from nfl_sim._event import (
     build_event_expr,
 )
 from nfl_sim._sampling import build_sample_pairs
-from nfl_sim.simulate import SingleGameResult, simulate_n_games
+from nfl_sim.simulate import SimulationResult, SingleGameResult
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 
@@ -250,7 +250,7 @@ def simulation_games_df(game_data: pl.DataFrame, available_teams: list[str]) -> 
         home_samples = build_sample_pairs(game_data, home_team)
         away_samples = build_sample_pairs(game_data, away_team)
 
-        result = simulate_n_games(
+        result = SimulationResult.simulate(
             home_samples=home_samples,
             away_samples=away_samples,
             home_team=home_team,
@@ -355,7 +355,7 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
     home_samples = build_sample_pairs(game_data, home_team)
     away_samples = build_sample_pairs(game_data, away_team)
 
-    result1 = simulate_n_games(
+    result1 = SimulationResult.simulate(
         home_samples=home_samples,
         away_samples=away_samples,
         home_team=home_team,
@@ -363,7 +363,7 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
         n=100,
     )
 
-    result2 = simulate_n_games(
+    result2 = SimulationResult.simulate(
         home_samples=home_samples,
         away_samples=away_samples,
         home_team=home_team,

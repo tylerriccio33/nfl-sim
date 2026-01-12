@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.table import Table
 
 from nfl_sim.data import ScheduleData, game_factory, pull_game_data
-from nfl_sim.simulate import simulate_n_games
+from nfl_sim.simulate import SimulationResult
 
 NGAMES = 500
 NSIMS = 10
@@ -99,7 +99,7 @@ def run_accuracy_benchmark(
         spread = actual["spread_line"]  # Negative = home favored
 
         # Run N simulations using pre-built sample pairs
-        sim_result = simulate_n_games(
+        sim_result = SimulationResult.simulate(
             home_samples=game.home_samples,
             away_samples=game.away_samples,
             home_team=home_team,

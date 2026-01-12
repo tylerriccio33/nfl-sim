@@ -10,7 +10,7 @@ from rich.console import Console
 from nfl_sim._sampling import build_sample_pairs
 from nfl_sim.data import ScheduleData, pull_game_data
 from nfl_sim.interactive.tui import _display_results
-from nfl_sim.simulate import simulate_n_games
+from nfl_sim.simulate import SimulationResult
 
 
 def configure_logging(level: str = "INFO") -> None:
@@ -65,7 +65,7 @@ def run_week() -> None:
     n_sims = 100
 
     with console.status(f"[bold green]Simulating {home_team} vs {away_team} {n_sims} times..."):
-        result = simulate_n_games(
+        result = SimulationResult.simulate(
             home_samples=home_samples,
             away_samples=away_samples,
             home_team=home_team,
