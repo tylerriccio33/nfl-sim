@@ -7,10 +7,16 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
+from nfl_sim._event import EVENT_EXPR_MAP
 from nfl_sim.game import _GameOrchestrator
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
+
     from nfl_sim._sampling import _SamplePair
+
+# Event names used for counting (lowercase class names matching test expectations)
+EVENT_NAMES: list[str] = [cls.__name__.lower() for cls in EVENT_EXPR_MAP]
 
 
 @dataclass
@@ -23,6 +29,32 @@ class SingleGameResult:
     total_plays: int
     home_win: bool
     margin: int  # home_score - away_score
+    event_counts: dict[str, int] = field(default_factory=dict)
+
+    @staticmethod
+    def to_df(results: Collection[SingleGameResult]) -> pl.DataFrame:
+        """Convert a collection of SingleGameResult to a Polars DataFrame.
+
+        The resulting DataFrame has columns matching the real NFL stats schema:
+        - home_score, away_score: Individual team scores
+        - margin: home_score - away_score
+        - ndrives: Number of drives
+        - nplays: Total plays
+        - n_<event>: Count of each event type (e.g., n_touchdown, n_interception)
+        """
+        data: dict[str, list[int]] = {
+            "home_score": [r.home_score for r in results],
+            "away_score": [r.away_score for r in results],
+            "margin": [r.margin for r in results],
+            "ndrives": [r.num_drives for r in results],
+            "nplays": [r.total_plays for r in results],
+        }
+        # Add event count columns
+        for event_name in EVENT_NAMES:
+            col_name = f"n_{event_name}"
+            data[col_name] = [r.event_counts.get(event_name, 0) for r in results]
+
+        return pl.DataFrame(data)
 
 
 @dataclass
@@ -118,6 +150,26 @@ def extract_scores(game: _GameOrchestrator) -> tuple[int, int]:
     return game._defteam_score, game._posteam_score
 
 
+def extract_event_counts(game: _GameOrchestrator) -> dict[str, int]:
+    """Extract event counts from a completed game.
+
+    Counts occurrences of each event type from game.game_data's 'event' column.
+    Returns lowercase event names to match EVENT_NAMES.
+    """
+    game_data = game.game_data
+    if "event" not in game_data.columns or len(game_data) == 0:
+        return {}
+
+    # Count events, converting to lowercase
+    event_counts: dict[str, int] = {}
+    events = game_data.filter(pl.col("event").is_not_null())["event"].to_list()
+    for event in events:
+        event_lower = event.lower()
+        event_counts[event_lower] = event_counts.get(event_lower, 0) + 1
+
+    return event_counts
+
+
 def _run_single_simulation(
     home_samples: _SamplePair,
     away_samples: _SamplePair,
@@ -137,6 +189,7 @@ def _run_single_simulation(
     num_drives = len(game.drives)
     total_plays = len(game.game_data)
     margin = home_score - away_score
+    event_counts = extract_event_counts(game)
 
     return SingleGameResult(
         home_score=home_score,
@@ -145,6 +198,7 @@ def _run_single_simulation(
         total_plays=total_plays,
         home_win=home_score > away_score,
         margin=margin,
+        event_counts=event_counts,
     )
 
 

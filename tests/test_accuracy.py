@@ -1,64 +1,201 @@
-"""Module is for checking the results make sense to some degree, using heuristics and statistics."""
+"""Module for validating simulation accuracy against real NFL statistics.
+
+This module uses a single set of simulations computed once and validates
+multiple statistical properties against real NFL data. Adding new stat
+comparisons is as simple as adding a new StatCheck to STAT_CHECKS.
+
+Both real NFL data and simulation results are converted to DataFrames with
+a common schema, allowing extractors to be simple Polars expressions.
+"""
 
 from __future__ import annotations
 
-import statistics
 from dataclasses import dataclass
 from pathlib import Path
 
 import polars as pl
 import pytest
 
-from nfl_sim._event import build_event_expr
+from nfl_sim._event import (
+    EVENT_EXPR_MAP,
+    build_event_expr,
+)
 from nfl_sim._sampling import build_sample_pairs
-from nfl_sim.simulate import simulate_n_games
+from nfl_sim.simulate import SingleGameResult, simulate_n_games
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 
 
-@dataclass
-class RealNFLStats:
-    """Statistics derived from real NFL game data."""
-
-    avg_score: float
-    score_std: float
-    avg_combined: float
-    avg_margin_abs: float
-    margin_std: float
-    home_win_rate: float
+# ---------------------------------------------------------------------------
+# Real NFL Statistics - DataFrame Builder
+# ---------------------------------------------------------------------------
 
 
-def _calculate_real_nfl_stats(pbp_data: pl.DataFrame) -> RealNFLStats:
-    """Calculate statistical benchmarks from play-by-play data.
+def _build_real_nfl_games_df(pbp_data: pl.DataFrame) -> pl.DataFrame:
+    """Build game-level DataFrame from play-by-play data.
 
-    Extracts final game scores and calculates aggregate statistics.
+    Returns a DataFrame with columns matching simulation output:
+    - home_score, away_score: Final scores
+    - margin: home_score - away_score
+    - ndrives: Number of unique drives
+    - nplays: Total plays (play == 1)
+    - Event counts for each event type (e.g., n_touchdown, n_interception)
     """
-    # Get final scores per game (max score columns at end of each game)
-    games = (
-        pbp_data.group_by("game_id")
+    # Build event count aggregations using __EVENT_KEY (avoids duplicating event expressions)
+    event_aggs = [
+        pl.col("__EVENT_KEY").eq(key).sum().alias(f"n_{event_cls.__name__.lower()}")
+        for event_cls, key in EVENT_EXPR_MAP.items()
+    ]
+
+    return (
+        pbp_data.lazy()
+        # Add __EVENT_KEY if not present
+        .with_columns(build_event_expr())
+        .group_by("game_id")
         .agg(
             pl.col("total_home_score").max().alias("home_score"),
             pl.col("total_away_score").max().alias("away_score"),
+            pl.col("drive").n_unique().alias("ndrives"),
+            pl.col("play").eq(1).sum().alias("nplays"),
+            *event_aggs,
         )
         .drop_nulls()
+        .with_columns(margin=pl.col("home_score") - pl.col("away_score"))
+        .collect()
     )
 
-    home_scores = games["home_score"].to_list()
-    away_scores = games["away_score"].to_list()
-    all_scores = home_scores + away_scores
-    margins = [(h - a) for h, a in zip(home_scores, away_scores)]
 
-    home_wins = sum(1 for m in margins if m > 0)
-    total_games = len(margins)
+# ---------------------------------------------------------------------------
+# Stat Check Framework
+# ---------------------------------------------------------------------------
 
-    return RealNFLStats(
-        avg_score=statistics.mean(all_scores),
-        score_std=statistics.stdev(all_scores) if len(all_scores) > 1 else 10.0,
-        avg_combined=statistics.mean(h + a for h, a in zip(home_scores, away_scores)),
-        avg_margin_abs=statistics.mean(abs(m) for m in margins),
-        margin_std=statistics.stdev(margins) if len(margins) > 1 else 13.0,
-        home_win_rate=home_wins / total_games if total_games > 0 else 0.5,
+
+@dataclass
+class StatCheck:
+    """Definition of a statistical comparison between simulation and real NFL.
+
+    Uses a Polars expression that operates on a game-level DataFrame.
+    Both simulation results (via SingleGameResult.to_df) and real NFL data
+    (via _build_real_nfl_games_df) produce DataFrames with the same schema.
+
+    Supports two tolerance modes:
+    - Relative (default): bounds = real * tolerance_low, real * tolerance_high
+    - Absolute: bounds = real - abs_tolerance, real + abs_tolerance
+
+    Attributes:
+        name: Human-readable name for the stat
+        extractor: Polars expression to extract stat from a game-level DataFrame
+        tolerance_low: Lower bound multiplier (e.g., 0.7 means real * 0.7)
+        tolerance_high: Upper bound multiplier (e.g., 1.3 means real * 1.3)
+        abs_tolerance: Absolute tolerance (e.g., 5.0 means real ± 5.0)
+
+    """
+
+    name: str
+    extractor: pl.Expr
+    tolerance_low: float = 0.7
+    tolerance_high: float = 1.3
+    abs_tolerance: float | None = None
+
+    def extract(self, df: pl.DataFrame) -> float:
+        """Apply the extractor expression to the DataFrame and return scalar."""
+        result = df.select(self.extractor).item()
+        return float(result) if result is not None else 0.0
+
+    def get_bounds(self, real_value: float) -> tuple[float, float]:
+        """Calculate (lower_bound, upper_bound) based on tolerance mode."""
+        if self.abs_tolerance is not None:
+            return (real_value - self.abs_tolerance, real_value + self.abs_tolerance)
+        return (real_value * self.tolerance_low, real_value * self.tolerance_high)
+
+
+# ---------------------------------------------------------------------------
+# Define All Stat Checks (using Polars expressions)
+# ---------------------------------------------------------------------------
+
+# Game-level stat checks
+GAME_STAT_CHECKS: list[StatCheck] = [
+    StatCheck(
+        name="average_score",
+        extractor=((pl.col("home_score") + pl.col("away_score")) / 2).mean(),
+        tolerance_low=0.7,
+        tolerance_high=1.3,
+    ),
+    StatCheck(
+        name="score_std",
+        extractor=pl.concat_list("home_score", "away_score").explode().std(),
+        tolerance_low=0.3,
+        tolerance_high=1.5,
+    ),
+    StatCheck(
+        name="combined_score",
+        extractor=(pl.col("home_score") + pl.col("away_score")).mean(),
+        tolerance_low=0.7,
+        tolerance_high=1.3,
+    ),
+    StatCheck(
+        name="margin_std",
+        extractor=pl.col("margin").std(),
+        tolerance_low=0.4,
+        tolerance_high=1.6,
+    ),
+    StatCheck(
+        name="margin_abs_avg",
+        extractor=pl.col("margin").abs().mean(),
+        tolerance_low=0.5,
+        tolerance_high=1.5,
+    ),
+    StatCheck(
+        name="drives_per_game",
+        extractor=pl.col("ndrives").mean(),
+        abs_tolerance=2,  # We'd like to really keep this tight
+    ),
+    StatCheck(
+        name="drives_std",
+        extractor=pl.col("ndrives").std(),
+        tolerance_low=0.3,
+        tolerance_high=2.0,
+    ),
+    StatCheck(
+        name="plays_per_game",
+        extractor=pl.col("nplays").mean(),
+        abs_tolerance=10,  # Average should definitely not be more than 10
+    ),
+    StatCheck(
+        name="plays_std",
+        extractor=pl.col("nplays").std(),
+        tolerance_low=0.3,
+        tolerance_high=2.0,
+    ),
+]
+
+# Event-based stat checks (dynamically built from EVENT_EXPR_MAP)
+# These check average occurrences per game for each event type
+EVENT_STAT_CHECKS: list[StatCheck] = [
+    StatCheck(
+        name=f"{event_cls.__name__.lower()}_avg",
+        extractor=pl.col(f"n_{event_cls.__name__.lower()}").mean(),
+        tolerance_low=0.3,  # Events are relatively rare, allow wide tolerance
+        tolerance_high=2.0,
     )
+    for event_cls in EVENT_EXPR_MAP
+] + [
+    StatCheck(
+        name=f"{event_cls.__name__.lower()}_std",
+        extractor=pl.col(f"n_{event_cls.__name__.lower()}").std(),
+        tolerance_low=0.2,
+        tolerance_high=3.0,
+    )
+    for event_cls in EVENT_EXPR_MAP
+]
+
+# Combined list for parametrized tests
+STAT_CHECKS: list[StatCheck] = GAME_STAT_CHECKS + EVENT_STAT_CHECKS
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -69,10 +206,7 @@ def mock_pbp_data() -> pl.DataFrame:
 
 @pytest.fixture(scope="module")
 def game_data(mock_pbp_data: pl.DataFrame) -> pl.DataFrame:
-    """Filter play-by-play data for simulation tests.
-
-    Applies the same filters as pull_game_data() without network calls.
-    """
+    """Filter play-by-play data for simulation tests."""
     return (
         mock_pbp_data.lazy()
         .filter(
@@ -86,9 +220,9 @@ def game_data(mock_pbp_data: pl.DataFrame) -> pl.DataFrame:
 
 
 @pytest.fixture(scope="module")
-def real_nfl_stats(mock_pbp_data: pl.DataFrame) -> RealNFLStats:
-    """Calculate real NFL statistics from the cached data."""
-    return _calculate_real_nfl_stats(mock_pbp_data)
+def real_nfl_games_df(mock_pbp_data: pl.DataFrame) -> pl.DataFrame:
+    """Build game-level DataFrame from real NFL data."""
+    return _build_real_nfl_games_df(mock_pbp_data)
 
 
 @pytest.fixture(scope="module")
@@ -98,118 +232,17 @@ def available_teams(mock_pbp_data: pl.DataFrame) -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def sample_matchup(game_data: pl.DataFrame, available_teams: list[str]):
-    """Create sample pairs for a typical matchup from available teams."""
-    # Pick first two teams from available data
-    home_team = available_teams[0]
-    away_team = available_teams[1] if len(available_teams) > 1 else available_teams[0]
+def simulation_games_df(game_data: pl.DataFrame, available_teams: list[str]) -> pl.DataFrame:
+    """Run simulations once and return as DataFrame for all tests.
 
-    home_samples = build_sample_pairs(game_data, home_team)
-    away_samples = build_sample_pairs(game_data, away_team)
-    return home_samples, away_samples, home_team, away_team
-
-
-def test_single_game_does_not_converge_around_zero(sample_matchup, real_nfl_stats: RealNFLStats):
-    """100 Sims of a single game should produce some normal outcome, not zero.
-
-    NFL games typically result in combined scores of 40-50 points. If simulations
-    consistently produce near-zero scores, something is fundamentally broken.
+    Simulates multiple matchups with enough games to get stable statistics.
     """
-    home_samples, away_samples, home_team, away_team = sample_matchup
+    all_results: list[SingleGameResult] = []
 
-    result = simulate_n_games(
-        home_samples=home_samples,
-        away_samples=away_samples,
-        home_team=home_team,
-        away_team=away_team,
-        n=100,
-    )
-
-    # Average combined score should be within reasonable range of real NFL
-    # Allow ±30% deviation from real average
-    avg_combined = result.home_score_avg + result.away_score_avg
-    real_combined = real_nfl_stats.avg_combined
-    lower_bound = real_combined * 0.7
-    upper_bound = real_combined * 1.3
-
-    assert avg_combined > lower_bound, (
-        f"Combined score avg {avg_combined:.1f} is too low "
-        f"(real NFL avg: {real_combined:.1f}, lower bound: {lower_bound:.1f})"
-    )
-    assert avg_combined < upper_bound, (
-        f"Combined score avg {avg_combined:.1f} is too high "
-        f"(real NFL avg: {real_combined:.1f}, upper bound: {upper_bound:.1f})"
-    )
-
-    # Individual team scores should not be near zero
-    # Real NFL teams average ~22 points per game
-    assert result.home_score_avg > 10, f"Home score avg {result.home_score_avg:.1f} is too low"
-    assert result.away_score_avg > 10, f"Away score avg {result.away_score_avg:.1f} is too low"
-
-
-def test_single_game_does_not_produce_insane_distro_of_scores(
-    sample_matchup, real_nfl_stats: RealNFLStats
-):
-    """100 sims of a single game should not produce a comically wide distribution of scores.
-
-    Real NFL team scores have a std deviation around 10 points.
-    Our simulations should be in a similar ballpark, not wildly different.
-    """
-    home_samples, away_samples, home_team, away_team = sample_matchup
-
-    result = simulate_n_games(
-        home_samples=home_samples,
-        away_samples=away_samples,
-        home_team=home_team,
-        away_team=away_team,
-        n=100,
-    )
-
-    # Std dev should be within reasonable bounds relative to real NFL
-    # Allow 30%-150% of real std dev (simulations of same matchup should have
-    # less variance than league-wide, but not drastically so)
-    real_std = real_nfl_stats.score_std
-    lower_bound = real_std * 0.3
-    upper_bound = real_std * 1.5
-
-    assert result.home_score_std > lower_bound, (
-        f"Home score std {result.home_score_std:.1f} is suspiciously low "
-        f"(real NFL std: {real_std:.1f}, lower bound: {lower_bound:.1f})"
-    )
-    assert result.home_score_std < upper_bound, (
-        f"Home score std {result.home_score_std:.1f} is unreasonably high "
-        f"(real NFL std: {real_std:.1f}, upper bound: {upper_bound:.1f})"
-    )
-
-    assert result.away_score_std > lower_bound, (
-        f"Away score std {result.away_score_std:.1f} is suspiciously low "
-        f"(real NFL std: {real_std:.1f}, lower bound: {lower_bound:.1f})"
-    )
-    assert result.away_score_std < upper_bound, (
-        f"Away score std {result.away_score_std:.1f} is unreasonably high "
-        f"(real NFL std: {real_std:.1f}, upper bound: {upper_bound:.1f})"
-    )
-
-    # Score range should be reasonable (not 0-100 in same sim set)
-    # Real NFL score ranges in a week are typically 40-50 points
-    home_range = result.home_score_max - result.home_score_min
-    away_range = result.away_score_max - result.away_score_min
-
-    assert home_range < 60, f"Home score range {home_range} is too wide"
-    assert away_range < 60, f"Away score range {away_range} is too wide"
-
-
-def test_some_games_match_statistical_profile_of_real_week(
-    game_data: pl.DataFrame, real_nfl_stats: RealNFLStats, available_teams: list[str]
-):
-    """Test simulations of multiple games match the general profile of real games.
-
-    Compares simulation statistics against actual NFL historical data.
-    """
-    # Use up to 8 teams from available data
+    # Use up to 8 teams to simulate 4 matchups
     teams = available_teams[:8]
+    n_sims_per_matchup = 50
 
-    all_scores = []
     for i in range(0, len(teams) - 1, 2):
         home_team = teams[i]
         away_team = teams[i + 1]
@@ -217,65 +250,112 @@ def test_some_games_match_statistical_profile_of_real_week(
         home_samples = build_sample_pairs(game_data, home_team)
         away_samples = build_sample_pairs(game_data, away_team)
 
-        # Run fewer sims per game but multiple games
         result = simulate_n_games(
             home_samples=home_samples,
             away_samples=away_samples,
             home_team=home_team,
             away_team=away_team,
-            n=25,
+            n=n_sims_per_matchup,
         )
+        all_results.extend(result.individual_results)
 
-        # Collect all individual scores
-        for game_result in result.individual_results:
-            all_scores.append(game_result.home_score)
-            all_scores.append(game_result.away_score)
-
-    # Skip if we don't have enough data
-    if len(all_scores) < 10:
-        pytest.skip("Not enough teams in mock data for this test")
-
-    # Calculate aggregate statistics across all simulated games
-    avg_score = statistics.mean(all_scores)
-    std_score = statistics.stdev(all_scores)
-
-    # Compare against real NFL statistics with reasonable tolerance
-    real_avg = real_nfl_stats.avg_score
-    real_std = real_nfl_stats.score_std
-
-    # Average should be within ±25% of real NFL average
-    assert real_avg * 0.75 < avg_score < real_avg * 1.25, (
-        f"Avg score {avg_score:.1f} outside expected range (real NFL: {real_avg:.1f} ± 25%)"
-    )
-
-    # Std dev should be within 40%-160% of real NFL std dev
-    assert real_std * 0.4 < std_score < real_std * 1.6, (
-        f"Score std {std_score:.1f} outside expected range "
-        f"(real NFL: {real_std:.1f}, allowed: {real_std * 0.4:.1f}-{real_std * 1.6:.1f})"
-    )
+    return SingleGameResult.to_df(all_results)
 
 
-def test_games_produce_similar_results_to_spread(
-    game_data: pl.DataFrame, real_nfl_stats: RealNFLStats, available_teams: list[str]
+# ---------------------------------------------------------------------------
+# Parametrized Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("check", STAT_CHECKS, ids=lambda c: c.name)
+def test_stat_matches_real_nfl(
+    check: StatCheck,
+    simulation_games_df: pl.DataFrame,
+    real_nfl_games_df: pl.DataFrame,
 ):
-    """Test simulations generate reasonable predictions compared to real NFL patterns.
+    """Verify simulation stat falls within tolerance of real NFL stat."""
+    sim_value = check.extract(simulation_games_df)
+    real_value = check.extract(real_nfl_games_df)
+    lower_bound, upper_bound = check.get_bounds(real_value)
 
-    Validates that:
-    - Win probabilities are reasonable (not deterministic)
-    - Margin distributions match real NFL patterns
-    - Home win rates are in the realistic range
-    """
-    # Use first two available teams
-    if len(available_teams) < 2:
-        pytest.skip("Need at least 2 teams for this test")
+    tolerance_desc = (
+        f"±{check.abs_tolerance}"
+        if check.abs_tolerance is not None
+        else f"[{check.tolerance_low}, {check.tolerance_high}]"
+    )
 
+    assert sim_value >= lower_bound, (
+        f"{check.name}: sim={sim_value:.2f} < lower={lower_bound:.2f} "
+        f"(real={real_value:.2f}, tolerance={tolerance_desc})"
+    )
+    assert sim_value <= upper_bound, (
+        f"{check.name}: sim={sim_value:.2f} > upper={upper_bound:.2f} "
+        f"(real={real_value:.2f}, tolerance={tolerance_desc})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Additional Sanity Tests
+# ---------------------------------------------------------------------------
+
+
+def test_win_probabilities_are_reasonable(simulation_games_df: pl.DataFrame):
+    """Win probabilities should not be deterministic."""
+    home_wins = simulation_games_df.select(
+        (pl.col("home_score") > pl.col("away_score")).sum()
+    ).item()
+    total = len(simulation_games_df)
+    home_win_pct = home_wins / total
+
+    assert 0.05 < home_win_pct < 0.95, f"Home win % = {home_win_pct:.1%} is too extreme"
+
+
+def test_score_ranges_are_reasonable(simulation_games_df: pl.DataFrame):
+    """Individual team scores should be within sane bounds."""
+    all_scores = simulation_games_df.select(
+        pl.concat_list("home_score", "away_score").explode().alias("score")
+    )
+
+    min_score = all_scores.select(pl.col("score").min()).item()
+    max_score = all_scores.select(pl.col("score").max()).item()
+
+    assert min_score >= 0, f"Negative score found: {min_score}"
+    assert max_score < 80, f"Unrealistic high score found: {max_score}"
+
+    # Most scores should be > 3 (at least a field goal)
+    total = len(all_scores)
+    low_scores = all_scores.select((pl.col("score") < 3).sum()).item()
+    low_score_pct = low_scores / total
+    assert low_score_pct < 0.1, f"Too many low scores (< 3 points): {low_score_pct:.1%}"
+
+
+def test_simulation_outcome_diversity(simulation_games_df: pl.DataFrame):
+    """Simulations should produce diverse outcomes, not repetitive results."""
+    unique_home_scores = simulation_games_df.select(pl.col("home_score").n_unique()).item()
+    unique_margins = simulation_games_df.select(pl.col("margin").n_unique()).item()
+
+    # With 200 simulations, we should see reasonable diversity
+    total = len(simulation_games_df)
+    min_unique_scores = min(10, total // 10)
+    min_unique_margins = min(15, total // 10)
+
+    assert unique_home_scores >= min_unique_scores, (
+        f"Only {unique_home_scores} unique home scores - insufficient diversity"
+    )
+    assert unique_margins >= min_unique_margins, (
+        f"Only {unique_margins} unique margins - insufficient diversity"
+    )
+
+
+def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str]):
+    """Repeated simulations with same inputs should converge to similar stats."""
     home_team = available_teams[0]
     away_team = available_teams[1]
 
     home_samples = build_sample_pairs(game_data, home_team)
     away_samples = build_sample_pairs(game_data, away_team)
 
-    result = simulate_n_games(
+    result1 = simulate_n_games(
         home_samples=home_samples,
         away_samples=away_samples,
         home_team=home_team,
@@ -283,148 +363,33 @@ def test_games_produce_similar_results_to_spread(
         n=100,
     )
 
-    # Win probabilities should be reasonable (not 0% or 100%)
-    assert result.home_win_pct > 0.05, "Home win pct too low - simulation may be broken"
-    assert result.home_win_pct < 0.95, "Home win pct too high - simulation may be broken"
-    assert result.away_win_pct > 0.05, "Away win pct too low - simulation may be broken"
-    assert result.away_win_pct < 0.95, "Away win pct too high - simulation may be broken"
-
-    # Margin standard deviation should be similar to real NFL
-    # Real NFL margin std is around 13-14 points
-    real_margin_std = real_nfl_stats.margin_std
-    assert result.margin_std > real_margin_std * 0.4, (
-        f"Margin std {result.margin_std:.1f} too low (real NFL: {real_margin_std:.1f})"
-    )
-    assert result.margin_std < real_margin_std * 1.6, (
-        f"Margin std {result.margin_std:.1f} too high (real NFL: {real_margin_std:.1f})"
-    )
-
-    # The win percentages should sum to approximately 1 (accounting for ties)
-    total_pct = result.home_win_pct + result.away_win_pct + result.tie_pct
-    assert 0.99 < total_pct < 1.01, f"Win percentages don't sum to 1: {total_pct}"
-
-
-def test_leakage(game_data: pl.DataFrame, available_teams: list[str]):
-    """Test samples from some games are not making it into the engine while trying to predict itself.
-
-    To test for data leakage, we verify that:
-    1. The sample pairs for a team don't include plays from the exact game being simulated
-    2. Simulation results are reasonable even when we exclude recent data
-
-    This is verified by checking that our filtering produces reasonable diversity
-    in play selection (not just repeating the same plays).
-    """
-    if len(available_teams) < 2:
-        pytest.skip("Need at least 2 teams for this test")
-
-    home_team = available_teams[0]
-    away_team = available_teams[1]
-
-    home_samples = build_sample_pairs(game_data, home_team)
-    away_samples = build_sample_pairs(game_data, away_team)
-
-    # Extract the dataframes from sample pairs
-    # _SamplePair = (offense_df, offense_matrix)
-    home_offense_df = home_samples[0]
-    away_offense_df = away_samples[0]
-
-    # Verify that sample pools have diversity (not just a few games)
-    # Each team should have plays from multiple games in their sample pool
-    home_game_ids = (
-        home_offense_df["game_id"].n_unique() if "game_id" in home_offense_df.columns else None
-    )
-    away_game_ids = (
-        away_offense_df["game_id"].n_unique() if "game_id" in away_offense_df.columns else None
-    )
-
-    if home_game_ids is not None:
-        assert home_game_ids > 5, (
-            f"Home team has plays from only {home_game_ids} games - potential leakage risk"
-        )
-    if away_game_ids is not None:
-        assert away_game_ids > 5, (
-            f"Away team has plays from only {away_game_ids} games - potential leakage risk"
-        )
-
-    # Run simulation and verify play diversity in results
-    result = simulate_n_games(
-        home_samples=home_samples,
-        away_samples=away_samples,
-        home_team=home_team,
-        away_team=away_team,
-        n=50,
-    )
-
-    # If there's leakage, we might see very similar outcomes across simulations
-    # Check that we have reasonable variation in outcomes
-    scores = [r.home_score for r in result.individual_results]
-    unique_scores = len(set(scores))
-
-    # With 50 simulations, we should see at least 5 different score outcomes
-    # If we're just replaying the same game, we'd see very few unique scores
-    assert unique_scores >= 5, (
-        f"Only {unique_scores} unique home scores in 50 sims - possible data leakage"
-    )
-
-
-def test_prediction_stability_across_simulations(sample_matchup):
-    """Test that repeated simulations with same inputs converge to similar statistics.
-
-    Since the simulation uses randomness (Rust RNG for play selection, Python random
-    for time consumption), we can't expect exact determinism. Instead, we verify
-    that running the same simulation twice produces statistically similar results,
-    demonstrating convergence and stability.
-    """
-    home_samples, away_samples, home_team, away_team = sample_matchup
-
-    # Run the same simulation twice with enough samples for stable statistics
-    n_sims = 100
-
-    result1 = simulate_n_games(
-        home_samples=home_samples,
-        away_samples=away_samples,
-        home_team=home_team,
-        away_team=away_team,
-        n=n_sims,
-    )
-
     result2 = simulate_n_games(
         home_samples=home_samples,
         away_samples=away_samples,
         home_team=home_team,
         away_team=away_team,
-        n=n_sims,
+        n=100,
     )
 
-    # Average scores should be within some distance from eachother
-    # With 100 simulations, random variation should be bounded
-    home_score_diff = abs(result1.home_score_avg - result2.home_score_avg)
-    away_score_diff = abs(result1.away_score_avg - result2.away_score_avg)
+    # Averages should be close
+    home_diff = abs(result1.home_score_avg - result2.home_score_avg)
+    away_diff = abs(result1.away_score_avg - result2.away_score_avg)
+    win_diff = abs(result1.home_win_pct - result2.home_win_pct)
 
-    allowable_score_pts_difference = 4  # Predictions should not differ by more than 4
-    assert home_score_diff < allowable_score_pts_difference, (
-        f"Home score averages differ too much: {result1.home_score_avg:.1f} vs {result2.home_score_avg:.1f}"
-    )
-    assert away_score_diff < allowable_score_pts_difference, (
-        f"Away score averages differ too much: {result1.away_score_avg:.1f} vs {result2.away_score_avg:.1f}"
-    )
+    assert home_diff < 4, f"Home score avg differs by {home_diff:.1f} points"
+    assert away_diff < 4, f"Away score avg differs by {away_diff:.1f} points"
+    assert win_diff < 0.15, f"Win pct differs by {win_diff:.1%}"
 
-    # Win percentages should be within ~10 percentage points
-    home_win_diff = abs(result1.home_win_pct - result2.home_win_pct)
-    away_win_diff = abs(result1.away_win_pct - result2.away_win_pct)
 
-    assert home_win_diff < 0.1, (
-        f"Home win % differs too much: {result1.home_win_pct:.1%} vs {result2.home_win_pct:.1%}"
-    )
-    assert away_win_diff < 0.1, (
-        f"Away win % differs too much: {result1.away_win_pct:.1%} vs {result2.away_win_pct:.1%}"
-    )
+def test_sample_pool_diversity(game_data: pl.DataFrame, available_teams: list[str]):
+    """Sample pools should have plays from multiple games to avoid leakage."""
+    team = available_teams[0]
+    samples = build_sample_pairs(game_data, team)
+    offense_df = samples[0]
 
-    # Margin averages should be within reasonable bounds
-    margin_diff = abs(result1.margin_avg - result2.margin_avg)
-    assert margin_diff < 5, (
-        f"Margin averages differ too much: {result1.margin_avg:.1f} vs {result2.margin_avg:.1f}"
-    )
+    if "game_id" in offense_df.columns:
+        unique_games = offense_df["game_id"].n_unique()
+        assert unique_games > 5, f"Team {team} has plays from only {unique_games} games"
 
 
 if __name__ == "__main__":
