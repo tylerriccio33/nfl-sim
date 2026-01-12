@@ -33,7 +33,9 @@ fn weighted_sample(indices: Vec<usize>, n: usize) -> Vec<usize> {
         let idx = dist.sample(&mut rng);
         if !used[idx] {
             used[idx] = true;
-            selected.push(indices[idx]);
+            unsafe {
+                selected.push(*indices.get_unchecked(idx));
+            }
         }
     }
 
@@ -72,37 +74,28 @@ fn filter_window<'py>(
     for (dist_window, wp_window, yardline_window) in WINDOW_CONFIGS {
         let mut indices: Vec<usize> = Vec::new();
 
+        // Hot loop optimized for branch prediction and cache locality
         for i in 0..n_rows {
-            let sample_down = arr[[i, 0]] as u32;
-            let sample_ydstogo = arr[[i, 1]] as u32;
-            let sample_yardline = arr[[i, 2]] as u32;
-            let sample_wp = arr[[i, 3]] as f32 / 1000.0;
-
-            // Check down (exact match)
-            if sample_down != down {
+            // Down check tends to be the most performant, but not really sure
+            if unsafe { *arr.uget([i, 0]) as u32 } != down {
                 continue;
             }
 
-            // Check distance window
-            if sample_ydstogo < (cur_dist - dist_window)
-                || sample_ydstogo > (cur_dist + dist_window)
+            // Load all remaining values at once to improve cache locality
+            let sample_yardline = unsafe { *arr.uget([i, 2]) as u32 };
+            let sample_ydstogo = unsafe { *arr.uget([i, 1]) as u32 };
+            let sample_wp = unsafe { *arr.uget([i, 3]) as f32 / 1000.0 };
+
+            // Combined boundary checks to reduce branches
+            if sample_yardline >= yardline - yardline_window
+                && sample_yardline <= yardline + yardline_window
+                && sample_ydstogo >= cur_dist - dist_window
+                && sample_ydstogo <= cur_dist + dist_window
+                && sample_wp >= wp - wp_window
+                && sample_wp <= wp + wp_window
             {
-                continue;
+                indices.push(i);
             }
-
-            // Check yardline window
-            if sample_yardline < (yardline - yardline_window)
-                || sample_yardline > (yardline + yardline_window)
-            {
-                continue;
-            }
-
-            // Check win probability window
-            if sample_wp < (wp - wp_window) || sample_wp > (wp + wp_window) {
-                continue;
-            }
-
-            indices.push(i);
         }
 
         if !indices.is_empty() {
