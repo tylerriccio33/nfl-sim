@@ -105,9 +105,6 @@ class SimulationResult:
     ) -> SimulationResult:
         """Create a SimulationResult from a collection of SingleGameResult."""
         results_list = list(results)
-        if len(results_list) == 0:
-            msg = "Cannot create SimulationResult from empty results"
-            raise ValueError(msg)
         return cls(
             home_team=home_team,
             away_team=away_team,
@@ -124,34 +121,23 @@ class SimulationResult:
         n: int = 100,
     ) -> SimulationResult:
         """Run N game simulations and return aggregated statistics."""
-        results = [
-            _run_single_simulation(home_samples, away_samples, home_team, away_team)
-            for _ in range(n)
-        ]
-        return cls.from_single_games(results, home_team, away_team)
-
-
-def _run_single_simulation(
-    home_samples: SampleData,
-    away_samples: SampleData,
-    home_team: str,
-    away_team: str,
-) -> SingleGameResult:
-    """Run a single game simulation and return the result."""
-    game = _GameOrchestrator(
-        home_samples=home_samples,
-        away_samples=away_samples,
-        home_team=home_team,
-        away_team=away_team,
-    )
-    game.play_game()
-
-    return SingleGameResult(
-        home_score=game.home_score,
-        away_score=game.away_score,
-        num_drives=len(game.drives),
-        total_plays=len(game.game_data),
-        home_win=game.home_score > game.away_score,
-        margin=game.home_score - game.away_score,
-        event_counts=game.event_counts,
-    )
+        results: list[SingleGameResult] = []
+        for _ in range(n):
+            game = _GameOrchestrator(
+                home_samples=home_samples,
+                away_samples=away_samples,
+                home_team=home_team,
+                away_team=away_team,
+            )
+            game.play_game()
+            result = SingleGameResult(
+                home_score=game.home_score,
+                away_score=game.away_score,
+                num_drives=len(game.drives),
+                total_plays=len(game.game_data),
+                home_win=game.home_score > game.away_score,
+                margin=game.home_score - game.away_score,
+                event_counts=game.event_counts,
+            )
+            results.append(result)
+        return cls(home_team, away_team, results)

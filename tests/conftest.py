@@ -48,8 +48,9 @@ def mock_play_data() -> pl.DataFrame:
             "interception": [0, 0, 0, 0, 0, 0, 0, 0],
             "return_touchdown": [0, 0, 0, 0, 0, 0, 0, 0],
             "kick_distance": [None, None, None, None, None, None, None, None],
+            "fumble_lost": [0, 0, 0, 0, 0, 0, 0, 0],
         }
-    )
+    ).with_columns(build_event_expr())
 
 
 def make_play_row(

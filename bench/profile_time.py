@@ -68,7 +68,6 @@ def main() -> None:
         home_team=home_team,
         away_team=away_team,
         n=n_sims,
-        store_individual=False,
     )
 
     # Save results to file

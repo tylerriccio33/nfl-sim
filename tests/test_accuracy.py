@@ -16,10 +16,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from nfl_sim._event import (
-    EVENT_EXPR_MAP,
-    build_event_expr,
-)
+from nfl_sim._event import EVENT_EXPR_MAP, build_event_expr
 from nfl_sim._sampling import build_sample_data
 from nfl_sim.simulate import SimulationResult, SingleGameResult
 
@@ -394,9 +391,8 @@ def test_sample_pool_diversity(game_data: pl.DataFrame, available_teams: list[st
     team = available_teams[0]
     samples = build_sample_data(game_data, team)
 
-    if "game_id" in samples.df.columns:
-        unique_games = samples.df["game_id"].n_unique()
-        assert unique_games > 5, f"Team {team} has plays from only {unique_games} games"
+    unique_games = samples.df["game_id"].n_unique()
+    assert unique_games > 5, f"Team {team} has plays from only {unique_games} games"
 
 
 if __name__ == "__main__":

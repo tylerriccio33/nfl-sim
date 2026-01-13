@@ -4,7 +4,7 @@ import polars as pl
 import pytest
 from conftest import make_play_row
 
-from nfl_sim._event import _MetaEvent
+from nfl_sim._event import _MetaEvent, build_event_expr
 from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
 
@@ -40,8 +40,9 @@ def minimal_play_data() -> pl.DataFrame:
             "interception": [0, 0],
             "return_touchdown": [0, 0],
             "kick_distance": [None, None],
+            "fumble_lost": [0, 0],
         }
-    )
+    ).with_columns(build_event_expr())
 
 
 @pytest.fixture

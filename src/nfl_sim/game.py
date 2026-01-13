@@ -23,12 +23,6 @@ if TYPE_CHECKING:
 from nfl_sim._columns import ENGINE_COLUMNS
 
 
-def _select_engine_cols(df: pl.DataFrame) -> pl.DataFrame:
-    """Select only engine-required columns from a DataFrame."""
-    engine_cols = [c for c in ENGINE_COLUMNS + ["__EVENT_KEY"] if c in df.columns]
-    return df.select(engine_cols)
-
-
 class _GameOrchestrator:
     def __init__(
         self,
@@ -55,8 +49,8 @@ class _GameOrchestrator:
         self._posteam_score, self._defteam_score = 0, 0
 
         # Pre-compute engine-only sample DataFrames for faster simulation
-        self._home_engine_df: pl.DataFrame = _select_engine_cols(home_samples.df)
-        self._away_engine_df: pl.DataFrame = _select_engine_cols(away_samples.df)
+        self._home_engine_df: pl.DataFrame = home_samples.df.select(*ENGINE_COLUMNS, "__EVENT_KEY")
+        self._away_engine_df: pl.DataFrame = away_samples.df.select(*ENGINE_COLUMNS, "__EVENT_KEY")
 
     @property
     def cur_samples(self) -> tuple[pl.DataFrame, SampleData]:

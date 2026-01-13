@@ -218,7 +218,7 @@ Runs multiple game simulations and aggregates statistics.
 - ≤0 = touchdown
 - ≥100 = safety
 
-## Commands
+## Commands & Agent Instructions
 
 ```bash
 # Run simulation

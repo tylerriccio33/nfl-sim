@@ -3,6 +3,7 @@
 import polars as pl
 import pytest
 
+from nfl_sim._event import build_event_expr
 from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
 
@@ -30,8 +31,9 @@ def game_samples_data() -> pl.DataFrame:
             "interception": [0] * 20,
             "return_touchdown": [0] * 20,
             "kick_distance": [None] * 20,
+            "fumble_lost": [0] * 20,
         }
-    )
+    ).with_columns(build_event_expr())
 
 
 @pytest.fixture

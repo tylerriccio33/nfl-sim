@@ -34,7 +34,8 @@ class TestPullGameData:
     def test_returns_dataframe(self, mocker, mock_pbp_data: pl.DataFrame):
         """Verify pull_game_data returns a polars DataFrame."""
         mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 15))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=15)
 
         result = pull_game_data()
 
@@ -43,7 +44,8 @@ class TestPullGameData:
     def test_filters_to_expected_columns(self, mocker, mock_pbp_data: pl.DataFrame):
         """Verify only configured columns are returned (plus generated columns)."""
         mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 15))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=15)
 
         result = pull_game_data()
 
@@ -55,7 +57,8 @@ class TestPullGameData:
     def test_excludes_penalty_plays(self, mocker, mock_pbp_data: pl.DataFrame):
         """Verify penalty plays are filtered out."""
         mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 15))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=15)
 
         result = pull_game_data()
 
@@ -66,7 +69,8 @@ class TestPullGameData:
     def test_no_null_yards_gained(self, mocker, mock_pbp_data: pl.DataFrame):
         """Verify yards_gained is never null in results."""
         mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 15))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=15)
 
         result = pull_game_data()
 
@@ -79,7 +83,8 @@ class TestScheduleData:
     def test_from_cur_week_returns_schedule_data(self, mocker, mock_schedule_data: pl.DataFrame):
         """Verify from_cur_week returns ScheduleData instance."""
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=1)
 
         result = ScheduleData.from_cur_week()
 
@@ -106,7 +111,8 @@ class TestScheduleData:
     def test_as_metadata_returns_game_metadata_list(self, mocker, mock_schedule_data: pl.DataFrame):
         """Verify as_metadata returns list of valid GameMetadata dicts."""
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=1)
 
         schedule = ScheduleData.from_cur_week(rm_complete=False)
         result = schedule.as_metadata()
@@ -121,7 +127,8 @@ class TestScheduleData:
     def test_len_returns_game_count(self, mocker, mock_schedule_data: pl.DataFrame):
         """Verify len() returns number of games."""
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=1)
 
         schedule = ScheduleData.from_cur_week(rm_complete=False)
 
@@ -130,7 +137,8 @@ class TestScheduleData:
     def test_iter_yields_rows(self, mocker, mock_schedule_data: pl.DataFrame):
         """Verify iteration yields row dicts."""
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=1)
 
         schedule = ScheduleData.from_cur_week(rm_complete=False)
         rows = list(schedule)
@@ -153,7 +161,8 @@ class TestFetchCurWeekMetadata:
     def test_returns_schedule_data(self, mocker, mock_schedule_data: pl.DataFrame):
         """Verify function returns ScheduleData."""
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=1)
 
         result = ScheduleData.from_cur_week()
 
@@ -163,7 +172,8 @@ class TestFetchCurWeekMetadata:
         """Verify only games from the current week are returned."""
         target_week = 1
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, target_week))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=target_week)
 
         result = ScheduleData.from_cur_week()
 
@@ -174,7 +184,8 @@ class TestFetchCurWeekMetadata:
     def test_rm_complete_excludes_finished_games(self, mocker, mock_schedule_data: pl.DataFrame):
         """Verify rm_complete=True excludes games with results."""
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=1)
 
         result = ScheduleData.from_cur_week(rm_complete=True)
 
@@ -185,7 +196,8 @@ class TestFetchCurWeekMetadata:
     def test_rm_complete_false_includes_all_games(self, mocker, mock_schedule_data: pl.DataFrame):
         """Verify rm_complete=False includes completed games."""
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=1)
 
         all_games = ScheduleData.from_cur_week(rm_complete=False)
         incomplete_only = ScheduleData.from_cur_week(rm_complete=True)
@@ -200,7 +212,8 @@ class TestGameFactory:
     def test_creates_orchestrators_for_each_game(self, mocker, mock_pbp_data: pl.DataFrame):
         """Verify one orchestrator is created per game in metadata."""
         mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 15))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=15)
 
         pbp_data = pull_game_data()
         game_metadata: list[GameMetadata] = [
@@ -223,7 +236,8 @@ class TestGameFactory:
     def test_orchestrators_have_correct_teams(self, mocker, mock_pbp_data: pl.DataFrame):
         """Verify each orchestrator has the correct home/away teams."""
         mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 15))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=15)
 
         pbp_data = pull_game_data()
 
@@ -246,7 +260,8 @@ class TestGameFactory:
         """Verify game_factory accepts ScheduleData as input."""
         mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 15))
+        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
+        mocker.patch("nfl_sim.data.get_current_week", return_value=15)
 
         pbp_data = pull_game_data()
         available_teams = set(pbp_data["posteam"].unique().to_list())

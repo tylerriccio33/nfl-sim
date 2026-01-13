@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import datetime
-from functools import lru_cache
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict, TypeIs, cast
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, TypeIs, cast
 
 import nflreadpy as nfl
 import polars as pl
@@ -15,6 +13,9 @@ from nfl_sim._columns import PBP_COLUMNS
 from nfl_sim._event import build_event_expr
 from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
+
+if TYPE_CHECKING:
+    import datetime
 
 
 class GameMetadata(TypedDict):
@@ -45,39 +46,6 @@ def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
     )
 
 
-MAX_WEEKS = 18
-"""Number of weeks in a season, used for getting the window."""
-
-
-@lru_cache(maxsize=1)
-def _cur_week_from_date(cur_date: datetime.date) -> tuple[int, int]:
-    """Get current NFL week from a date.
-
-    Uses nflreadpy to determine the current week and season based on the
-    NFL calendar. Results are cached since they only change once per week.
-
-    Args:
-        cur_date: Reference date (used as cache key, not for calculation).
-
-    Returns:
-        Tuple of (season_year, week_number), e.g. (2024, 1).
-
-    """
-    cur_week = get_current_week()
-    cur_season = get_current_season()
-    return cur_season, cur_week
-
-
-def _get_min_window_dates(cur_year: int, cur_week: int, week_window: int) -> tuple[int, int]:
-    """Get the minimum week/year to use based on the window."""
-    target_week: int = cur_week - week_window
-    if target_week > 0:
-        return cur_year, target_week
-
-    msg = "Didn't get this far..."
-    raise NotImplementedError(msg)
-
-
 def pull_game_data(
     cur_date: datetime.datetime | None = None, week_window: int = 10
 ) -> pl.DataFrame:
@@ -100,11 +68,12 @@ def pull_game_data(
         Reference: nflverse dictionary/pbp.csv (374 total fields available).
 
     """
-    if cur_date is None:
-        cur_date = datetime.datetime.now()
-    cur_year, cur_week = _cur_week_from_date(cur_date)
-
-    min_year, min_week = _get_min_window_dates(cur_year, cur_week, week_window)
+    cur_year, cur_week = get_current_season(), get_current_week()
+    min_week = cur_week - week_window
+    if min_week <= 0:
+        msg = "Week window extends beyond current season"
+        raise NotImplementedError(msg)
+    min_year = cur_year
     window_expr: pl.Expr = (pl.col("season").eq(min_year) & pl.col("week").ge(min_week)) | (
         pl.col("season") > min_year
     )
@@ -149,7 +118,7 @@ class ScheduleData:
         if missing:
             msg = f"Missing required columns: {missing}"
             raise ValueError(msg)
-        self._df = df
+        self.df = df
 
     @classmethod
     def _loader(cls, seasons: int | list[int]) -> pl.DataFrame:  # pragma: no cover
@@ -160,20 +129,15 @@ class ScheduleData:
 
         return nfl.load_schedules(seasons=seasons)
 
-    @property
-    def df(self) -> pl.DataFrame:
-        """Access the underlying DataFrame."""
-        return self._df
-
     def __len__(self) -> int:
-        return len(self._df)
+        return len(self.df)
 
     def __iter__(self):
-        return iter(self._df.iter_rows(named=True))
+        return iter(self.df.iter_rows(named=True))
 
     def __getitem__(self, idx: int) -> GameMetadata:
         """Get a game by index, returning as GameMetadata dict."""
-        row = self._df.row(idx, named=True)
+        row = self.df.row(idx, named=True)
         if not _is_game_metadata(row):
             msg = f"Row {idx} is not valid GameMetadata"
             raise ValueError(msg)
@@ -193,9 +157,7 @@ class ScheduleData:
             ScheduleData for the current week's games.
 
         """
-        if cur_date is None:
-            cur_date = datetime.datetime.now()
-        cur_year, cur_week = _cur_week_from_date(cur_date)
+        cur_year, cur_week = get_current_season(), get_current_week()
         df = cls._loader(seasons=cur_year).filter(pl.col("week") == cur_week)
         if rm_complete:
             df = df.filter(pl.col("result").is_null())
@@ -225,14 +187,8 @@ class ScheduleData:
             List of GameMetadata dicts for each game in the schedule.
 
         """
-        rows = list(self._df.iter_rows(named=True))
+        rows = list(self.df.iter_rows(named=True))
         return [row for row in rows if _is_game_metadata(row)]
-
-    def __repr__(self) -> str:
-        n_games = len(self._df)
-        weeks = self._df["week"].unique().to_list()
-        week_str = f"week {weeks[0]}" if len(weeks) == 1 else f"weeks {min(weeks)}-{max(weeks)}"
-        return f"ScheduleData({n_games} games, {week_str})"
 
 
 def game_factory(
