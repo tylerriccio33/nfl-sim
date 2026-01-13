@@ -12,14 +12,12 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from nfl_sim._sampling import build_sample_pairs
+from nfl_sim._sampling import SampleData, build_sample_data
 from nfl_sim.data import pull_game_data
 from nfl_sim.game import _GameOrchestrator
 
 if TYPE_CHECKING:
     import polars as pl
-
-    from nfl_sim._sampling import _SamplePair
 
 
 @pytest.fixture(scope="module")
@@ -67,8 +65,8 @@ NFL_TEAMS = [
 
 def create_game(game_data: pl.DataFrame, home_team: str, away_team: str) -> _GameOrchestrator:
     """Create a game instance with given teams."""
-    home_samples: _SamplePair = build_sample_pairs(game_data, team=home_team)
-    away_samples: _SamplePair = build_sample_pairs(game_data, team=away_team)
+    home_samples: SampleData = build_sample_data(game_data, team=home_team)
+    away_samples: SampleData = build_sample_data(game_data, team=away_team)
     return _GameOrchestrator(
         home_samples=home_samples,
         away_samples=away_samples,
@@ -111,14 +109,12 @@ def test_scores_are_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx:
     game = create_game(game_data, home_team, away_team)
     game.play_game()
 
-    home_score = game._posteam_score if game._posteam == home_team else game._defteam_score
-    away_score = game._defteam_score if game._posteam == home_team else game._posteam_score
-    total_score = home_score + away_score
+    total_score = game.home_score + game.away_score
 
-    assert home_score >= 0, f"Home score negative: {home_score}"
-    assert away_score >= 0, f"Away score negative: {away_score}"
-    assert home_score <= 80, f"Home score unrealistic: {home_score}"
-    assert away_score <= 80, f"Away score unrealistic: {away_score}"
+    assert game.home_score >= 0, f"Home score negative: {game.home_score}"
+    assert game.away_score >= 0, f"Away score negative: {game.away_score}"
+    assert game.home_score <= 80, f"Home score unrealistic: {game.home_score}"
+    assert game.away_score <= 80, f"Away score unrealistic: {game.away_score}"
     assert total_score <= 120, f"Combined score unrealistic: {total_score}"
 
 

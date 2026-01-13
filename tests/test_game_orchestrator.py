@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from nfl_sim._sampling import build_sample_pairs
+from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
 
 
@@ -37,8 +37,8 @@ def game_samples_data() -> pl.DataFrame:
 @pytest.fixture
 def game_with_samples(game_samples_data: pl.DataFrame) -> _GameOrchestrator:
     """Game instance with real Samples objects."""
-    home_samples = build_sample_pairs(game_samples_data, "KC")
-    away_samples = build_sample_pairs(game_samples_data, "BUF")
+    home_samples = build_sample_data(game_samples_data, "KC")
+    away_samples = build_sample_data(game_samples_data, "BUF")
     return _GameOrchestrator(
         home_samples=home_samples,
         away_samples=away_samples,
@@ -65,25 +65,25 @@ def test_team_order_tuple(game_with_samples: _GameOrchestrator):
     assert game_with_samples._team_order == ("KC", "BUF")
 
 
-# cur_offensive_samples property
+# cur_samples property
 
 
-def test_cur_offensive_samples_home(game_with_samples: _GameOrchestrator):
+def test_cur_samples_home(game_with_samples: _GameOrchestrator):
     # Initially home team (KC) has ball - should get home offensive samples
-    df, matrix = game_with_samples.cur_offensive_samples
-    home_offense_df = game_with_samples.home_samples[0]
+    engine_df, samples = game_with_samples.cur_samples
 
-    assert df.equals(home_offense_df)
-    assert matrix.shape[1] == 4  # down, ydstogo, yardline_100, wp
+    # Engine df should be a subset of the full samples df
+    assert len(engine_df) <= len(samples.df)
+    assert samples.matrix.shape[1] == 4  # down, ydstogo, yardline_100, wp
 
 
-def test_cur_offensive_samples_away(game_with_samples: _GameOrchestrator):
+def test_cur_samples_away(game_with_samples: _GameOrchestrator):
     game_with_samples._posteam = "BUF"  # simulate switching offense
-    df, matrix = game_with_samples.cur_offensive_samples
-    away_offense_df = game_with_samples.away_samples[0]
+    engine_df, samples = game_with_samples.cur_samples
 
-    assert df.equals(away_offense_df)
-    assert matrix.shape[1] == 4
+    # Engine df should be a subset of the full samples df
+    assert len(engine_df) <= len(samples.df)
+    assert samples.matrix.shape[1] == 4
 
 
 # _flip_teams

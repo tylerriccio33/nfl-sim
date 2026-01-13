@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import numpy as np
 import polars as pl
 from numpy.typing import NDArray
@@ -8,8 +10,19 @@ type _FilterMatrix = NDArray[np.int64]
 """Numpy matrix with columns: down, ydstogo, yardline_100, wp (scaled by 1000)."""
 
 
-type _SamplePair = tuple[pl.DataFrame, _FilterMatrix, pl.DataFrame, _FilterMatrix]
-"""(home_df, home_matrix, away_df, away_matrix) - DataFrames and their filter matrices."""
+@dataclass
+class SampleData:
+    """Team's historical play data for simulation sampling.
+
+    Contains plays where the team was on offense, plus a pre-computed
+    numpy matrix for fast Rust filtering.
+    """
+
+    df: pl.DataFrame
+    """Play-by-play DataFrame filtered to this team's offensive plays."""
+
+    matrix: _FilterMatrix
+    """Numpy matrix for fast Rust filtering: [down, ydstogo, yardline_100, wp*1000]."""
 
 
 # Yardline Convention Note:
@@ -43,20 +56,22 @@ def _dataframe_to_filter_matrix(df: pl.DataFrame) -> _FilterMatrix:
     )
 
 
-# TODO: This is redundant I think? Also we should be dropping these nulls way earlier right?
-def build_sample_pairs(all_data: pl.DataFrame, team: str) -> _SamplePair:
-    """Returns data where team is on offense and then defense, with filter matrices.
+def build_sample_data(all_data: pl.DataFrame, team: str) -> SampleData:
+    """Build sample data for a team's offensive plays.
 
-    Drops rows with null values in filter columns since these can't be used.
+    Filters to plays where the team was on offense (posteam) and drops
+    rows with null filter columns.
+
+    Args:
+        all_data: Play-by-play DataFrame (can contain any team's plays).
+        team: Team abbreviation to filter offensive plays for.
+
+    Returns:
+        SampleData with the team's offensive plays and filter matrix.
+
     """
-    home_df = all_data.lazy().drop_nulls(subset=_FILTER_COLS).collect()
-    away_df = all_data.lazy().drop_nulls(subset=_FILTER_COLS).collect()
-    return (
-        home_df,
-        _dataframe_to_filter_matrix(home_df),
-        away_df,
-        _dataframe_to_filter_matrix(away_df),
-    )
+    df = all_data.lazy().filter(pl.col("posteam") == team).drop_nulls(subset=_FILTER_COLS).collect()
+    return SampleData(df=df, matrix=_dataframe_to_filter_matrix(df))
 
 
 def fetch_like_play(

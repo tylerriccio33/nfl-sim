@@ -13,7 +13,7 @@ from nfl_sim.game import _GameOrchestrator
 if TYPE_CHECKING:
     from collections.abc import Collection
 
-    from nfl_sim._sampling import _SamplePair
+    from nfl_sim._sampling import SampleData
 
 # Event names used for counting (lowercase class names matching test expectations)
 EVENT_NAMES: list[str] = [cls.__name__.lower() for cls in EVENT_EXPR_MAP]
@@ -117,8 +117,8 @@ class SimulationResult:
     @classmethod
     def simulate(
         cls,
-        home_samples: _SamplePair,
-        away_samples: _SamplePair,
+        home_samples: SampleData,
+        away_samples: SampleData,
         home_team: str,
         away_team: str,
         n: int = 100,
@@ -131,41 +131,9 @@ class SimulationResult:
         return cls.from_single_games(results, home_team, away_team)
 
 
-def extract_scores(game: _GameOrchestrator) -> tuple[int, int]:
-    """Extract (home_score, away_score) from a completed game.
-
-    The GameOrchestrator tracks scores relative to current possession,
-    so we need to map back to home/away using _team_order.
-    """
-    home_team = game._team_order[0]
-    if game._posteam == home_team:
-        return game._posteam_score, game._defteam_score
-    return game._defteam_score, game._posteam_score
-
-
-def extract_event_counts(game: _GameOrchestrator) -> dict[str, int]:
-    """Extract event counts from a completed game.
-
-    Counts occurrences of each event type from game.game_data's 'event' column.
-    Returns lowercase event names to match EVENT_NAMES.
-    """
-    game_data = game.game_data
-    if "event" not in game_data.columns or len(game_data) == 0:
-        return {}
-
-    # Count events, converting to lowercase
-    event_counts: dict[str, int] = {}
-    events = game_data.filter(pl.col("event").is_not_null())["event"].to_list()
-    for event in events:
-        event_lower = event.lower()
-        event_counts[event_lower] = event_counts.get(event_lower, 0) + 1
-
-    return event_counts
-
-
 def _run_single_simulation(
-    home_samples: _SamplePair,
-    away_samples: _SamplePair,
+    home_samples: SampleData,
+    away_samples: SampleData,
     home_team: str,
     away_team: str,
 ) -> SingleGameResult:
@@ -178,18 +146,12 @@ def _run_single_simulation(
     )
     game.play_game()
 
-    home_score, away_score = extract_scores(game)
-    num_drives = len(game.drives)
-    total_plays = len(game.game_data)
-    margin = home_score - away_score
-    event_counts = extract_event_counts(game)
-
     return SingleGameResult(
-        home_score=home_score,
-        away_score=away_score,
-        num_drives=num_drives,
-        total_plays=total_plays,
-        home_win=home_score > away_score,
-        margin=margin,
-        event_counts=event_counts,
+        home_score=game.home_score,
+        away_score=game.away_score,
+        num_drives=len(game.drives),
+        total_plays=len(game.game_data),
+        home_win=game.home_score > game.away_score,
+        margin=game.home_score - game.away_score,
+        event_counts=game.event_counts,
     )

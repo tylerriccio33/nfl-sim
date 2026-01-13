@@ -5,7 +5,7 @@ import pytest
 from conftest import make_play_row
 
 from nfl_sim._event import _MetaEvent
-from nfl_sim._sampling import build_sample_pairs
+from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
 
 
@@ -47,8 +47,8 @@ def minimal_play_data() -> pl.DataFrame:
 @pytest.fixture
 def game(minimal_play_data: pl.DataFrame) -> _GameOrchestrator:
     """Game instance for testing."""
-    home_samples = build_sample_pairs(minimal_play_data, "KC")
-    away_samples = build_sample_pairs(minimal_play_data, "BUF")
+    home_samples = build_sample_data(minimal_play_data, "KC")
+    away_samples = build_sample_data(minimal_play_data, "BUF")
     return _GameOrchestrator(
         home_samples=home_samples,
         away_samples=away_samples,

@@ -11,7 +11,7 @@ from nfl_sim.data import ScheduleData, game_factory, pull_game_data
 from nfl_sim.simulate import SimulationResult
 
 NGAMES = 500
-NSIMS = 10
+NSIMS = 100
 
 
 def configure_logging(level: str = "WARNING") -> None:

@@ -12,7 +12,7 @@ from line_profiler import LineProfiler
 from loguru import logger
 
 from nfl_sim._model import calc_wp
-from nfl_sim._sampling import build_sample_pairs, fetch_like_play
+from nfl_sim._sampling import build_sample_data, fetch_like_play
 from nfl_sim.data import ScheduleData, game_factory, pull_game_data
 
 ## == Profile These ==============================================
@@ -26,7 +26,7 @@ FUNCTIONS = (
     _GameOrchestrator.play_game,
     ## Sampling:
     fetch_like_play,
-    build_sample_pairs,
+    build_sample_data,
     ## Game Engine:
     GameEngine.ingest_new_play,
     calc_wp,

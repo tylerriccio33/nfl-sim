@@ -20,7 +20,7 @@ from nfl_sim._event import (
     EVENT_EXPR_MAP,
     build_event_expr,
 )
-from nfl_sim._sampling import build_sample_pairs
+from nfl_sim._sampling import build_sample_data
 from nfl_sim.simulate import SimulationResult, SingleGameResult
 
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -247,8 +247,8 @@ def simulation_games_df(game_data: pl.DataFrame, available_teams: list[str]) -> 
         home_team = teams[i]
         away_team = teams[i + 1]
 
-        home_samples = build_sample_pairs(game_data, home_team)
-        away_samples = build_sample_pairs(game_data, away_team)
+        home_samples = build_sample_data(game_data, home_team)
+        away_samples = build_sample_data(game_data, away_team)
 
         result = SimulationResult.simulate(
             home_samples=home_samples,
@@ -352,8 +352,8 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
     home_team = available_teams[0]
     away_team = available_teams[1]
 
-    home_samples = build_sample_pairs(game_data, home_team)
-    away_samples = build_sample_pairs(game_data, away_team)
+    home_samples = build_sample_data(game_data, home_team)
+    away_samples = build_sample_data(game_data, away_team)
 
     result1 = SimulationResult.simulate(
         home_samples=home_samples,
@@ -392,11 +392,10 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
 def test_sample_pool_diversity(game_data: pl.DataFrame, available_teams: list[str]):
     """Sample pools should have plays from multiple games to avoid leakage."""
     team = available_teams[0]
-    samples = build_sample_pairs(game_data, team)
-    offense_df = samples[0]
+    samples = build_sample_data(game_data, team)
 
-    if "game_id" in offense_df.columns:
-        unique_games = offense_df["game_id"].n_unique()
+    if "game_id" in samples.df.columns:
+        unique_games = samples.df["game_id"].n_unique()
         assert unique_games > 5, f"Team {team} has plays from only {unique_games} games"
 
 

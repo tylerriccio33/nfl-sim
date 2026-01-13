@@ -3,11 +3,10 @@
 import datetime
 import sys
 
-import polars as pl
 from loguru import logger
 from rich.console import Console
 
-from nfl_sim._sampling import build_sample_pairs
+from nfl_sim._sampling import build_sample_data
 from nfl_sim.data import ScheduleData, pull_game_data
 from nfl_sim.interactive.tui import _display_results
 from nfl_sim.simulate import SimulationResult
@@ -39,27 +38,9 @@ def run_week() -> None:
     home_team = meta["home_team"]
     away_team = meta["away_team"]
 
-    # Build sample pairs for each team
-    all_teams = {home_team, away_team}
-    posteam_data = data.filter(pl.col("posteam").is_in(all_teams))
-    defteam_data = data.filter(pl.col("defteam").is_in(all_teams))
-
-    posteam_partitions = posteam_data.partition_by("posteam", as_dict=True)
-    defteam_partitions = defteam_data.partition_by("defteam", as_dict=True)
-
-    # Flatten keys
-    posteam_partitions = {k[0]: v for k, v in posteam_partitions.items()}
-    defteam_partitions = {k[0]: v for k, v in defteam_partitions.items()}
-
-    home_data = pl.concat([posteam_partitions[home_team], defteam_partitions[home_team]]).sort(
-        "game_date", descending=True
-    )
-    away_data = pl.concat([posteam_partitions[away_team], defteam_partitions[away_team]]).sort(
-        "game_date", descending=True
-    )
-
-    home_samples = build_sample_pairs(home_data, home_team)
-    away_samples = build_sample_pairs(away_data, away_team)
+    # Build sample data for each team (filters to their offensive plays)
+    home_samples = build_sample_data(data, home_team)
+    away_samples = build_sample_data(data, away_team)
 
     # Simulate game N times
     n_sims = 100

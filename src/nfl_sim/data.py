@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, TypeIs, cast
+from typing import Any, NotRequired, TypedDict, TypeIs, cast
 
 import nflreadpy as nfl
 import polars as pl
@@ -13,11 +13,8 @@ from nflreadpy.utils_date import get_current_season, get_current_week
 
 from nfl_sim._columns import PBP_COLUMNS
 from nfl_sim._event import build_event_expr
-from nfl_sim._sampling import build_sample_pairs
+from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
-
-if TYPE_CHECKING:
-    from nfl_sim._sampling import _SamplePair
 
 
 class GameMetadata(TypedDict):
@@ -221,14 +218,6 @@ class ScheduleData:
             df = df.filter(pl.col("week") == week)
         return cls(df)
 
-    def filter_incomplete(self) -> ScheduleData:
-        """Return new ScheduleData with only incomplete (unplayed) games."""
-        return ScheduleData(self._df.filter(pl.col("result").is_null()))
-
-    def filter_complete(self) -> ScheduleData:
-        """Return new ScheduleData with only completed games."""
-        return ScheduleData(self._df.filter(pl.col("result").is_not_null()))
-
     def as_metadata(self) -> list[GameMetadata]:
         """Convert schedule rows to typed GameMetadata dicts.
 
@@ -238,13 +227,6 @@ class ScheduleData:
         """
         rows = list(self._df.iter_rows(named=True))
         return [row for row in rows if _is_game_metadata(row)]
-
-    @property
-    def teams(self) -> set[str]:
-        """Get all unique teams in the schedule."""
-        home = set(self._df["home_team"].unique().to_list())
-        away = set(self._df["away_team"].unique().to_list())
-        return home | away
 
     def __repr__(self) -> str:
         n_games = len(self._df)
@@ -278,41 +260,13 @@ def game_factory(
     else:
         game_metadata = schedule
 
-    # Partition data once upfront rather than filtering per-game.
-    all_teams: set[str] = {game["home_team"] for game in game_metadata} | {
-        game["away_team"] for game in game_metadata
-    }
-    posteam_data = pbp_data
-    defteam_data = pbp_data
-    if len(all_teams) <= 32:  # No need to do an expensive partition if not all teams
-        posteam_data = posteam_data.filter(pl.col("posteam").is_in(all_teams))
-        defteam_data = defteam_data.filter(pl.col("defteam").is_in(all_teams))
-
-    posteam_partitions: dict[tuple[str], pl.DataFrame] = posteam_data.partition_by(
-        "posteam", maintain_order=False, as_dict=True
-    )
-    defteam_partitions: dict[tuple[str], pl.DataFrame] = defteam_data.partition_by(
-        "defteam", maintain_order=False, as_dict=True
-    )
-
-    # keys come back as tuple[str] since it's supposed to be a tuple of group keys. Since we only have one group
-    # we can just subset the key tuple to make it easier to retrieve the data later.
-    posteam_partitions: dict[str, pl.DataFrame] = {
-        team_key[0]: data for team_key, data in posteam_partitions.items()
-    }
-    defteam_partitions: dict[str, pl.DataFrame] = {
-        team_key[0]: data for team_key, data in defteam_partitions.items()
-    }
-
-    # Build orchestrator for each game by combining team's offensive and defensive plays.
+    # Build orchestrator for each game
     games = []
     for meta in game_metadata:
         home_team = meta["home_team"]
         away_team = meta["away_team"]
-        home_data = pl.concat([posteam_partitions[home_team], defteam_partitions[home_team]])
-        away_data = pl.concat([posteam_partitions[away_team], defteam_partitions[away_team]])
-        home_samples: _SamplePair = build_sample_pairs(home_data, home_team)
-        away_samples: _SamplePair = build_sample_pairs(away_data, away_team)
+        home_samples = build_sample_data(pbp_data, home_team)
+        away_samples = build_sample_data(pbp_data, away_team)
         extra: dict[str, Any] = {
             k: v for k, v in meta.items() if k not in ("home_team", "away_team")
         }

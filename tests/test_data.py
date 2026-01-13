@@ -118,44 +118,6 @@ class TestScheduleData:
             assert isinstance(game["home_team"], str)
             assert isinstance(game["away_team"], str)
 
-    def test_filter_incomplete_removes_completed_games(
-        self, mocker, mock_schedule_data: pl.DataFrame
-    ):
-        """Verify filter_incomplete removes games with results."""
-        mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-
-        all_games = ScheduleData.from_season(2024, week=1)
-        incomplete = all_games.filter_incomplete()
-
-        # All games in incomplete should have null result
-        for row in incomplete.df.iter_rows(named=True):
-            assert row["result"] is None
-
-    def test_filter_complete_keeps_only_completed_games(
-        self, mocker, mock_schedule_data: pl.DataFrame
-    ):
-        """Verify filter_complete keeps only games with results."""
-        mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-
-        all_games = ScheduleData.from_season(2024, week=1)
-        complete = all_games.filter_complete()
-
-        # All games in complete should have non-null result
-        for row in complete.df.iter_rows(named=True):
-            assert row["result"] is not None
-
-    def test_teams_property(self, mocker, mock_schedule_data: pl.DataFrame):
-        """Verify teams property returns all unique teams."""
-        mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data._cur_week_from_date", return_value=(2024, 1))
-
-        schedule = ScheduleData.from_cur_week(rm_complete=False)
-        teams = schedule.teams
-
-        assert isinstance(teams, set)
-        # Should have teams from both home and away columns
-        assert len(teams) > 0
-
     def test_len_returns_game_count(self, mocker, mock_schedule_data: pl.DataFrame):
         """Verify len() returns number of games."""
         mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
