@@ -8,7 +8,7 @@ import polars as pl
 import pytest
 
 from nfl_sim.web import create_app
-from nfl_sim.web.routes import _compute_histogram
+from nfl_sim.web.routes import _compute_histogram, _sim_cache
 
 
 @pytest.fixture
@@ -114,15 +114,62 @@ class TestRoutes:
             response = client.get("/games")
             assert response.status_code == 200
 
-    def test_stats_panel_no_session_returns_200(self, client):
-        """Stats panel without session data should return 200."""
+    def test_play_by_play_no_cache_returns_error(self, client):
+        """Play-by-play without cached data should return error."""
+        _sim_cache.clear()
+        response = client.get("/game/KC/BUF/0/plays")
+        assert response.status_code == 200
+        assert b"No cached simulation data" in response.data
+
+    def test_play_by_play_with_cached_data(self, client):
+        """Play-by-play with cached data should return plays."""
+        _sim_cache["KC_BUF"] = {
+            "result": {},
+            "plays": [
+                [
+                    {
+                        "team": "KC",
+                        "down": 1,
+                        "dist": 10,
+                        "yardline": 75,
+                        "yards_gained": 5,
+                        "desc": "Pass complete",
+                        "event": None,
+                        "home_score": 0,
+                        "away_score": 0,
+                        "quarter": 1,
+                        "time_remaining": 1750,
+                    }
+                ]
+            ],
+        }
+        response = client.get("/game/KC/BUF/0/plays")
+        assert response.status_code == 200
+        html = response.data.decode()
+        assert "Pass complete" in html
+        _sim_cache.clear()
+
+    def test_play_by_play_invalid_index(self, client):
+        """Play-by-play with invalid index should return error."""
+        _sim_cache["KC_BUF"] = {
+            "result": {},
+            "plays": [[]],  # Only one simulation
+        }
+        response = client.get("/game/KC/BUF/5/plays")  # Index 5 doesn't exist
+        assert response.status_code == 200
+        assert b"Invalid simulation index" in response.data
+        _sim_cache.clear()
+
+    def test_stats_panel_no_cache_returns_200(self, client):
+        """Stats panel without cached data should return 200."""
+        _sim_cache.clear()
         response = client.get("/game/KC/BUF/stats")
         assert response.status_code == 200
 
-    def test_stats_panel_with_session_data(self, client, app):
-        """Stats panel with session data should render histograms."""
-        with client.session_transaction() as sess:
-            sess["sim_KC_BUF"] = {
+    def test_stats_panel_with_cached_data(self, client, app):
+        """Stats panel with cached data should render histograms."""
+        _sim_cache["KC_BUF"] = {
+            "result": {
                 "home_team": "KC",
                 "away_team": "BUF",
                 "home_win_pct": 0.55,
@@ -142,10 +189,167 @@ class TestRoutes:
                 "away_score_std": 3.8,
                 "avg_drives": 12.5,
                 "avg_plays": 65.2,
+                "avg_touchdowns": 4.2,
+                "avg_field_goals": 1.8,
+                "avg_interceptions": 1.1,
+                "avg_punts": 5.3,
+                "home_avg_tds": 2.3,
+                "away_avg_tds": 1.9,
+                "home_avg_fgs": 1.0,
+                "away_avg_fgs": 0.8,
+                "home_avg_turnovers": 0.5,
+                "away_avg_turnovers": 0.6,
                 "n_simulations": 100,
                 "home_scores": [21, 28, 24, 17],
                 "away_scores": [14, 21, 28, 24],
                 "margins": [7, 7, -4, -7],
-            }
+            },
+            "plays": [],
+        }
         response = client.get("/game/KC/BUF/stats")
         assert response.status_code == 200
+        _sim_cache.clear()
+
+    def test_stats_panel_contains_game_stats_section(self, client, app):
+        """Stats panel should contain the Game Stats section with team-level stats."""
+        _sim_cache["KC_BUF"] = {
+            "result": {
+                "home_team": "KC",
+                "away_team": "BUF",
+                "home_win_pct": 0.55,
+                "away_win_pct": 0.45,
+                "tie_pct": 0.0,
+                "margin_avg": 3.2,
+                "margin_min": -7,
+                "margin_max": 14,
+                "margin_std": 5.5,
+                "home_score_avg": 24.5,
+                "home_score_min": 17,
+                "home_score_max": 31,
+                "home_score_std": 4.2,
+                "away_score_avg": 21.3,
+                "away_score_min": 14,
+                "away_score_max": 28,
+                "away_score_std": 3.8,
+                "avg_drives": 12.5,
+                "avg_plays": 65.2,
+                "avg_touchdowns": 4.2,
+                "avg_field_goals": 1.8,
+                "avg_interceptions": 1.1,
+                "avg_punts": 5.3,
+                "home_avg_tds": 2.3,
+                "away_avg_tds": 1.9,
+                "home_avg_fgs": 1.0,
+                "away_avg_fgs": 0.8,
+                "home_avg_turnovers": 0.5,
+                "away_avg_turnovers": 0.6,
+                "n_simulations": 100,
+                "home_scores": [21, 28, 24, 17],
+                "away_scores": [14, 21, 28, 24],
+                "margins": [7, 7, -4, -7],
+            },
+            "plays": [],
+        }
+        response = client.get("/game/KC/BUF/stats")
+        html = response.data.decode()
+        # Check for section header
+        assert "Game Stats" in html
+        # Check for team-level stat labels
+        assert "Avg TDs" in html
+        assert "Avg FGs" in html
+        assert "Avg INTs" in html
+        _sim_cache.clear()
+
+
+class TestExtractResultStats:
+    """Tests for _extract_result_stats function."""
+
+    def test_extract_result_stats_includes_event_counts(self):
+        """_extract_result_stats should compute average event counts."""
+        from unittest.mock import MagicMock
+
+        from nfl_sim.web.routes import _extract_result_stats
+
+        # Create mock SimulationResult with event counts
+        mock_result = MagicMock()
+        mock_result.home_team = "KC"
+        mock_result.away_team = "BUF"
+
+        # Create mock individual results with event counts
+        mock_game1 = MagicMock()
+        mock_game1.home_score = 28
+        mock_game1.away_score = 21
+        mock_game1.home_win = True
+        mock_game1.margin = 7
+        mock_game1.event_counts = {
+            "touchdown": 4,
+            "fieldgoalsuccess": 2,
+            "interception": 1,
+            "puntregular": 6,
+        }
+        mock_game1.home_event_counts = {"touchdown": 3, "fieldgoalsuccess": 1}
+        mock_game1.away_event_counts = {"touchdown": 1, "fieldgoalsuccess": 1, "interception": 1}
+
+        mock_game2 = MagicMock()
+        mock_game2.home_score = 21
+        mock_game2.away_score = 24
+        mock_game2.home_win = False
+        mock_game2.margin = -3
+        mock_game2.event_counts = {
+            "touchdown": 6,
+            "fieldgoalsuccess": 0,
+            "picksix": 1,
+            "puntregular": 4,
+            "puntendzone": 2,
+        }
+        mock_game2.home_event_counts = {"touchdown": 2}
+        mock_game2.away_event_counts = {"touchdown": 4, "interception": 1}
+
+        mock_result.individual_results = [mock_game1, mock_game2]
+        mock_result.get_stat = MagicMock(return_value=0.5)
+
+        stats = _extract_result_stats(mock_result)
+
+        # Check averages are computed correctly
+        assert stats["avg_touchdowns"] == 5.0  # (4 + 6) / 2
+        assert stats["avg_field_goals"] == 1.0  # (2 + 0) / 2
+        assert stats["avg_interceptions"] == 1.0  # (1 + 0 + 0 + 1) / 2
+        assert stats["avg_punts"] == 6.0  # (6 + 0 + 4 + 2 + 0) / 2
+
+        # Check per-team averages
+        assert stats["home_avg_tds"] == 2.5  # (3 + 2) / 2
+        assert stats["away_avg_tds"] == 2.5  # (1 + 4) / 2
+        assert stats["home_avg_fgs"] == 0.5  # (1 + 0) / 2
+        assert stats["away_avg_fgs"] == 0.5  # (1 + 0) / 2
+
+    def test_extract_result_stats_handles_missing_events(self):
+        """_extract_result_stats should handle missing event counts gracefully."""
+        from unittest.mock import MagicMock
+
+        from nfl_sim.web.routes import _extract_result_stats
+
+        mock_result = MagicMock()
+        mock_result.home_team = "KC"
+        mock_result.away_team = "BUF"
+
+        # Game with no events
+        mock_game = MagicMock()
+        mock_game.home_score = 0
+        mock_game.away_score = 0
+        mock_game.home_win = False
+        mock_game.margin = 0
+        mock_game.event_counts = {}
+        mock_game.home_event_counts = {}
+        mock_game.away_event_counts = {}
+
+        mock_result.individual_results = [mock_game]
+        mock_result.get_stat = MagicMock(return_value=0.0)
+
+        stats = _extract_result_stats(mock_result)
+
+        assert stats["avg_touchdowns"] == 0.0
+        assert stats["avg_field_goals"] == 0.0
+        assert stats["avg_interceptions"] == 0.0
+        assert stats["avg_punts"] == 0.0
+        assert stats["home_avg_tds"] == 0.0
+        assert stats["away_avg_tds"] == 0.0

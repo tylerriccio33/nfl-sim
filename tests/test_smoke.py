@@ -221,6 +221,12 @@ def test_rand_game(game_data: pl.DataFrame) -> None:
     game.play_game()
     print(game)
 
+@pytest.mark.skip(reason = 'not implemented')
+def test_fourth_and_one_redzone_no_punt():
+    # TODO: If team in the redzone, they should never punt!
+    pass
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-sv", "-k", "test_rand_game"])
+

@@ -48,6 +48,13 @@ class _GameOrchestrator:
         self._posteam, self._defteam = self._team_order
         self._posteam_score, self._defteam_score = 0, 0
 
+        # Track play-level metadata: (home_score, away_score, quarter, time_remaining)
+        self._play_metadata: list[tuple[int, int, int, int]] = []
+
+        # Track per-team events (for team-level stats)
+        self._home_events: dict[str, int] = {}
+        self._away_events: dict[str, int] = {}
+
         # Pre-compute engine-only sample DataFrames for faster simulation
         self._home_engine_df: pl.DataFrame = home_samples.df.select(*ENGINE_COLUMNS, "__EVENT_KEY")
         self._away_engine_df: pl.DataFrame = away_samples.df.select(*ENGINE_COLUMNS, "__EVENT_KEY")
@@ -74,15 +81,35 @@ class _GameOrchestrator:
     def _handle_meta_event(self, event: _MetaEvent, play_row: pl.DataFrame) -> None:
         """Handle meta events: turnovers, punts, scores, and safeties."""
         # Mark the last play with the event type
-        self._engine.set_last_play_event(type(event).__name__)
+        event_name = type(event).__name__
+        self._engine.set_last_play_event(event_name)
         drive_plays: list[PlayRecord] = self._engine.collect_drive()
         self.drives.append(drive_plays)
         self._drive_teams.append(self._posteam)
         logger.debug(
             "Drive ended: {} plays, reason: {}",
             len(drive_plays),
-            type(event).__name__,
+            event_name,
         )
+
+        # Track per-team events
+        home = self._team_order[0]
+        event_key = event_name.lower()
+
+        # Determine which team gets credit for this event
+        # Scoring events: PickSix and Safety go to defense, others go to offense
+        if event_key in ("picksix", "safety", "fumblesix"):
+            # Defensive team gets credit
+            if self._defteam == home:
+                self._home_events[event_key] = self._home_events.get(event_key, 0) + 1
+            else:
+                self._away_events[event_key] = self._away_events.get(event_key, 0) + 1
+        else:
+            # Offensive team gets credit (TDs, FGs, punts, turnovers)
+            if self._posteam == home:
+                self._home_events[event_key] = self._home_events.get(event_key, 0) + 1
+            else:
+                self._away_events[event_key] = self._away_events.get(event_key, 0) + 1
 
         # Apply score if this event awards points
         if isinstance(event, _ScorePlay):
@@ -140,6 +167,17 @@ class _GameOrchestrator:
                 wp=self._engine.wp,
             )
 
+            # Record play metadata before the play (score at start of play)
+            home = self._team_order[0]
+            home_score = self._posteam_score if self._posteam == home else self._defteam_score
+            away_score = self._defteam_score if self._posteam == home else self._posteam_score
+            quarter = (self._engine.half - 1) * 2 + (
+                1 if self._engine.half_seconds_remaining > 900 else 2
+            )
+            self._play_metadata.append(
+                (home_score, away_score, quarter, self._engine.half_seconds_remaining)
+            )
+
             try:
                 self._engine.ingest_new_play(play_row)
             except _MetaEvent as e:
@@ -186,10 +224,17 @@ class _GameOrchestrator:
     @property
     def game_data(self) -> pl.DataFrame:
         labeled_plays = []
+        play_idx = 0
         for drive_idx, drive in enumerate(self.drives):
             # Get the team that was on offense for this drive
             team = self._drive_teams[drive_idx] if drive_idx < len(self._drive_teams) else None
             for down, dist, yardline, yards_gained, desc, event_name in drive:
+                # Get play metadata if available
+                if play_idx < len(self._play_metadata):
+                    home_score, away_score, quarter, time_remaining = self._play_metadata[play_idx]
+                else:
+                    home_score, away_score, quarter, time_remaining = 0, 0, 1, 0
+
                 labeled_plays.append(
                     {
                         "team": team,
@@ -199,8 +244,13 @@ class _GameOrchestrator:
                         "yards_gained": yards_gained,
                         "desc": desc,
                         "event": event_name,
+                        "home_score": home_score,
+                        "away_score": away_score,
+                        "quarter": quarter,
+                        "time_remaining": time_remaining,
                     }
                 )
+                play_idx += 1
         return pl.DataFrame(labeled_plays)
 
     @property
@@ -235,6 +285,16 @@ class _GameOrchestrator:
             event_lower = event.lower()
             counts[event_lower] = counts.get(event_lower, 0) + 1
         return counts
+
+    @property
+    def home_event_counts(self) -> dict[str, int]:
+        """Get event counts for the home team."""
+        return self._home_events.copy()
+
+    @property
+    def away_event_counts(self) -> dict[str, int]:
+        """Get event counts for the away team."""
+        return self._away_events.copy()
 
     def __repr__(self) -> str:
         home, away = self._team_order

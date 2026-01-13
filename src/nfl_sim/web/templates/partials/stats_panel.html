@@ -32,21 +32,26 @@
                  title="{{ bar.bucket }} to {{ bar.bucket + 6 }}: {{ bar.count }} games"></div>
             {% endfor %}
         </div>
+        <!-- X-axis with numeric ticks -->
         <div class="flex justify-between text-xs text-gray-500 mt-1">
-            <span>{{ result.away_team }}</span>
+            <span>{{ margin_hist[0].bucket }}</span>
             <span>0</span>
-            <span>{{ result.home_team }}</span>
+            <span>{{ "%+d"|format(margin_hist[-1].bucket) }}</span>
+        </div>
+        <div class="flex justify-between text-xs text-gray-500">
+            <span class="text-blue-400">{{ result.away_team }}</span>
+            <span class="text-green-400">{{ result.home_team }}</span>
         </div>
     </div>
     {% endif %}
 
-    <!-- Score Distribution Charts -->
+    <!-- Score Distribution Charts (aligned on same x-axis) -->
     {% if home_score_hist or away_score_hist %}
     <div class="bg-gray-700 rounded-lg p-3">
         <div class="text-gray-400 text-sm mb-2">Score Distributions</div>
 
         <!-- Home Score Distribution -->
-        <div class="mb-3">
+        <div class="mb-1">
             <div class="text-xs text-green-400 mb-1">{{ result.home_team }}</div>
             <div class="flex items-end gap-px h-10">
                 {% for bar in home_score_hist %}
@@ -67,6 +72,17 @@
                      title="{{ bar.bucket }}-{{ bar.bucket + 6 }} pts: {{ bar.count }}"></div>
                 {% endfor %}
             </div>
+        </div>
+
+        <!-- Shared X-axis ticks (both histograms have same buckets) -->
+        <div class="flex justify-between text-xs text-gray-500 mt-1">
+            {% if home_score_hist %}
+            <span>{{ home_score_hist[0].bucket }}</span>
+            {% if home_score_hist|length > 2 %}
+            <span>{{ home_score_hist[(home_score_hist|length // 2)].bucket }}</span>
+            {% endif %}
+            <span>{{ home_score_hist[-1].bucket }}</span>
+            {% endif %}
         </div>
     </div>
     {% endif %}
@@ -129,21 +145,53 @@
         </div>
     </div>
 
-    <!-- Game Flow Stats -->
+    <!-- Game Stats by Team -->
     <div class="bg-gray-700 rounded-lg p-3">
-        <div class="text-gray-400 text-sm mb-2">Game Flow</div>
+        <div class="text-gray-400 text-sm mb-2">Game Stats</div>
+
+        <!-- Header row -->
+        <div class="flex justify-between text-xs text-gray-500 mb-1 border-b border-gray-600 pb-1">
+            <span></span>
+            <span class="text-green-400">{{ result.home_team }}</span>
+            <span class="text-blue-400">{{ result.away_team }}</span>
+        </div>
+
         <div class="space-y-1 text-sm">
-            <div class="flex justify-between">
-                <span class="text-gray-400">Avg Drives</span>
-                <span class="font-mono">{{ "%.1f"|format(result.avg_drives) }}</span>
+            <!-- Touchdowns -->
+            <div class="flex justify-between items-center">
+                <span class="text-gray-400">Avg TDs</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_avg_tds) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_avg_tds) }}</span>
             </div>
-            <div class="flex justify-between">
-                <span class="text-gray-400">Avg Plays</span>
-                <span class="font-mono">{{ "%.1f"|format(result.avg_plays) }}</span>
+
+            <!-- Field Goals -->
+            <div class="flex justify-between items-center">
+                <span class="text-gray-400">Avg FGs</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_avg_fgs) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_avg_fgs) }}</span>
             </div>
-            <div class="flex justify-between">
-                <span class="text-gray-400">Simulations</span>
-                <span class="font-mono">{{ result.n_simulations }}</span>
+
+            <!-- Turnovers -->
+            <div class="flex justify-between items-center">
+                <span class="text-gray-400">Avg INTs</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_avg_turnovers) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_avg_turnovers) }}</span>
+            </div>
+
+            <!-- Game totals -->
+            <div class="border-t border-gray-600 pt-1 mt-1 space-y-1">
+                <div class="flex justify-between">
+                    <span class="text-gray-500">Total Plays</span>
+                    <span class="font-mono text-gray-400" colspan="2">{{ "%.0f"|format(result.avg_plays) }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-500">Total Drives</span>
+                    <span class="font-mono text-gray-400">{{ "%.0f"|format(result.avg_drives) }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-500">Simulations</span>
+                    <span class="font-mono text-gray-400">{{ result.n_simulations }}</span>
+                </div>
             </div>
         </div>
     </div>

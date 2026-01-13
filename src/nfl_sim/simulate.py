@@ -30,6 +30,8 @@ class SingleGameResult:
     home_win: bool
     margin: int  # home_score - away_score
     event_counts: dict[str, int] = field(default_factory=dict)
+    home_event_counts: dict[str, int] = field(default_factory=dict)
+    away_event_counts: dict[str, int] = field(default_factory=dict)
 
     @staticmethod
     def to_df(results: Collection[SingleGameResult]) -> pl.DataFrame:
@@ -138,6 +140,8 @@ class SimulationResult:
                 home_win=game.home_score > game.away_score,
                 margin=game.home_score - game.away_score,
                 event_counts=game.event_counts,
+                home_event_counts=game.home_event_counts,
+                away_event_counts=game.away_event_counts,
             )
             results.append(result)
         return cls(home_team, away_team, results)
