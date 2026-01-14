@@ -272,7 +272,6 @@ Web interface is a flask-based one page app to:
 ## Future Enhancements
 
 - **Penalty Handling:** Integrate penalties into game flow
-- **Smarter Time Consumption:** Clock stoppages are randomly sampled and should be modeled more realistically
 - **Player-Level Simulation:** Incorporate player statistics and depth charts
 - **Defense Play Selection:** Combine offense and defense play choices for realism
 - **Advanced Analytics:** Add more detailed statistics (EPA, success rate, etc.)

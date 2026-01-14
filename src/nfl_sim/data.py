@@ -46,6 +46,7 @@ def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
         and isinstance(d["away_team"], str)
     )
 
+# TODO: Remove last week of season when starters rest
 
 def pull_game_data(
     cur_date: datetime.datetime | None = None, week_window: int = 10
@@ -82,16 +83,19 @@ def pull_game_data(
     data = (
         nfl.load_pbp(min_year)
         .lazy()
+        # Filter to games within the window first.
         .filter(window_expr)
-        # Select only needed columns
-        .select(PBP_COLUMNS)
         # Include punts and field goals (play=0) alongside regular plays (play=1)
-        # Punts/FGs have yards_gained=0 but have kick_distance for processing
+        # Place this before selecting PBP columns to allow access to all the fields.
         .filter(
+            pl.col("qtr") <= 4,  # Removes overtime
             pl.col("yards_gained").is_not_null(),
-            pl.col("penalty") != 1,
+            pl.col("penalty") != 1,  # TODO: Remove and incorporate
+            # Punts/FGs have yards_gained=0 but have kick_distance for processing
             (pl.col("play") == 1) | (pl.col("play_type").is_in(["punt", "field_goal"])),
         )
+        # Select only needed columns
+        .select(PBP_COLUMNS)
         # This builds `__EVENT_KEY`
         .with_columns(pl.col("game_date").cast(pl.Date), build_event_expr())
         # Compute time_elapsed: seconds consumed by each play
