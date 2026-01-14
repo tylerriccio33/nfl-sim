@@ -100,10 +100,13 @@ def fetch_like_play(
 
     """
     # TODO: Update documentation
+    if down == 4 and yardline < 20:
+        pass
     idx = nfl_sim_core.filter_window(offensive_matrix, down, dist, yardline, wp, n=1)
     assert len(idx) != 0
     idx_int = int(idx[0])
     # For now, we just take the top play per the filter which is weighted by time, at least.
     # In the future, we could incorporate an interesting system of play selection.
     # `__getitem__` calls `slice` wayyy under the hood, so this is fastpath
+    # TODO: Why are we carrying around all these extra cols, which the event key should've replaced
     return offensive_df.slice(idx_int, 1)

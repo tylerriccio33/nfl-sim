@@ -3,16 +3,31 @@ use pyo3::prelude::*;
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 
-/// Window configuration: (dist_window, wp_window, yardline_window)
-/// Linear taper: dist ±2, wp ±0.05, yardline ±2 per step
-const WINDOW_CONFIGS: [(u32, f32, u32); 6] = [
-    (2, 0.05, 10),
-    (4, 0.10, 12),
-    (6, 0.15, 14),
-    (8, 0.20, 16),
-    (10, 0.25, 18),
-    (12, 0.30, 20),
+// Window configuration: (dist_window, wp_window, yardline_window)
+// This is for 1-3 down, where the yardline is less critical.
+const REGULAR_WINDOW_CONFIG: [(u32, f32, u32); 11] = [
+    // 2 - 10 - up to 30 yards
+    (2, 0.10, 20),
+    (2, 0.10, 30),
+    // 2 - 20 - up to 30 yards
+    (2, 0.20, 20),
+    (2, 0.20, 30),
+    // 4 - 10 - up to 30 yards
+    (4, 0.10, 20),
+    (4, 0.10, 30),
+    // 4 - 20 - up to 30 yards
+    (4, 0.20, 20),
+    (4, 0.20, 30),
+    // At this point we consider very wide dist and yardline
+    (10, 0.20, 10),
+    (10, 0.20, 20),
+    (10, 0.20, 30),
 ];
+
+// Fourth down and redzone plays are far more specific, and require tighter windows
+// to make the situation more realistic.
+// const FOURTH_AND_REDZONE_WINDOW_CONFIG
+// TODO: implement later
 
 /// Sample n indices from a list with exponential decay weighting toward earlier indices.
 /// Earlier indices (more recent plays) have higher probability of being selected.
@@ -75,7 +90,7 @@ fn filter_window<'py>(
     let cur_dist = if yardline < dist { yardline } else { dist };
 
     // Try progressively wider windows
-    for (dist_window, wp_window, yardline_window) in WINDOW_CONFIGS {
+    for (dist_window, wp_window, yardline_window) in REGULAR_WINDOW_CONFIG {
         let mut indices: Vec<usize> = Vec::new();
 
         // Hot loop optimized for branch prediction and cache locality
@@ -107,16 +122,19 @@ fn filter_window<'py>(
         }
     }
 
-    // Last resort: just match by down
-    let mut indices: Vec<usize> = Vec::new();
-    for i in 0..n_rows {
-        let sample_down = arr[[i, 0]] as u32;
-        if sample_down == down {
-            indices.push(i);
-        }
-    }
+    // For now, raise an error if no matches found
+    return PyArray1::from_vec(py, Vec::new());
 
-    PyArray1::from_vec(py, weighted_sample(indices, n))
+    // Last resort: just match by down
+    // let mut indices: Vec<usize> = Vec::new();
+    // for i in 0..n_rows {
+    //     let sample_down = arr[[i, 0]] as u32;
+    //     if sample_down == down {
+    //         indices.push(i);
+    //     }
+    // }
+
+    // PyArray1::from_vec(py, weighted_sample(indices, n))
 }
 
 /// NFL simulation core module implemented in Rust.

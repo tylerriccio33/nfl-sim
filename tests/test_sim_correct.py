@@ -360,4 +360,4 @@ def test_no_excessive_play_repetition(
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-sv", "-k", "test_play_descriptions_match_offensive_team"])
+    pytest.main([__file__, "-sv", "-k", "test_no_excessive_play_repetition"])
