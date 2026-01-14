@@ -43,7 +43,7 @@ class _GameOrchestrator:
         # Track which team was on offense for each drive
         self._drive_teams: list[str] = []
         self._engine = GameEngine()
-        # Fixed order: (home, away) - doesn't change when possession flips
+
         self._team_order: tuple[str, str] = (home_team, away_team)
         self._posteam, self._defteam = self._team_order
         self._posteam_score, self._defteam_score = 0, 0
@@ -86,11 +86,7 @@ class _GameOrchestrator:
         drive_plays: list[PlayRecord] = self._engine.collect_drive()
         self.drives.append(drive_plays)
         self._drive_teams.append(self._posteam)
-        logger.debug(
-            "Drive ended: {} plays, reason: {}",
-            len(drive_plays),
-            event_name,
-        )
+        logger.debug("Drive ended: {} plays, reason: {}", len(drive_plays), event_name)
 
         # Track per-team events
         home = self._team_order[0]

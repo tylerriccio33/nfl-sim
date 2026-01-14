@@ -1,57 +1,92 @@
 """Shared fixtures for NFL sim tests."""
 
+from typing import Any
+
 import polars as pl
 import pytest
 
 from nfl_sim._event import build_event_expr
 from nfl_sim.play import GameEngine
 
+# =============================================================================
+# SINGLE SOURCE OF TRUTH: Default columns for test play data
+# =============================================================================
+# When adding new columns to the engine, update this dict and all tests will
+# automatically have access to the new column with a sensible default.
 
-@pytest.fixture
-def game() -> GameEngine:
-    """Fresh game state at default position (1st and 10 at own 25)."""
-    return GameEngine()
+DEFAULT_PLAY_COLUMNS: dict[str, Any] = {
+    # Team info
+    "posteam": "KC",
+    "defteam": "BUF",
+    # Game state (for filtering/sampling)
+    "down": 1,
+    "ydstogo": 10,
+    "yardline_100": 75,
+    "wp": 0.5,
+    # Play result
+    "yards_gained": 5,
+    "desc": "Test play",
+    "time_elapsed": 25,
+    # Event detection columns
+    "touchdown": 0,
+    "interception": 0,
+    "return_touchdown": 0,
+    "fumble_lost": 0,
+    "field_goal_result": None,
+    "punt_attempt": 0,
+    "punt_blocked": 0,
+    "punt_in_endzone": 0,
+    "punt_fair_catch": 0,
+    "punt_out_of_bounds": 0,
+    "kick_distance": None,
+}
 
 
-@pytest.fixture
-def mock_play_data() -> pl.DataFrame:
-    """Sample play data for Samples class testing.
+def build_test_play_data(
+    rows: list[dict[str, Any]] | None = None,
+    n_rows: int = 1,
+    **column_overrides: Any,
+) -> pl.DataFrame:
+    """Build test play DataFrame with sensible defaults.
 
-    Mimics nflverse play-by-play structure with required columns.
+    Single source of truth for test data creation. Automatically applies
+    build_event_expr() to generate __EVENT_KEY.
+
+    Args:
+        rows: List of row dicts with column overrides per row. If provided,
+              n_rows is ignored.
+        n_rows: Number of rows to generate (all with same values).
+        **column_overrides: Override default values for all rows.
+
+    Returns:
+        DataFrame with all required columns and __EVENT_KEY computed.
+
+    Examples:
+        # Single row with defaults
+        df = build_test_play_data()
+
+        # Multiple rows with same values
+        df = build_test_play_data(n_rows=5, touchdown=1)
+
+        # Custom rows with different values
+        df = build_test_play_data(rows=[
+            {"posteam": "KC", "yards_gained": 10},
+            {"posteam": "BUF", "yards_gained": -5, "interception": 1},
+        ])
+
     """
-    return pl.DataFrame(
-        {
-            "posteam": ["KC", "KC", "KC", "KC", "KC", "BUF", "BUF", "BUF"],
-            "defteam": ["BUF", "BUF", "BUF", "BUF", "BUF", "KC", "KC", "KC"],
-            "down": [1, 2, 3, 1, 2, 1, 2, 3],
-            "ydstogo": [10, 5, 3, 10, 8, 10, 7, 4],
-            "yardline_100": [75, 70, 68, 45, 40, 80, 73, 69],
-            "wp": [0.5, 0.52, 0.48, 0.55, 0.53, 0.45, 0.47, 0.44],
-            "yards_gained": [5, 2, 8, 5, 12, 7, 4, 15],
-            "desc": [
-                "KC rush for 5 yards",
-                "KC pass incomplete",
-                "KC pass for 8 yards",
-                "KC rush for 5 yards",
-                "KC pass for 12 yards TD",
-                "BUF rush for 7 yards",
-                "BUF pass for 4 yards",
-                "BUF pass for 15 yards",
-            ],
-            "touchdown": [0, 0, 0, 0, 1, 0, 0, 0],
-            "field_goal_result": [None, None, None, None, None, None, None, None],
-            "punt_blocked": [0, 0, 0, 0, 0, 0, 0, 0],
-            "punt_in_endzone": [0, 0, 0, 0, 0, 0, 0, 0],
-            "punt_fair_catch": [0, 0, 0, 0, 0, 0, 0, 0],
-            "punt_out_of_bounds": [0, 0, 0, 0, 0, 0, 0, 0],
-            "punt_attempt": [0, 0, 0, 0, 0, 0, 0, 0],
-            "interception": [0, 0, 0, 0, 0, 0, 0, 0],
-            "return_touchdown": [0, 0, 0, 0, 0, 0, 0, 0],
-            "kick_distance": [None, None, None, None, None, None, None, None],
-            "fumble_lost": [0, 0, 0, 0, 0, 0, 0, 0],
-            "time_elapsed": [25, 30, 22, 28, 35, 20, 25, 30],
-        }
-    ).with_columns(build_event_expr())
+    if rows is not None:
+        # Build from explicit row list
+        data: dict[str, list[Any]] = {col: [] for col in DEFAULT_PLAY_COLUMNS}
+        for row in rows:
+            for col, default in DEFAULT_PLAY_COLUMNS.items():
+                data[col].append(row.get(col, default))
+    else:
+        # Build n_rows with same values
+        merged = {**DEFAULT_PLAY_COLUMNS, **column_overrides}
+        data = {col: [val] * n_rows for col, val in merged.items()}
+
+    return pl.DataFrame(data).with_columns(build_event_expr())
 
 
 def make_play_row(
@@ -70,23 +105,123 @@ def make_play_row(
     desc: str = "Test play",
     time_elapsed: int = 25,
 ) -> pl.DataFrame:
-    """Helper to create a single play row for GameEngine.ingest_new_play()."""
-    df = pl.DataFrame(
-        {
-            "yards_gained": [yards_gained],
-            "desc": [desc],
-            "touchdown": [touchdown],
-            "field_goal_result": [field_goal_result],
-            "punt_blocked": [punt_blocked],
-            "punt_in_endzone": [punt_in_endzone],
-            "punt_fair_catch": [punt_fair_catch],
-            "punt_out_of_bounds": [punt_out_of_bounds],
-            "punt_attempt": [punt_attempt],
-            "interception": [interception],
-            "return_touchdown": [return_touchdown],
-            "kick_distance": [kick_distance],
-            "fumble_lost": [fumble_lost],
-            "time_elapsed": [time_elapsed],
-        }
+    """Helper to create a single play row for GameEngine.ingest_new_play().
+
+    Convenience wrapper around build_test_play_data for single-row creation
+    with explicit parameters (better IDE autocomplete).
+    """
+    return build_test_play_data(
+        yards_gained=yards_gained,
+        touchdown=touchdown,
+        interception=interception,
+        return_touchdown=return_touchdown,
+        field_goal_result=field_goal_result,
+        punt_attempt=punt_attempt,
+        punt_blocked=punt_blocked,
+        punt_in_endzone=punt_in_endzone,
+        punt_fair_catch=punt_fair_catch,
+        punt_out_of_bounds=punt_out_of_bounds,
+        kick_distance=kick_distance,
+        fumble_lost=fumble_lost,
+        desc=desc,
+        time_elapsed=time_elapsed,
     )
-    return df.with_columns(build_event_expr())
+
+
+@pytest.fixture
+def game() -> GameEngine:
+    """Fresh game state at default position (1st and 10 at own 25)."""
+    return GameEngine()
+
+
+@pytest.fixture
+def mock_play_data() -> pl.DataFrame:
+    """Sample play data for Samples class testing.
+
+    Mimics nflverse play-by-play structure with required columns.
+    """
+    return build_test_play_data(
+        rows=[
+            {
+                "posteam": "KC",
+                "defteam": "BUF",
+                "down": 1,
+                "ydstogo": 10,
+                "yardline_100": 75,
+                "wp": 0.50,
+                "yards_gained": 5,
+                "desc": "KC rush for 5 yards",
+            },
+            {
+                "posteam": "KC",
+                "defteam": "BUF",
+                "down": 2,
+                "ydstogo": 5,
+                "yardline_100": 70,
+                "wp": 0.52,
+                "yards_gained": 2,
+                "desc": "KC pass incomplete",
+            },
+            {
+                "posteam": "KC",
+                "defteam": "BUF",
+                "down": 3,
+                "ydstogo": 3,
+                "yardline_100": 68,
+                "wp": 0.48,
+                "yards_gained": 8,
+                "desc": "KC pass for 8 yards",
+            },
+            {
+                "posteam": "KC",
+                "defteam": "BUF",
+                "down": 1,
+                "ydstogo": 10,
+                "yardline_100": 45,
+                "wp": 0.55,
+                "yards_gained": 5,
+                "desc": "KC rush for 5 yards",
+            },
+            {
+                "posteam": "KC",
+                "defteam": "BUF",
+                "down": 2,
+                "ydstogo": 8,
+                "yardline_100": 40,
+                "wp": 0.53,
+                "yards_gained": 12,
+                "desc": "KC pass for 12 yards TD",
+                "touchdown": 1,
+            },
+            {
+                "posteam": "BUF",
+                "defteam": "KC",
+                "down": 1,
+                "ydstogo": 10,
+                "yardline_100": 80,
+                "wp": 0.45,
+                "yards_gained": 7,
+                "desc": "BUF rush for 7 yards",
+            },
+            {
+                "posteam": "BUF",
+                "defteam": "KC",
+                "down": 2,
+                "ydstogo": 7,
+                "yardline_100": 73,
+                "wp": 0.47,
+                "yards_gained": 4,
+                "desc": "BUF pass for 4 yards",
+            },
+            {
+                "posteam": "BUF",
+                "defteam": "KC",
+                "down": 3,
+                "ydstogo": 4,
+                "yardline_100": 69,
+                "wp": 0.44,
+                "yards_gained": 15,
+                "desc": "BUF pass for 15 yards",
+            },
+        ]
+    )

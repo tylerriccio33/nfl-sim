@@ -2,8 +2,8 @@
 
 import polars as pl
 import pytest
+from conftest import build_test_play_data
 
-from nfl_sim._event import build_event_expr
 from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
 
@@ -11,30 +11,175 @@ from nfl_sim.game import _GameOrchestrator
 @pytest.fixture
 def game_samples_data() -> pl.DataFrame:
     """Play data with variety of outcomes for Game testing."""
-    return pl.DataFrame(
+    # KC plays
+    kc_plays = [
         {
-            "posteam": ["KC"] * 10 + ["BUF"] * 10,
-            "defteam": ["BUF"] * 10 + ["KC"] * 10,
-            "down": [1, 2, 3, 4, 1, 2, 3, 1, 2, 1] * 2,
-            "ydstogo": [10, 5, 3, 1, 10, 8, 5, 10, 7, 10] * 2,
-            "yardline_100": [25, 30, 35, 38, 50, 55, 60, 75, 80, 90] * 2,
-            "wp": [0.5] * 20,
-            "yards_gained": [5, 5, 3, 12, 5, 5, 15, 5, 10, 10] * 2,
-            "desc": ["Play"] * 20,
-            "touchdown": [0, 0, 0, 0, 0, 0, 1, 0, 0, 0] * 2,
-            "field_goal_result": [None] * 20,
-            "punt_blocked": [0] * 20,
-            "punt_in_endzone": [0] * 20,
-            "punt_fair_catch": [0] * 20,
-            "punt_out_of_bounds": [0] * 20,
-            "punt_attempt": [0] * 20,
-            "interception": [0] * 20,
-            "return_touchdown": [0] * 20,
-            "kick_distance": [None] * 20,
-            "fumble_lost": [0] * 20,
-            "time_elapsed": [25] * 20,
-        }
-    ).with_columns(build_event_expr())
+            "posteam": "KC",
+            "defteam": "BUF",
+            "down": 1,
+            "ydstogo": 10,
+            "yardline_100": 25,
+            "yards_gained": 5,
+        },
+        {
+            "posteam": "KC",
+            "defteam": "BUF",
+            "down": 2,
+            "ydstogo": 5,
+            "yardline_100": 30,
+            "yards_gained": 5,
+        },
+        {
+            "posteam": "KC",
+            "defteam": "BUF",
+            "down": 3,
+            "ydstogo": 3,
+            "yardline_100": 35,
+            "yards_gained": 3,
+        },
+        {
+            "posteam": "KC",
+            "defteam": "BUF",
+            "down": 4,
+            "ydstogo": 1,
+            "yardline_100": 38,
+            "yards_gained": 12,
+        },
+        {
+            "posteam": "KC",
+            "defteam": "BUF",
+            "down": 1,
+            "ydstogo": 10,
+            "yardline_100": 50,
+            "yards_gained": 5,
+        },
+        {
+            "posteam": "KC",
+            "defteam": "BUF",
+            "down": 2,
+            "ydstogo": 8,
+            "yardline_100": 55,
+            "yards_gained": 5,
+        },
+        {
+            "posteam": "KC",
+            "defteam": "BUF",
+            "down": 3,
+            "ydstogo": 5,
+            "yardline_100": 60,
+            "yards_gained": 15,
+            "touchdown": 1,
+        },
+        {
+            "posteam": "KC",
+            "defteam": "BUF",
+            "down": 1,
+            "ydstogo": 10,
+            "yardline_100": 75,
+            "yards_gained": 5,
+        },
+        {
+            "posteam": "KC",
+            "defteam": "BUF",
+            "down": 2,
+            "ydstogo": 7,
+            "yardline_100": 80,
+            "yards_gained": 10,
+        },
+        {
+            "posteam": "KC",
+            "defteam": "BUF",
+            "down": 1,
+            "ydstogo": 10,
+            "yardline_100": 90,
+            "yards_gained": 10,
+        },
+    ]
+    # BUF plays (same structure)
+    buf_plays = [
+        {
+            "posteam": "BUF",
+            "defteam": "KC",
+            "down": 1,
+            "ydstogo": 10,
+            "yardline_100": 25,
+            "yards_gained": 5,
+        },
+        {
+            "posteam": "BUF",
+            "defteam": "KC",
+            "down": 2,
+            "ydstogo": 5,
+            "yardline_100": 30,
+            "yards_gained": 5,
+        },
+        {
+            "posteam": "BUF",
+            "defteam": "KC",
+            "down": 3,
+            "ydstogo": 3,
+            "yardline_100": 35,
+            "yards_gained": 3,
+        },
+        {
+            "posteam": "BUF",
+            "defteam": "KC",
+            "down": 4,
+            "ydstogo": 1,
+            "yardline_100": 38,
+            "yards_gained": 12,
+        },
+        {
+            "posteam": "BUF",
+            "defteam": "KC",
+            "down": 1,
+            "ydstogo": 10,
+            "yardline_100": 50,
+            "yards_gained": 5,
+        },
+        {
+            "posteam": "BUF",
+            "defteam": "KC",
+            "down": 2,
+            "ydstogo": 8,
+            "yardline_100": 55,
+            "yards_gained": 5,
+        },
+        {
+            "posteam": "BUF",
+            "defteam": "KC",
+            "down": 3,
+            "ydstogo": 5,
+            "yardline_100": 60,
+            "yards_gained": 15,
+            "touchdown": 1,
+        },
+        {
+            "posteam": "BUF",
+            "defteam": "KC",
+            "down": 1,
+            "ydstogo": 10,
+            "yardline_100": 75,
+            "yards_gained": 5,
+        },
+        {
+            "posteam": "BUF",
+            "defteam": "KC",
+            "down": 2,
+            "ydstogo": 7,
+            "yardline_100": 80,
+            "yards_gained": 10,
+        },
+        {
+            "posteam": "BUF",
+            "defteam": "KC",
+            "down": 1,
+            "ydstogo": 10,
+            "yardline_100": 90,
+            "yards_gained": 10,
+        },
+    ]
+    return build_test_play_data(rows=kc_plays + buf_plays)
 
 
 @pytest.fixture

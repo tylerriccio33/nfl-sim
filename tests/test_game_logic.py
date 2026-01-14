@@ -2,9 +2,9 @@
 
 import polars as pl
 import pytest
-from conftest import make_play_row
+from conftest import build_test_play_data, make_play_row
 
-from nfl_sim._event import _MetaEvent, build_event_expr
+from nfl_sim._event import _MetaEvent
 from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
 
@@ -20,30 +20,12 @@ def process_play(game: _GameOrchestrator, play_row: pl.DataFrame) -> None:
 @pytest.fixture
 def minimal_play_data() -> pl.DataFrame:
     """Minimal play data to create valid Samples."""
-    return pl.DataFrame(
-        {
-            "posteam": ["KC", "BUF"],
-            "defteam": ["BUF", "KC"],
-            "down": [1, 1],
-            "ydstogo": [10, 10],
-            "yardline_100": [25, 25],
-            "wp": [0.5, 0.5],
-            "yards_gained": [5, 5],
-            "desc": ["Play"] * 2,
-            "touchdown": [0, 0],
-            "field_goal_result": [None, None],
-            "punt_blocked": [0, 0],
-            "punt_in_endzone": [0, 0],
-            "punt_fair_catch": [0, 0],
-            "punt_out_of_bounds": [0, 0],
-            "punt_attempt": [0, 0],
-            "interception": [0, 0],
-            "return_touchdown": [0, 0],
-            "kick_distance": [None, None],
-            "fumble_lost": [0, 0],
-            "time_elapsed": [25, 25],
-        }
-    ).with_columns(build_event_expr())
+    return build_test_play_data(
+        rows=[
+            {"posteam": "KC", "defteam": "BUF", "yardline_100": 25},
+            {"posteam": "BUF", "defteam": "KC", "yardline_100": 25},
+        ]
+    )
 
 
 @pytest.fixture

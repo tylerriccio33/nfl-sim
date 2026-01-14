@@ -158,10 +158,11 @@ class GameEngine:
         """Collect all plays from current drive and reset."""
         cur_drive = self._drive.copy()
         self._drive = []
-        return cur_drive
+        return cur_drive  # TODO: Don't love this method, feels weird to mod class and return
 
     def ingest_new_play(self, play_row: pl.DataFrame) -> None:
         """Method for updating the play completely, triggering properties."""
+        # TODO: I'd actually like a better more fuller description
         # This is a hot function, order it intelligently!
         row = play_row.row(0, named=True)
 
