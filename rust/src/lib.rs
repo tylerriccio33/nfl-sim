@@ -4,10 +4,14 @@ use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 
 /// Window configuration: (dist_window, wp_window, yardline_window)
-const WINDOW_CONFIGS: [(u32, f32, u32); 3] = [
-    (2, 0.1, 10),   // Tight
-    (5, 0.15, 15),  // Medium
-    (10, 0.25, 25), // Wide: fallback for rare situations
+/// Linear taper: dist ±2, wp ±0.05, yardline ±2 per step
+const WINDOW_CONFIGS: [(u32, f32, u32); 6] = [
+    (2, 0.05, 10),
+    (4, 0.10, 12),
+    (6, 0.15, 14),
+    (8, 0.20, 16),
+    (10, 0.25, 18),
+    (12, 0.30, 20),
 ];
 
 /// Sample n indices from a list with exponential decay weighting toward earlier indices.

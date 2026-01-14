@@ -1,6 +1,5 @@
 """Run simulation benchmarks using N-times simulation."""
 
-import datetime
 import sys
 import time
 
@@ -33,7 +32,7 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
     console = Console()
 
     with console.status("[bold blue]Loading game data..."):
-        schedule = ScheduleData.from_cur_week(datetime.datetime.now(), rm_complete=True)
+        schedule = ScheduleData.from_cur_week(rm_complete=True)
         data = pull_game_data()
 
     # Build game orchestrator using game_factory (partitions data once upfront)

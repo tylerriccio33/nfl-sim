@@ -11,7 +11,11 @@ from nfl_sim.data import ScheduleData, game_factory, pull_game_data
 from nfl_sim.simulate import SimulationResult
 
 NGAMES = 500
-NSIMS = 100
+NSIMS = 250
+
+BEST_RMSE = 15.32
+
+# TODO: Need a better way to log the "best" RMSE
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -210,6 +214,9 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
     console.print()
     console.print(samples_table)
     console.print()
+
+    if stats["model_rmse"] < BEST_RMSE:
+        console.print(f"Model RMSE was better than best ({BEST_RMSE})")
 
 
 def main() -> None:

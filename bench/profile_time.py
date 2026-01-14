@@ -4,7 +4,6 @@ Run with: uv run python bench/profile_time.py
 Output saved to: bench/profile_results.txt
 """
 
-import datetime
 import sys
 from pathlib import Path
 
@@ -46,7 +45,7 @@ def main() -> None:
 
     # Load data
     print("Loading data...")
-    schedule = ScheduleData.from_cur_week(datetime.datetime.now(), rm_complete=True)
+    schedule = ScheduleData.from_cur_week(rm_complete=True)
     data = pull_game_data()
 
     # Build game orchestrators using game_factory (partitions data once upfront)

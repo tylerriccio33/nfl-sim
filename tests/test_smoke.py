@@ -6,18 +6,16 @@ and produce statistically reasonable results.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+import polars as pl
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from nfl_sim._sampling import SampleData, build_sample_data
 from nfl_sim.data import pull_game_data
 from nfl_sim.game import _GameOrchestrator
 
-if TYPE_CHECKING:
-    import polars as pl
+# TODO: In general, we should probably increase the samples
 
 
 @pytest.fixture(scope="module")
@@ -175,8 +173,6 @@ def test_yards_gained_stats_reasonable(
     game.play_game()
 
     play_games = game.game_data
-    if len(play_games) == 0:
-        pytest.skip("No play_games recorded")
 
     yards = play_games["yards_gained"].to_list()
 
@@ -221,12 +217,131 @@ def test_rand_game(game_data: pl.DataFrame) -> None:
     game.play_game()
     print(game)
 
-@pytest.mark.skip(reason = 'not implemented')
-def test_fourth_and_one_redzone_no_punt():
-    # TODO: If team in the redzone, they should never punt!
-    pass
+
+@given(
+    home_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
+    away_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
+)
+@settings(
+    max_examples=5,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+def test_no_punt_from_redzone(game_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
+    """Teams should never punt from within the redzone (yardline_100 <= 25)."""
+    game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
+    game.play_game()
+
+    plays = game.game_data
+    # Filter to punt events
+    punt_events = ["PuntRegular", "PuntBlocked", "PuntEndzone"]
+    punt_plays = plays.filter(pl.col("event").is_in(punt_events))
+
+    for row in punt_plays.iter_rows(named=True):
+        yardline = row["yardline"]
+        event = row["event"]
+        # Redzone is yardline_100 <= 25 (within 25 yards of opponent's endzone)
+        assert yardline > 25, (
+            f"Punt from redzone! {event} at yardline {yardline} (should be > 25 to punt)"
+        )
+
+
+@given(
+    home_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
+    away_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
+)
+@settings(
+    max_examples=10,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+)
+def test_play_descriptions_match_offensive_team(
+    game_data: pl.DataFrame, home_idx: int, away_idx: int
+) -> None:
+    """Play descriptions should come from the correct team's sample set.
+
+    The desc field comes from historical plays where that team was on offense.
+    We verify by checking that the offensive team's abbreviation appears in
+    more play descriptions than the defensive team's.
+    """
+    home_team = NFL_TEAMS[home_idx]
+    away_team = NFL_TEAMS[away_idx]
+
+    # Filter out same-team matchups (descriptions would be ambiguous)
+    assume(home_team != away_team)
+
+    game = create_game(game_data, home_team, away_team)
+    game.play_game()
+
+    plays = game.game_data
+
+    # Check each play's description contains the offensive team
+    mismatches = []
+    for row in plays.iter_rows(named=True):
+        team = row["team"]
+        desc = row["desc"]
+        if team is None or desc is None:
+            continue
+
+        # The opponent for this play
+        opponent = away_team if team == home_team else home_team
+
+        # Check if offensive team appears in description more than opponent
+        # NFL descriptions typically mention the team/player on offense
+        team_in_desc = team in desc
+        opponent_in_desc = opponent in desc
+
+        # Flag if opponent appears but offensive team doesn't
+        if opponent_in_desc and not team_in_desc:
+            mismatches.append({"team": team, "opponent": opponent, "desc": desc[:100]})
+
+    # Allow some mismatches (interceptions, etc. mention both teams)
+    # but majority should be correct
+    mismatch_rate = len(mismatches) / len(plays) if len(plays) > 0 else 0
+    assert mismatch_rate < 0.1, (
+        f"Too many plays with wrong team in description: {len(mismatches)}/{len(plays)} "
+        f"({mismatch_rate:.1%}). Examples: {mismatches[:3]}"
+    )
+
+
+@given(
+    home_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
+    away_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
+)
+@settings(
+    max_examples=5,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+def test_no_excessive_play_repetition(
+    game_data: pl.DataFrame, home_idx: int, away_idx: int
+) -> None:
+    """Same play should not be selected more than 5 times in a single game.
+
+    Uses play description hash as a proxy for play identity since play_id
+    is not carried through to game data.
+    """
+    game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
+    game.play_game()
+
+    plays = game.game_data
+
+    # Count occurrences of each unique description
+    desc_counts: dict[str, int] = {}
+    for row in plays.iter_rows(named=True):
+        desc = row["desc"]
+        if desc is not None:
+            desc_counts[desc] = desc_counts.get(desc, 0) + 1
+
+    # Find any descriptions that appear too often
+    max_repetitions = 5
+    violations = {desc: count for desc, count in desc_counts.items() if count > max_repetitions}
+
+    assert len(violations) == 0, (
+        f"Some plays selected too many times (max allowed: {max_repetitions}): "
+        f"{[(desc[:60] + '...', count) for desc, count in list(violations.items())[:3]]}"
+    )
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-sv", "-k", "test_rand_game"])
-
+    pytest.main([__file__, "-sv"])

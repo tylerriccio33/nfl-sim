@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, TypeIs, cast
 
 import nflreadpy as nfl
 import polars as pl
+from loguru import logger
 from nflreadpy.utils_date import get_current_season, get_current_week
 
 from nfl_sim._columns import PBP_COLUMNS
@@ -144,9 +145,7 @@ class ScheduleData:
         return row
 
     @classmethod
-    def from_cur_week(
-        cls, cur_date: datetime.datetime | None = None, rm_complete: bool = True
-    ) -> ScheduleData:
+    def from_cur_week(cls, rm_complete: bool = True) -> ScheduleData:
         """Load schedule data for the current NFL week.
 
         Args:
@@ -161,6 +160,8 @@ class ScheduleData:
         df = cls._loader(seasons=cur_year).filter(pl.col("week") == cur_week)
         if rm_complete:
             df = df.filter(pl.col("result").is_null())
+        if len(df) == 0:
+            logger.warning("There were no games pulled for the current year and week.")
         return cls(df)
 
     @classmethod
@@ -213,7 +214,7 @@ def game_factory(
     game_metadata: list[GameMetadata]
     if isinstance(schedule, ScheduleData):
         game_metadata = schedule.as_metadata()
-    else:
+    else:  # TODO: Why?
         game_metadata = schedule
 
     # Build orchestrator for each game

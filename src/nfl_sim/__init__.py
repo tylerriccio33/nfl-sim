@@ -1,6 +1,5 @@
 """Main entry point for NFL game simulation."""
 
-import datetime
 import sys
 
 from loguru import logger
@@ -28,9 +27,7 @@ def run_week() -> None:
     console = Console()
 
     with console.status("[bold blue]Loading game data..."):
-        game_metadata = ScheduleData.from_cur_week(
-            cur_date=datetime.datetime.now(), rm_complete=True
-        )
+        game_metadata = ScheduleData.from_cur_week(rm_complete=True)
         data = pull_game_data()
 
     # Get first game metadata

@@ -141,13 +141,13 @@ def get_schedule() -> ScheduleData:
     Falls back to most recent week with games if current week is empty.
     """
     global _schedule
-    if _schedule is None:
+    if _schedule is None:  # TODO: Surely this can be optimized
         # Try to get incomplete games first
-        schedule = ScheduleData.from_cur_week(cur_date=datetime.datetime.now(), rm_complete=True)
+        schedule = ScheduleData.from_cur_week(rm_complete=True)
 
         # If no incomplete games, show all games for the week (including completed)
         if len(schedule.df) == 0:
-            schedule = ScheduleData.from_cur_week(cur_date=datetime.datetime.now(), rm_complete=False)
+            schedule = ScheduleData.from_cur_week(rm_complete=False)
 
         # If still no games (offseason), get the most recent week with games
         if len(schedule.df) == 0:
