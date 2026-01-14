@@ -70,7 +70,7 @@ class SimulationResult:
     _stat_cache: dict[str, float] = field(default_factory=dict, repr=False)
 
     @property
-    def _df(self) -> pl.DataFrame:
+    def df(self) -> pl.DataFrame:
         """Lazily build DataFrame from individual results."""
         if self._df_cache is None:
             self._df_cache = pl.DataFrame(
@@ -93,7 +93,7 @@ class SimulationResult:
         cache_key = str(expr)
         if cache_key in self._stat_cache:
             return self._stat_cache[cache_key]
-        result = self._df.select(expr).item()
+        result = self.df.select(expr).item()
         value = float(result) if result is not None else 0.0
         self._stat_cache[cache_key] = value
         return value

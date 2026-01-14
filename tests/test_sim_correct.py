@@ -1,7 +1,7 @@
-"""End-to-end smoke tests using Hypothesis for property-based testing.
+"""Tests to ensure the simulation is a correct NFL game.
 
 These tests verify that full game simulations complete without errors
-and produce statistically reasonable results.
+and produce reasonable results.
 """
 
 from __future__ import annotations

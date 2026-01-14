@@ -204,6 +204,7 @@ def mock_pbp_data() -> pl.DataFrame:
 @pytest.fixture(scope="module")
 def game_data(mock_pbp_data: pl.DataFrame) -> pl.DataFrame:
     """Filter play-by-play data for simulation tests."""
+    # TODO: Need to rely on the data functions to do this cleaning
     return (
         mock_pbp_data.lazy()
         .filter(
@@ -376,7 +377,7 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
         away_samples=away_samples,
         home_team=home_team,
         away_team=away_team,
-        n=100,
+        n=200,
     )
 
     result2 = SimulationResult.simulate(
@@ -384,25 +385,65 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
         away_samples=away_samples,
         home_team=home_team,
         away_team=away_team,
-        n=100,
+        n=200,
     )
 
-    # Averages should be close
-    home_diff = abs(
-        result1.get_stat(pl.col("home_score").mean())
-        - result2.get_stat(pl.col("home_score").mean())
+    # Assumption is with 200 results each, the samples should converge strongly.
+    exprs = (
+        pl.all().sum().name.prefix("sum_"),
+        pl.all().mean().name.prefix("mean_"),
+        pl.all().std().name.prefix("std_"),
     )
-    away_diff = abs(
-        result1.get_stat(pl.col("away_score").mean())
-        - result2.get_stat(pl.col("away_score").mean())
-    )
-    win_diff = abs(
-        result1.get_stat(pl.col("home_win").mean()) - result2.get_stat(pl.col("home_win").mean())
+    sim_compare_summary = pl.concat(
+        [
+            # (1, n) -> (n, 2)
+            # assumes the unpivot keeps variables in order
+            result1.df.select(exprs).unpivot(value_name="run1"),
+            result2.df.select(exprs).unpivot(value_name="run2").drop("variable"),
+        ],
+        how="horizontal",
+    ).with_columns(
+        cat=pl.when(pl.col("variable").str.starts_with("sum_"))
+        .then(pl.lit("sum"))
+        .when(pl.col("variable").str.starts_with("std"))
+        .then(pl.lit("std"))
+        .when(pl.col("variable").str.starts_with("mean"))
+        .then(pl.lit("mean"))
     )
 
-    assert home_diff < 4, f"Home score avg differs by {home_diff:.1f} points"
-    assert away_diff < 4, f"Away score avg differs by {away_diff:.1f} points"
-    assert win_diff < 0.15, f"Win pct differs by {win_diff:.1%}"
+    # TODO: Need to consolidate this with other tests, can accomplish a lot right here.
+
+    ## For Sums and std we'll test within some tolerance.
+    tol_cats = ("sum", "std")
+    tol = 0.1
+    offendors = (
+        sim_compare_summary.filter(pl.col("cat").is_in(tol_cats))
+        .select("variable", pct_diff=(pl.col("run1") - pl.col("run2")).abs() / pl.col("run1").abs())
+        .filter(pl.col("pct_diff") > tol)
+    )
+    for row in offendors.iter_rows():
+        field, val = row
+        raise AssertionError(
+            f"Field: `{field}` is {val * 100:.2}% different between identical runs."
+        )
+
+    ## For mean we'll use some preset heuristics.
+    mean_results_abs = sim_compare_summary.filter(pl.col("cat").eq("mean")).select(
+        pl.col("variable").str.strip_prefix("mean_"), diff=(pl.col("run1") - pl.col("run2")).abs()
+    )
+    # TODO: Probably want to hoist these upwards to avoid editing code if we want to update these
+    tol_map = {
+        "home_score": 3,
+        "away_score": 3,
+        "margin": 2,
+        "num_drives": 2,
+        "total_plays": 10,
+        "home_win": 10,
+    }
+    for row in mean_results_abs.iter_rows():
+        field, diff = row
+        tol = tol_map[field]
+        assert diff < tol, f"Field: `{field}` is not within tolerance ({tol}) across runs: {diff}."
 
 
 def test_sample_pool_diversity(game_data: pl.DataFrame, available_teams: list[str]):

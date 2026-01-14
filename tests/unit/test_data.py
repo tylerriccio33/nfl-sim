@@ -13,7 +13,7 @@ from nfl_sim.data import (
     pull_game_data,
 )
 
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
 
 @pytest.fixture
