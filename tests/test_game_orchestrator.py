@@ -6,6 +6,7 @@ from conftest import build_test_play_data
 
 from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
+from nfl_sim.play import PlayRecord
 
 
 @pytest.fixture
@@ -206,7 +207,7 @@ def test_game_init(game_with_samples: _GameOrchestrator):
     assert game_with_samples._defteam == "BUF"
     assert game_with_samples._posteam_score == 0
     assert game_with_samples._defteam_score == 0
-    assert game_with_samples.drives == []
+    assert game_with_samples.num_drives == 0
 
 
 def test_team_order_tuple(game_with_samples: _GameOrchestrator):
@@ -263,14 +264,31 @@ def test_game_data_empty(game_with_samples: _GameOrchestrator):
 def test_repr(game_with_samples: _GameOrchestrator):
     game_with_samples._posteam_score = 14
     game_with_samples._defteam_score = 7
-    game_with_samples.drives = [[], [], []]  # 3 empty drives
+    game_with_samples._current_drive_id = 2  # After 2 completed drives, on drive 2
+    # Add a play so num_drives counts the in-progress drive
+    game_with_samples._plays = [
+        PlayRecord(
+            down=1,
+            dist=10,
+            yardline=75,
+            yards_gained=5,
+            desc="Test",
+            event=None,
+            posteam="KC",
+            drive_id=2,
+            home_score=14,
+            away_score=7,
+            quarter=1,
+            half_seconds_remaining=100,
+        )
+    ]
 
     result = repr(game_with_samples)
     assert "KC" in result
     assert "BUF" in result
     assert "14" in result
     assert "7" in result
-    assert "3 drives" in result
+    assert "3 drives" in result  # drive_id 0, 1, 2 = 3 drives
 
 
 def test_repr_swapped_possession(game_with_samples: _GameOrchestrator):
@@ -288,16 +306,56 @@ def test_repr_swapped_possession(game_with_samples: _GameOrchestrator):
 # game_data with plays
 
 
-def test_game_data_with_drives(game_with_samples: _GameOrchestrator):
-    """Test game_data when there are plays in drives."""
-    game_with_samples.drives = [
-        [(1, 10, 25, 5, "Rush for 5", None), (2, 5, 30, 10, "Pass for 10", "Touchdown")],
-        [(1, 10, 40, 7, "Rush for 7", None)],
+def test_game_data_with_plays(game_with_samples: _GameOrchestrator):
+    """Test game_data when there are plays recorded."""
+    game_with_samples._plays = [
+        PlayRecord(
+            down=1,
+            dist=10,
+            yardline=25,
+            yards_gained=5,
+            desc="Rush for 5",
+            event=None,
+            posteam="KC",
+            drive_id=0,
+            home_score=0,
+            away_score=0,
+            quarter=1,
+            half_seconds_remaining=1800,
+        ),
+        PlayRecord(
+            down=2,
+            dist=5,
+            yardline=30,
+            yards_gained=10,
+            desc="Pass for 10",
+            event="Touchdown",
+            posteam="KC",
+            drive_id=0,
+            home_score=0,
+            away_score=0,
+            quarter=1,
+            half_seconds_remaining=1750,
+        ),
+        PlayRecord(
+            down=1,
+            dist=10,
+            yardline=40,
+            yards_gained=7,
+            desc="Rush for 7",
+            event=None,
+            posteam="KC",
+            drive_id=1,
+            home_score=7,
+            away_score=0,
+            quarter=1,
+            half_seconds_remaining=1700,
+        ),
     ]
-    game_with_samples._drive_teams = ["KC", "KC"]
     df = game_with_samples.game_data
     assert len(df) == 3
     assert df["down"].to_list() == [1, 2, 1]
     assert df["yards_gained"].to_list() == [5, 10, 7]
-    assert df["team"].to_list() == ["KC", "KC", "KC"]
+    assert df["posteam"].to_list() == ["KC", "KC", "KC"]
     assert df["event"].to_list() == [None, "Touchdown", None]
+    assert df["drive_id"].to_list() == [0, 0, 1]

@@ -151,7 +151,7 @@ def test_drive_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_
     game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
 
-    drive_count = len(game.drives)
+    drive_count = game.num_drives
     assert drive_count >= 8, f"Too few drives: {drive_count}"
     assert drive_count <= 30, f"Too many drives: {drive_count}"
 
@@ -286,7 +286,7 @@ def test_play_descriptions_match_offensive_team(
     plays = game.game_data
 
     # Verify only the expected teams appear in game output
-    teams_in_game = set(plays["team"].drop_nulls().unique().to_list())
+    teams_in_game = set(plays["posteam"].drop_nulls().unique().to_list())
     unexpected_teams = teams_in_game - teams
     assert not unexpected_teams, (
         f"Unexpected teams in game output: {unexpected_teams}. Expected only {teams}."
@@ -295,19 +295,19 @@ def test_play_descriptions_match_offensive_team(
     # Check each play's description maps to the correct offensive team
     mismatches = []
     for i, row in enumerate(plays.iter_rows(named=True)):
-        team = row["team"]
+        posteam = row["posteam"]
         desc = row["desc"]
-        if team is None or desc is None:
+        if posteam is None or desc is None:
             continue
 
         # Look up which team originally had this play
         original_team = desc_to_team.get(desc)
-        if original_team is not None and original_team != team:
+        if original_team is not None and original_team != posteam:
             # We don't throw right away because it's extremely helpful for debugging
             mismatches.append(
                 {
                     "play_n": i,
-                    "team": team,
+                    "posteam": posteam,
                     "original_team": original_team,
                     "desc": desc[:80],
                 }

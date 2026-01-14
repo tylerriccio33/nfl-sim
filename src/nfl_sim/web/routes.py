@@ -222,7 +222,7 @@ def simulate(home: str, away: str):
             SingleGameResult(
                 home_score=game.home_score,
                 away_score=game.away_score,
-                num_drives=len(game.drives),
+                num_drives=game.num_drives,
                 total_plays=len(game.game_data),
                 home_win=game.home_score > game.away_score,
                 margin=game.home_score - game.away_score,

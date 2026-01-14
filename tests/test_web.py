@@ -128,7 +128,7 @@ class TestRoutes:
             "plays": [
                 [
                     {
-                        "team": "KC",
+                        "posteam": "KC",
                         "down": 1,
                         "dist": 10,
                         "yardline": 75,
@@ -138,7 +138,8 @@ class TestRoutes:
                         "home_score": 0,
                         "away_score": 0,
                         "quarter": 1,
-                        "time_remaining": 1750,
+                        "half_seconds_remaining": 1750,
+                        "drive_id": 0,
                     }
                 ]
             ],

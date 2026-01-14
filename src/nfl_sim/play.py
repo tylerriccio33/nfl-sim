@@ -1,5 +1,7 @@
 """Game engine state machine for play-by-play simulation."""
 
+from dataclasses import dataclass
+
 import polars as pl
 
 from nfl_sim._event import (
@@ -12,8 +14,23 @@ from nfl_sim._event import (
 )
 from nfl_sim._model import calc_wp
 
-# Type alias for a single play record: (down, dist, yardline, yards_gained, desc, event_name)
-type PlayRecord = tuple[int, int, int, int | None, str | None, str | None]
+
+@dataclass
+class PlayRecord:
+    """Single play record with full game context."""
+
+    down: int
+    dist: int
+    yardline: int
+    yards_gained: int | None
+    desc: str | None
+    event: str | None
+    posteam: str
+    drive_id: int
+    home_score: int
+    away_score: int
+    quarter: int
+    half_seconds_remaining: int
 
 
 class GameEngine:
@@ -40,7 +57,6 @@ class GameEngine:
         self._half = 1
         self._half_seconds_remaining = 1800  # 30 minutes per half
         self._yards_gained: int | None = None
-        self._drive: list[PlayRecord] = []
 
         self.score = 0
 
@@ -126,59 +142,20 @@ class GameEngine:
         self._dist = 10
         self._yardline = yardline
 
-    def add_play_to_drive(
-        self, original_desc: str | None = None, event_name: str | None = None
-    ) -> None:
-        """Record current play to the drive history."""
-        play: PlayRecord = (
-            self._down,
-            self._dist,
-            self._yardline,
-            self._yards_gained,
-            original_desc,
-            event_name,
-        )
-        self._drive.append(play)
-
-    def set_last_play_event(self, event_name: str) -> None:
-        """Update the event_name of the last play in the drive."""
-        if self._drive:
-            last_play = self._drive[-1]
-            # Replace the last play with updated event_name
-            self._drive[-1] = (
-                last_play[0],
-                last_play[1],
-                last_play[2],
-                last_play[3],
-                last_play[4],
-                event_name,
-            )
-
-    def collect_drive(self) -> list[PlayRecord]:
-        """Collect all plays from current drive and reset."""
-        cur_drive = self._drive.copy()
-        self._drive = []
-        return cur_drive  # TODO: Don't love this method, feels weird to mod class and return
-
     def ingest_new_play(self, play_row: pl.DataFrame) -> None:
-        """Method for updating the play completely, triggering properties."""
-        # TODO: I'd actually like a better more fuller description
-        # This is a hot function, order it intelligently!
+        """Update game state from a play. Raises meta events on scoring/turnovers."""
         row = play_row.row(0, named=True)
 
         yards = int(row["yards_gained"])
-        desc = row["desc"]
-        event_key = row["__EVENT_KEY"]
+        event_key: int | None = row["__EVENT_KEY"]
 
         self._yards_gained = yards
-        self.add_play_to_drive(desc)
 
         # Check for meta events via pre-computed __EVENT_KEY column
-        event_key: int | None = event_key
         if event_key is not None:
             raise EVENT_KEY_MAP[event_key]
 
-        ## SIMULATION: Update yardline (subtract yards gained since yardline_100 decreases as you advance)
+        # Update yardline (subtract yards gained since yardline_100 decreases as you advance)
         self.yardline = self.yardline - self._yards_gained
 
         # Regular first down
@@ -189,7 +166,7 @@ class GameEngine:
             self.dist = 10
             return
 
-        self.down: int = self.down + 1
+        self.down = self.down + 1
 
     def __repr__(self) -> str:
         return f"Down: {self.down}, Dist: {self.dist}, Yardline: {self.yardline}, Yards Gained: {self._yards_gained}"

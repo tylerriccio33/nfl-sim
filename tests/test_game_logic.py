@@ -7,10 +7,39 @@ from conftest import build_test_play_data, make_play_row
 from nfl_sim._event import _MetaEvent
 from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
+from nfl_sim.play import PlayRecord
 
 
 def process_play(game: _GameOrchestrator, play_row: pl.DataFrame) -> None:
     """Helper to process a play in tests - mirrors the inline logic in _run_half."""
+    # Extract play data
+    row = play_row.row(0, named=True)
+    yards_gained = int(row["yards_gained"])
+    desc = row.get("desc")
+
+    # Compute play context
+    home = game._team_order[0]
+    home_score = game._posteam_score if game._posteam == home else game._defteam_score
+    away_score = game._defteam_score if game._posteam == home else game._posteam_score
+    quarter = (game._engine.half - 1) * 2 + (1 if game._engine.half_seconds_remaining > 900 else 2)
+
+    # Record the play with full context
+    play = PlayRecord(
+        down=game._engine.down,
+        dist=game._engine.dist,
+        yardline=game._engine.yardline,
+        yards_gained=yards_gained,
+        desc=desc,
+        event=None,
+        posteam=game._posteam,
+        drive_id=game._current_drive_id,
+        home_score=home_score,
+        away_score=away_score,
+        quarter=quarter,
+        half_seconds_remaining=game._engine.half_seconds_remaining,
+    )
+    game._plays.append(play)
+
     try:
         game._engine.ingest_new_play(play_row)
     except _MetaEvent as e:
@@ -273,22 +302,24 @@ def test_safety_receiving_team_starts_at_own_25(game: _GameOrchestrator):
 
 def test_drive_recorded_after_touchdown(game: _GameOrchestrator):
     """Drive should be recorded after touchdown."""
-    assert len(game.drives) == 0
+    assert game.num_drives == 0
 
     play = make_play_row(yards_gained=75, touchdown=1)
     process_play(game, play)
 
-    assert len(game.drives) == 1
+    # After TD: drive 0 completed, now on drive 1 = 2 total drives
+    assert game.num_drives == 2
 
 
 def test_multiple_drives_recorded(game: _GameOrchestrator):
     """Multiple drives should be tracked."""
-    # TD
+    # TD - ends drive 0, starts drive 1
     process_play(game, make_play_row(yards_gained=75, touchdown=1))
-    # INT
+    # INT - ends drive 1, starts drive 2
     process_play(game, make_play_row(yards_gained=-5, interception=1))
 
-    assert len(game.drives) == 2
+    # 3 total drives: 0 (TD), 1 (INT), 2 (in progress)
+    assert game.num_drives == 3
 
 
 # Normal play tests (no turnover)

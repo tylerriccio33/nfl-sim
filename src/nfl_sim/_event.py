@@ -8,6 +8,8 @@ from loguru import logger
 if TYPE_CHECKING:
     from nfl_sim.game import _GameOrchestrator
 
+# TODO: Need to generate a UML or something here
+
 
 class _Event(Exception):
     """Base class for all game events.
@@ -77,14 +79,14 @@ class _MetaEvent(_Event):
 
 
 class _FlipsPossession(_MetaEvent):
-    """Meta events that cause a possession change.
+    """Meta events that cause ANY possession change.
 
     After these events, teams swap offense/defense roles.
     Examples: turnovers, punts, scores followed by kickoff.
     """
 
 
-class Flip(_FlipsPossession, _SetsYardline):
+class Flip(_FlipsPossession, _SetsYardline):  # TODO: Better name FlipInPlace
     """Possession change without score reset."""
 
     def get_new_yardline(self, game: _GameOrchestrator, play_row: pl.DataFrame) -> int:

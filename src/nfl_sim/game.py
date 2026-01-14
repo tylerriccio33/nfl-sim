@@ -39,17 +39,15 @@ class _GameOrchestrator:
         }
         self.home_samples = home_samples
         self.away_samples = away_samples
-        self.drives: list[list[PlayRecord]] = []
-        # Track which team was on offense for each drive
-        self._drive_teams: list[str] = []
         self._engine = GameEngine()
 
         self._team_order: tuple[str, str] = (home_team, away_team)
         self._posteam, self._defteam = self._team_order
         self._posteam_score, self._defteam_score = 0, 0
 
-        # Track play-level metadata: (home_score, away_score, quarter, time_remaining)
-        self._play_metadata: list[tuple[int, int, int, int]] = []
+        # Flat list of all plays with full context
+        self._plays: list[PlayRecord] = []
+        self._current_drive_id: int = 0
 
         # Track per-team events (for team-level stats)
         self._home_events: dict[str, int] = {}
@@ -80,13 +78,16 @@ class _GameOrchestrator:
 
     def _handle_meta_event(self, event: _MetaEvent, play_row: pl.DataFrame) -> None:
         """Handle meta events: turnovers, punts, scores, and safeties."""
-        # Mark the last play with the event type
         event_name = type(event).__name__
-        self._engine.set_last_play_event(event_name)
-        drive_plays: list[PlayRecord] = self._engine.collect_drive()
-        self.drives.append(drive_plays)
-        self._drive_teams.append(self._posteam)
-        logger.debug("Drive ended: {} plays, reason: {}", len(drive_plays), event_name)
+
+        # Mark the last play with the event type
+        if self._plays:
+            self._plays[-1].event = event_name
+
+        logger.debug("Drive {} ended, reason: {}", self._current_drive_id, event_name)
+
+        # Increment drive counter for next drive
+        self._current_drive_id += 1
 
         # Track per-team events
         home = self._team_order[0]
@@ -94,6 +95,7 @@ class _GameOrchestrator:
 
         # Determine which team gets credit for this event
         # Scoring events: PickSix and Safety go to defense, others go to offense
+        # TODO: This is redundant and should get aggregated at the end of the game.
         if event_key in ("picksix", "safety", "fumblesix"):
             # Defensive team gets credit
             if self._defteam == home:
@@ -121,6 +123,7 @@ class _GameOrchestrator:
 
         # Determine new yardline (default to kickoff position)
         new_yardline = (
+            # TODO: This yardlien logic feels off?
             event.get_new_yardline(self, play_row) if isinstance(event, _SetsYardline) else 75
         )
 
@@ -150,7 +153,7 @@ class _GameOrchestrator:
                 self._engine.half_seconds_remaining % 60,
             )
 
-            ## Update game-level meta features for models:
+            # Update game-level meta features for models
             self._engine.score = self._posteam_score - self._defteam_score
 
             offensive_df, samples = self.cur_samples
@@ -163,16 +166,35 @@ class _GameOrchestrator:
                 wp=self._engine.wp,
             )
 
-            # Record play metadata before the play (score at start of play)
+            # Compute play context before state changes
             home = self._team_order[0]
             home_score = self._posteam_score if self._posteam == home else self._defteam_score
             away_score = self._defteam_score if self._posteam == home else self._posteam_score
             quarter = (self._engine.half - 1) * 2 + (
                 1 if self._engine.half_seconds_remaining > 900 else 2
             )
-            self._play_metadata.append(
-                (home_score, away_score, quarter, self._engine.half_seconds_remaining)
+
+            # Extract play data
+            row = play_row.row(0, named=True)
+            yards_gained = int(row["yards_gained"])
+            desc = row["desc"]
+
+            # Record the play with full context
+            play = PlayRecord(
+                down=self._engine.down,
+                dist=self._engine.dist,
+                yardline=self._engine.yardline,
+                yards_gained=yards_gained,
+                desc=desc,
+                event=None,  # Will be set by _handle_meta_event if needed
+                posteam=self._posteam,
+                drive_id=self._current_drive_id,
+                home_score=home_score,
+                away_score=away_score,
+                quarter=quarter,
+                half_seconds_remaining=self._engine.half_seconds_remaining,
             )
+            self._plays.append(play)
 
             try:
                 self._engine.ingest_new_play(play_row)
@@ -180,10 +202,10 @@ class _GameOrchestrator:
                 self._handle_meta_event(e, play_row)
 
             # Consume time from the sampled play's actual time elapsed
-            time_elapsed: int = int(play_row.row(0, named=True)["time_elapsed"])
+            time_elapsed: int = int(row["time_elapsed"])
             try:
                 self._engine.consume_time(time_elapsed)
-            except HalfOver:  # TODO: bleh location for a log
+            except HalfOver:
                 logger.info(
                     "Half {} complete after {} plays",
                     self._engine.half,
@@ -220,35 +242,20 @@ class _GameOrchestrator:
 
     @property
     def game_data(self) -> pl.DataFrame:
-        labeled_plays = []
-        play_idx = 0
-        for drive_idx, drive in enumerate(self.drives):
-            # Get the team that was on offense for this drive
-            team = self._drive_teams[drive_idx] if drive_idx < len(self._drive_teams) else None
-            for down, dist, yardline, yards_gained, desc, event_name in drive:
-                # Get play metadata if available
-                if play_idx < len(self._play_metadata):
-                    home_score, away_score, quarter, time_remaining = self._play_metadata[play_idx]
-                else:
-                    home_score, away_score, quarter, time_remaining = 0, 0, 1, 0
+        """Convert plays to DataFrame with realistic PBP structure."""
+        from dataclasses import asdict
 
-                labeled_plays.append(
-                    {
-                        "team": team,
-                        "down": down,
-                        "dist": dist,
-                        "yardline": yardline,
-                        "yards_gained": yards_gained,
-                        "desc": desc,
-                        "event": event_name,
-                        "home_score": home_score,
-                        "away_score": away_score,
-                        "quarter": quarter,
-                        "time_remaining": time_remaining,
-                    }
-                )
-                play_idx += 1
-        return pl.DataFrame(labeled_plays)
+        if not self._plays:
+            return pl.DataFrame()
+        return pl.DataFrame([asdict(p) for p in self._plays])
+
+    @property
+    def num_drives(self) -> int:
+        """Number of drives in the game (including current in-progress drive)."""
+        if not self._plays:
+            return 0
+        # Drive IDs are 0-indexed, so add 1 to get the count
+        return self._current_drive_id + 1
 
     @property
     def home_score(self) -> int:
@@ -295,6 +302,4 @@ class _GameOrchestrator:
 
     def __repr__(self) -> str:
         home, away = self._team_order
-        return (
-            f"Game({home} {self.home_score}, {away} {self.away_score}, {len(self.drives)} drives)"
-        )
+        return f"Game({home} {self.home_score}, {away} {self.away_score}, {self.num_drives} drives)"

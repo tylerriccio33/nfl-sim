@@ -27,10 +27,6 @@ def test_default_state(game: GameEngine):
     assert game.yardline == 75
 
 
-def test_drive_starts_empty(game: GameEngine):
-    assert game._drive == []
-
-
 # Down property tests
 
 
@@ -187,21 +183,3 @@ def test_turnover_on_downs_after_4th(game: GameEngine):
     play = make_play_row(yards_gained=1)
     with pytest.raises(TurnoverOnDowns):
         game.ingest_new_play(play)
-
-
-# Drive tracking tests
-
-
-def test_plays_added_to_drive(game: GameEngine):
-    play = make_play_row(yards_gained=5, desc="Test play 1")
-    game.ingest_new_play(play)
-    assert len(game._drive) == 1
-    assert game._drive[0][4] == "Test play 1"  # desc is 5th element
-
-
-def test_collect_drive_clears(game: GameEngine):
-    play = make_play_row(yards_gained=5)
-    game.ingest_new_play(play)
-    collected = game.collect_drive()
-    assert len(collected) == 1
-    assert game._drive == []
