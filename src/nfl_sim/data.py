@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, TypeIs, cast
+from typing import Any, NotRequired, TypedDict, TypeIs, cast
 
 import nflreadpy as nfl
 import polars as pl
@@ -14,9 +14,6 @@ from nfl_sim._columns import PBP_COLUMNS
 from nfl_sim._event import build_event_expr
 from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import _GameOrchestrator
-
-if TYPE_CHECKING:
-    import datetime
 
 
 class GameMetadata(TypedDict):
@@ -46,11 +43,12 @@ def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
         and isinstance(d["away_team"], str)
     )
 
+
 # TODO: Remove last week of season when starters rest
 
-def pull_game_data(
-    cur_date: datetime.datetime | None = None, week_window: int = 10
-) -> pl.DataFrame:
+
+# TODO: Increase the week window to 16!
+def pull_game_data(week_window: int = 12) -> pl.DataFrame:
     """Pull play-by-play data from nflverse.
 
     Downloads and caches nflverse play-by-play parquet files, selecting only the
@@ -58,7 +56,6 @@ def pull_game_data(
     regular plays plus punts/field goals).
 
     Args:
-        cur_date: Reference date for determining season. Defaults to now.
         week_window: Number of weeks back from current week to include in the
             historical sample. Used to calculate the minimum year boundary.
 
@@ -73,8 +70,7 @@ def pull_game_data(
     cur_year, cur_week = get_current_season(), get_current_week()
     min_week = cur_week - week_window
     if min_week <= 0:
-        msg = "Week window extends beyond current season"
-        raise NotImplementedError(msg)
+        raise NotImplementedError("Week window extends beyond current season")
     min_year = cur_year
     window_expr: pl.Expr = (pl.col("season").eq(min_year) & pl.col("week").ge(min_week)) | (
         pl.col("season") > min_year

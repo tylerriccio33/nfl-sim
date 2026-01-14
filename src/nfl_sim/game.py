@@ -157,6 +157,7 @@ class _GameOrchestrator:
             self._engine.score = self._posteam_score - self._defteam_score
 
             offensive_df, samples = self.cur_samples
+            # TODO: Probably include a fallback for more samples if we can't find a play
             play_row = fetch_like_play(
                 offensive_df,
                 samples.matrix,

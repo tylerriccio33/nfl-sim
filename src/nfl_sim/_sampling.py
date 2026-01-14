@@ -102,6 +102,10 @@ def fetch_like_play(
     # TODO: Update documentation
     if down == 4 and yardline < 20:
         pass
+
+    # TODO: Might be beneficial to prefilter on down since it's a big one and
+    # not like the other varibles, there is no window where the wrong down can be selected
+    
     idx = nfl_sim_core.filter_window(offensive_matrix, down, dist, yardline, wp, n=1)
     assert len(idx) != 0
     idx_int = int(idx[0])
