@@ -32,6 +32,7 @@ def game_samples_data() -> pl.DataFrame:
             "return_touchdown": [0] * 20,
             "kick_distance": [None] * 20,
             "fumble_lost": [0] * 20,
+            "time_elapsed": [25] * 20,
         }
     ).with_columns(build_event_expr())
 

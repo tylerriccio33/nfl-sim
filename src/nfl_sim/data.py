@@ -94,6 +94,27 @@ def pull_game_data(
         )
         # This builds `__EVENT_KEY`
         .with_columns(pl.col("game_date").cast(pl.Date), build_event_expr())
+        # Compute time_elapsed: seconds consumed by each play
+        # = current half_seconds_remaining - next play's half_seconds_remaining
+        .sort("game_id", "play_id")
+        .with_columns(
+            (
+                pl.col("half_seconds_remaining")
+                - pl.col("half_seconds_remaining").shift(-1).over("game_id")
+            ).alias("time_elapsed")
+        )
+        # Handle edge cases: end of game (null), half changes (negative/large values)
+        # Clamp to reasonable range [5, 60] seconds, default to 25 for nulls
+        .with_columns(
+            pl.when(
+                pl.col("time_elapsed").is_null()
+                | (pl.col("time_elapsed") <= 0)
+                | (pl.col("time_elapsed") > 120)
+            )
+            .then(25)
+            .otherwise(pl.col("time_elapsed").clip(5, 60))
+            .alias("time_elapsed")
+        )
         .collect()
     )
 

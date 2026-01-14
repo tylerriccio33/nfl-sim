@@ -41,6 +41,7 @@ def minimal_play_data() -> pl.DataFrame:
             "return_touchdown": [0, 0],
             "kick_distance": [None, None],
             "fumble_lost": [0, 0],
+            "time_elapsed": [25, 25],
         }
     ).with_columns(build_event_expr())
 

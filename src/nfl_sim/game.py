@@ -183,9 +183,10 @@ class _GameOrchestrator:
             except _MetaEvent as e:
                 self._handle_meta_event(e, play_row)
 
-            # Consume time after each play
+            # Consume time from the sampled play's actual time elapsed
+            time_elapsed: int = int(play_row.row(0, named=True)["time_elapsed"])
             try:
-                self._engine.consume_time()
+                self._engine.consume_time(time_elapsed)
             except HalfOver:  # TODO: bleh location for a log
                 logger.info(
                     "Half {} complete after {} plays",

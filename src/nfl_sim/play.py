@@ -1,7 +1,5 @@
 """Game engine state machine for play-by-play simulation."""
 
-import random
-
 import polars as pl
 
 from nfl_sim._event import (
@@ -16,13 +14,6 @@ from nfl_sim._model import calc_wp
 
 # Type alias for a single play record: (down, dist, yardline, yards_gained, desc, event_name)
 type PlayRecord = tuple[int, int, int, int | None, str | None, str | None]
-
-# Average time consumed per play based on 2024 NFL data
-# Distribution: mean=25s, median=29s, std=16s
-AVG_PLAY_TIME = 25
-PLAY_TIME_STD = 16
-GAUSS_DISTRO: list[int] = [int(random.gauss(AVG_PLAY_TIME, PLAY_TIME_STD)) for _ in range(1_000)]
-# TODO: Make sure this caches and isn't regnerated
 
 
 class GameEngine:
@@ -111,10 +102,13 @@ class GameEngine:
         """Seconds remaining in current half."""
         return self._half_seconds_remaining
 
-    def consume_time(self) -> None:
-        """Consume game clock time. Raises HalfOver when clock expires."""
-        seconds = max(5, min(60, random.choice(GAUSS_DISTRO)))
+    def consume_time(self, seconds: int) -> None:
+        """Consume game clock time. Raises HalfOver when clock expires.
 
+        Args:
+            seconds: Time consumed by the play (from sampled play data).
+
+        """
         self._half_seconds_remaining -= seconds
 
         if self._half_seconds_remaining <= 0:

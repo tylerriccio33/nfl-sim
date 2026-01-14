@@ -49,6 +49,7 @@ def mock_play_data() -> pl.DataFrame:
             "return_touchdown": [0, 0, 0, 0, 0, 0, 0, 0],
             "kick_distance": [None, None, None, None, None, None, None, None],
             "fumble_lost": [0, 0, 0, 0, 0, 0, 0, 0],
+            "time_elapsed": [25, 30, 22, 28, 35, 20, 25, 30],
         }
     ).with_columns(build_event_expr())
 
@@ -67,6 +68,7 @@ def make_play_row(
     kick_distance: int | None = None,
     fumble_lost: int = 0,
     desc: str = "Test play",
+    time_elapsed: int = 25,
 ) -> pl.DataFrame:
     """Helper to create a single play row for GameEngine.ingest_new_play()."""
     df = pl.DataFrame(
@@ -84,6 +86,7 @@ def make_play_row(
             "return_touchdown": [return_touchdown],
             "kick_distance": [kick_distance],
             "fumble_lost": [fumble_lost],
+            "time_elapsed": [time_elapsed],
         }
     )
     return df.with_columns(build_event_expr())

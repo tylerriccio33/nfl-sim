@@ -50,7 +50,7 @@ class TestPullGameData:
         result = pull_game_data()
 
         # All columns should be from the PBP_COLUMNS config or generated columns
-        allowed_columns = set(PBP_COLUMNS) | {"__EVENT_KEY"}
+        allowed_columns = set(PBP_COLUMNS) | {"__EVENT_KEY", "time_elapsed"}
         for col in result.columns:
             assert col in allowed_columns, f"Unexpected column: {col}"
 

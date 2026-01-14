@@ -24,6 +24,7 @@ columns = [
 columns = [
     "yards_gained",
     "desc",
+    "time_elapsed",  # Seconds consumed by this play (computed in data.py)
 ]
 
 # Columns for event detection (__EVENT_KEY computation)
