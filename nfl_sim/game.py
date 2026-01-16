@@ -131,6 +131,7 @@ class SingleGame:
 
     def _run_half(self) -> None:
         """Run plays until the half ends."""
+        # Disable tracing before the hot loop
         play_count = 0
         while True:
             play_count += 1
@@ -204,7 +205,7 @@ class SingleGame:
                 )
                 return
 
-    def play_game(self) -> None:  # TODO: Change name to play game
+    def play_game(self) -> None:
         """Run the full game simulation."""
         logger.info(
             "Starting game: {} vs {}",
@@ -234,11 +235,22 @@ class SingleGame:
     @property
     def game_data(self) -> pl.DataFrame:
         """Convert plays to DataFrame with realistic PBP structure."""
-        from dataclasses import asdict
-
-        if not self._plays:
-            return pl.DataFrame()
-        return pl.DataFrame([asdict(p) for p in self._plays])
+        return pl.DataFrame(
+            {
+                "down": [p.down for p in self._plays],
+                "dist": [p.dist for p in self._plays],
+                "yardline": [p.yardline for p in self._plays],
+                "yards_gained": [p.yards_gained for p in self._plays],
+                "desc": [p.desc for p in self._plays],
+                "event": [p.event for p in self._plays],
+                "posteam": [p.posteam for p in self._plays],
+                "drive_id": [p.drive_id for p in self._plays],
+                "home_score": [p.home_score for p in self._plays],
+                "away_score": [p.away_score for p in self._plays],
+                "quarter": [p.quarter for p in self._plays],
+                "half_seconds_remaining": [p.half_seconds_remaining for p in self._plays],
+            }
+        )
 
     @property
     def num_drives(self) -> int:
@@ -270,6 +282,7 @@ class SingleGame:
 
         Returns lowercase event names for consistency.
         """
+        # TODO: EXPENSIVE
         data = self.game_data
         if "event" not in data.columns or len(data) == 0:
             return {}

@@ -27,6 +27,7 @@ FUNCTIONS = (
     build_sample_data,
     ## Game Engine:
     GameEngine.ingest_new_play,
+    SimulationResult.simulate,
 )
 
 logger.remove()

@@ -162,7 +162,7 @@ def test_interception_no_points(make_play_dict, game: SingleGame):
 def test_interception_yardline_flips(make_play_dict, game: SingleGame):
     """Intercepting team gets ball at flipped yardline."""
     # KC at their own 40 = yardline_100 of 60 (60 yards from opponent's endzone)
-    game._engine._yardline = 60
+    game._engine.yardline = 60
     play = make_play_dict(yards_gained=-5, event_key=EVENT_EXPR_MAP[Interception])
 
     process_play(game, play)
@@ -177,9 +177,9 @@ def test_interception_yardline_flips(make_play_dict, game: SingleGame):
 def test_turnover_on_downs_flips_possession(make_play_dict, game: SingleGame):
     """Turnover on downs should give ball to defense."""
     # Get to 4th down at midfield (yardline_100 = 50)
-    game._engine._down = 4
-    game._engine._dist = 5
-    game._engine._yardline = 50
+    game._engine.down = 4
+    game._engine.dist = 5
+    game._engine.yardline = 50
 
     play = make_play_dict(yards_gained=2)  # Short of first down
 
@@ -190,9 +190,9 @@ def test_turnover_on_downs_flips_possession(make_play_dict, game: SingleGame):
 
 def test_turnover_on_downs_at_spot(make_play_dict, game: SingleGame):
     """After turnover on downs, defense gets ball at that spot."""
-    game._engine._down = 4
-    game._engine._dist = 5
-    game._engine._yardline = 50  # Midfield
+    game._engine.down = 4
+    game._engine.dist = 5
+    game._engine.yardline = 50  # Midfield
 
     play = make_play_dict(yards_gained=2)
 
@@ -219,7 +219,7 @@ def test_punt_flips_possession(make_play_dict, game: SingleGame):
 def test_punt_yardline_calculation(make_play_dict, game: SingleGame):
     """Punt receiving team gets ball at correct yardline."""
     # KC at own 30 = yardline_100 of 70 (70 yards from opponent's endzone)
-    game._engine._yardline = 70
+    game._engine.yardline = 70
     play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntRegular], kick_distance=45)
 
     process_play(game, play)
@@ -233,7 +233,7 @@ def test_punt_yardline_calculation(make_play_dict, game: SingleGame):
 def test_punt_touchback_if_into_endzone(make_play_dict, game: SingleGame):
     """Punt into endzone results in touchback at own 25 (yardline_100 = 75)."""
     # KC at midfield = yardline_100 of 50
-    game._engine._yardline = 50
+    game._engine.yardline = 50
     play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntRegular], kick_distance=60)
 
     process_play(game, play)
@@ -246,7 +246,7 @@ def test_punt_touchback_if_into_endzone(make_play_dict, game: SingleGame):
 def test_punt_blocked_defense_recovers(make_play_dict, game: SingleGame):
     """Blocked punt: defense recovers at LOS."""
     # KC at own 30 = yardline_100 of 70
-    game._engine._yardline = 70
+    game._engine.yardline = 70
     play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntBlocked])
 
     process_play(game, play)
@@ -272,7 +272,7 @@ def test_punt_endzone_touchback(make_play_dict, game: SingleGame):
 def test_safety_awards_2_points_to_defense(make_play_dict, game: SingleGame):
     """Safety awards 2 points to defensive team."""
     # Near own endzone: own 2 yard line = yardline_100 of 98 (98 yards from opponent's endzone)
-    game._engine._yardline = 98
+    game._engine.yardline = 98
     play = make_play_dict(yards_gained=-5)  # Tackled in endzone (pushed back 5 yards)
 
     process_play(game, play)
@@ -285,7 +285,7 @@ def test_safety_awards_2_points_to_defense(make_play_dict, game: SingleGame):
 def test_safety_flips_possession(make_play_dict, game: SingleGame):
     """After safety, other team gets the ball."""
     # Own 2 yard line = yardline_100 of 98
-    game._engine._yardline = 98
+    game._engine.yardline = 98
     play = make_play_dict(yards_gained=-5)  # Pushed back into endzone
 
     process_play(game, play)
@@ -295,7 +295,7 @@ def test_safety_flips_possession(make_play_dict, game: SingleGame):
 
 def test_safety_receiving_team_starts_at_own_25(make_play_dict, game: SingleGame):
     """After safety, receiving team starts at own 25 (yardline_100 = 75)."""
-    game._engine._yardline = 98  # Own 2 yard line
+    game._engine.yardline = 98  # Own 2 yard line
     play = make_play_dict(yards_gained=-5)  # Pushed back into endzone
 
     process_play(game, play)
@@ -345,7 +345,7 @@ def test_normal_play_no_possession_change(make_play_dict, game: SingleGame):
 def test_normal_play_advances_yardline(make_play_dict, game: SingleGame):
     """Normal play should advance yardline (decrease yardline_100)."""
     # Start at opponent's 25 (red zone) = yardline_100 of 25
-    game._engine._yardline = 25
+    game._engine.yardline = 25
     play = make_play_dict(yards_gained=10)
 
     process_play(game, play)
@@ -356,8 +356,8 @@ def test_normal_play_advances_yardline(make_play_dict, game: SingleGame):
 
 def test_first_down_resets_distance(make_play_dict, game: SingleGame):
     """Gaining enough yards should reset to 1st and 10."""
-    game._engine._down = 2
-    game._engine._dist = 5
+    game._engine.down = 2
+    game._engine.dist = 5
     play = make_play_dict(yards_gained=8)  # More than needed
 
     process_play(game, play)

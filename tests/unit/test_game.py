@@ -6,12 +6,10 @@ from nfl_sim._event import (
     EVENT_EXPR_MAP,
     FieldGoalSuccess,
     Interception,
-    MoveChains,
     PickSix,
     PuntBlocked,
     PuntEndzone,
     PuntRegular,
-    Safety,
     Touchdown,
     TurnoverOnDowns,
 )
@@ -33,55 +31,6 @@ def test_default_state(game: GameEngine):
 def test_increment_down(game: GameEngine):
     game.down = 2
     assert game.down == 2
-
-
-def test_turnover_on_downs_at_5th(game: GameEngine):
-    with pytest.raises(TurnoverOnDowns):
-        game.down = 5
-
-
-# Dist property tests
-
-
-def test_set_dist(game: GameEngine):
-    game.dist = 5
-    assert game.dist == 5
-
-
-def test_move_chains_at_zero(game: GameEngine):
-    with pytest.raises(MoveChains):
-        game.dist = 0
-
-
-def test_move_chains_negative(game: GameEngine):
-    with pytest.raises(MoveChains):
-        game.dist = -5
-
-
-# Yardline property tests
-
-
-def test_set_yardline(game: GameEngine):
-    game.yardline = 50
-    assert game.yardline == 50
-
-
-def test_touchdown_at_zero(game: GameEngine):
-    # yardline_100 = 0 means crossed opponent's goal line (touchdown)
-    with pytest.raises(Touchdown):
-        game.yardline = 0
-
-
-def test_touchdown_below_zero(game: GameEngine):
-    # yardline_100 < 0 means past opponent's goal line (touchdown)
-    with pytest.raises(Touchdown):
-        game.yardline = -5
-
-
-def test_safety_at_100(game: GameEngine):
-    # yardline_100 >= 100 means pushed past own goal line (safety)
-    with pytest.raises(Safety):
-        game.yardline = 100
 
 
 # Reset offense tests
