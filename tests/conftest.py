@@ -41,6 +41,9 @@ DEFAULT_PLAY_COLUMNS: dict[str, Any] = {
     "punt_fair_catch": 0,
     "punt_out_of_bounds": 0,
     "kick_distance": None,
+    # Return yards (for proportional return calculation)
+    "return_yards": None,
+    "air_yards": None,
 }
 
 
@@ -85,6 +88,9 @@ def _make_play_dict(
     time_elapsed: int = 25,
     event_key: int | None = None,
     kick_distance: int | None = None,
+    return_yards: int | None = None,
+    air_yards: int | None = None,
+    yardline_100: int = 75,
 ) -> PlayRowDict:
     """Create a PlayRowDict for direct use with GameEngine.ingest_new_play().
 
@@ -98,6 +104,9 @@ def _make_play_dict(
         time_elapsed: Seconds elapsed during the play.
         event_key: Event key from EVENT_KEY_MAP (None for regular plays).
         kick_distance: Kick distance for punts (None for non-punt plays).
+        return_yards: Return yards from the sampled play (for proportional return).
+        air_yards: Air yards for interceptions (for recovery point estimation).
+        yardline_100: Original yardline from sampled play (for proportion calc).
 
     Returns:
         PlayRowDict ready for ingest_new_play().
@@ -109,6 +118,9 @@ def _make_play_dict(
         time_elapsed=time_elapsed,
         __EVENT_KEY=event_key,
         kick_distance=kick_distance,
+        return_yards=return_yards,
+        air_yards=air_yards,
+        yardline_100=yardline_100,
     )
 
 

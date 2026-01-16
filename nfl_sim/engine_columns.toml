@@ -26,6 +26,9 @@ columns = [
     "desc",
     "kick_distance",
     "time_elapsed",  # Seconds consumed by this play (computed in data.py)
+    "return_yards",  # For proportional return calculation
+    "air_yards",     # For INT recovery point estimation
+    # Note: yardline_100 is already in [filter] section
 ]
 
 # Columns integral to the meata simulation engine

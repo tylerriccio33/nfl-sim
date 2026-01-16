@@ -19,7 +19,16 @@ def _load_columns(filename: str, sections: list[str]) -> list[str]:
 
 PBP_COLUMNS: list[str] = _load_columns(
     "pbp_columns.toml",
-    ["identifiers", "game_state", "play_type", "outcomes", "field_goal", "punt", "description"],
+    [
+        "identifiers",
+        "game_state",
+        "play_type",
+        "outcomes",
+        "field_goal",
+        "punt",
+        "description",
+        "passing",
+    ],
 )
 ENGINE_COLUMNS: list[str] = _load_columns(
     "engine_columns.toml",

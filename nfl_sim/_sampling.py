@@ -20,14 +20,38 @@ class PlayRowDict(TypedDict):
     time_elapsed: int
     __EVENT_KEY: int | None
     kick_distance: int | None
+    return_yards: int | None
+    air_yards: int | None
+    yardline_100: int
 
 
-_PLAY_DICT_COLS = ["yards_gained", "desc", "time_elapsed", "__EVENT_KEY", "kick_distance"]
+_PLAY_DICT_COLS = [
+    "yards_gained",
+    "desc",
+    "time_elapsed",
+    "__EVENT_KEY",
+    "kick_distance",
+    "return_yards",
+    "air_yards",
+    "yardline_100",
+]
+
+
+_INT_COLS = [
+    "yards_gained",
+    "time_elapsed",
+    "kick_distance",
+    "return_yards",
+    "air_yards",
+    "yardline_100",
+]
 
 
 def _build_play_dicts(df: pl.DataFrame) -> tuple[PlayRowDict, ...]:
     """Convert DataFrame rows to tuple of dicts for O(1) index lookup."""
-    return tuple(df.select(_PLAY_DICT_COLS).to_dicts())  # type: ignore[return-value]
+    # Cast numeric columns to Int64 (data may come as floats from parquet)
+    casted = df.select(_PLAY_DICT_COLS).with_columns([pl.col(c).cast(pl.Int64) for c in _INT_COLS])
+    return tuple(casted.to_dicts())  # type: ignore[return-value]
 
 
 @dataclass

@@ -197,15 +197,16 @@ def test_fumble_lost_no_points(make_play_dict, game: SingleGame):
 
 
 def test_fumble_lost_yardline_flips(make_play_dict, game: SingleGame):
-    """Recovering team gets ball at flipped yardline."""
+    """Recovering team gets ball at fumble spot (yards_gained offset)."""
     # KC at their own 35 = yardline_100 of 65 (65 yards from opponent's endzone)
     game._engine.yardline = 65
-    play = make_play_dict(yards_gained=-4, event_key=EVENT_EXPR_MAP[FumbleLost])
+    play = make_play_dict(yards_gained=-4, event_key=EVENT_EXPR_MAP[FumbleLost], yardline_100=65)
 
     process_play(game, play)
 
-    # BUF recovers. From BUF's perspective: 100 - 65 = 35 (on KC's 35)
-    assert game._engine.yardline == 35
+    # Fumble 4 yards behind LOS: recovery at 65 - (-4) = 69
+    # BUF recovers. From BUF's perspective: 100 - 69 = 31
+    assert game._engine.yardline == 31
 
 
 # Turnover on downs tests

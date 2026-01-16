@@ -52,6 +52,7 @@ class _Event(Exception):
 class _SetsYardline(Protocol):
     """A play where the yardline is reset after it's finished."""
 
+    # TODO: Don't need to pass the whole game, just the current yardline.
     def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
         raise NotImplementedError  # pragma: no cover
 
@@ -87,6 +88,70 @@ class _FlipsPossession(_MetaEvent):
     """
 
 
+def _calculate_proportional_return(
+    sim_yardline: int,
+    original_yardline: int,
+    recovery_offset: int,
+    return_yards: int | None,
+    max_proportion: float = 0.95,
+) -> int:
+    """Calculate new yardline after applying proportional return.
+
+    Converts the return yards from the sampled play to a proportion of the field
+    remaining after recovery, then applies that proportion to the simulation's
+    field position.
+
+    Args:
+        sim_yardline: Current sim yardline_100.
+        original_yardline: Sampled play's yardline_100.
+        recovery_offset: Yards from LOS to recovery (air_yards, kick_distance, yards_gained).
+        return_yards: Return yards from sampled play.
+        max_proportion: Cap to prevent unrealistic returns.
+
+    Returns:
+        New yardline_100 for receiving team.
+
+    """
+
+    # Helper to clamp recovery point to valid field range (1-99)
+    def clamp_recovery(yardline: int, offset: int) -> int:
+        return max(1, min(99, yardline - offset))
+
+    # Handle no return case
+    if return_yards is None or return_yards <= 0:
+        # Just flip at recovery point
+        sim_recovery = clamp_recovery(sim_yardline, recovery_offset)
+        return 100 - sim_recovery
+
+    # Calculate original recovery point (clamped to valid range)
+    orig_recovery = clamp_recovery(original_yardline, recovery_offset)
+
+    # Field remaining after recovery (for original play)
+    orig_field = 100 - orig_recovery
+    if orig_field <= 0:
+        # Recovery in endzone, just flip at yardline 1
+        sim_recovery = clamp_recovery(sim_yardline, recovery_offset)
+        return 100 - sim_recovery
+
+    # Calculate proportion of field covered by return
+    proportion = min(return_yards / orig_field, max_proportion)
+
+    # Calculate sim recovery point
+    sim_recovery = clamp_recovery(sim_yardline, recovery_offset)
+
+    # Field remaining for sim
+    sim_field = 100 - sim_recovery
+    if sim_field <= 0:
+        return 99  # Near own goal line
+
+    # Apply proportional return
+    return_distance = int(proportion * sim_field)
+    new_yardline = sim_field - return_distance
+
+    # Clamp to valid range (1-99, no touchdowns from return in this function)
+    return max(1, min(99, new_yardline))
+
+
 class Flip(_FlipsPossession, _SetsYardline):  # TODO: Better name FlipInPlace
     """Possession change without score reset."""
 
@@ -100,6 +165,15 @@ class Interception(Flip):
     log_template: ClassVar[str] = "INT by {defteam} | {posteam} -> {defteam}"
     log_level: ClassVar[str] = "info"
 
+    def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
+        air_yards = play_data["air_yards"] or 0
+        return _calculate_proportional_return(
+            sim_yardline=game._engine.yardline,
+            original_yardline=play_data["yardline_100"],
+            recovery_offset=air_yards,
+            return_yards=play_data["return_yards"],
+        )
+
 
 class FumbleLost(Flip):
     """Fumble recovered by defense without a return touchdown."""
@@ -111,6 +185,15 @@ class FumbleLost(Flip):
     )
     log_template: ClassVar[str] = "FUMBLE by {posteam} | {defteam} recovers"
     log_level: ClassVar[str] = "info"
+
+    def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
+        yards_gained = play_data["yards_gained"]
+        return _calculate_proportional_return(
+            sim_yardline=game._engine.yardline,
+            original_yardline=play_data["yardline_100"],
+            recovery_offset=yards_gained,
+            return_yards=play_data["return_yards"],
+        )
 
 
 class TurnoverOnDowns(Flip):
@@ -129,17 +212,18 @@ class PuntRegular(Flip, _SetsYardline):
     def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
         punt_dist = play_data["kick_distance"]
         assert punt_dist is not None, "kick_distance required for PuntRegular"
-        # Punt travels toward opponent's endzone (decreases yardline_100)
-        # Ball lands at: punting_yardline - punt_dist
-        # Flip for receiving team: 100 - landing
+
+        # Check if punt goes into endzone (touchback)
         landing_yardline = game._engine.yardline - punt_dist
         if landing_yardline <= 0:
             return 75  # touchback (own 25 = yardline_100 of 75)
-        new_yardline = 100 - landing_yardline
-        # Clamp to valid range (can't be past own goal line)
-        if new_yardline > 99:  # pragma: no cover
-            return 99
-        return int(new_yardline)
+
+        return _calculate_proportional_return(
+            sim_yardline=game._engine.yardline,
+            original_yardline=play_data["yardline_100"],
+            recovery_offset=punt_dist,
+            return_yards=play_data["return_yards"],
+        )
 
 
 class PuntBlocked(Flip):
@@ -148,14 +232,28 @@ class PuntBlocked(Flip):
     log_level: ClassVar[str] = "info"
 
     def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
-        # Defense recovers at LOS (simplified)
-        return 100 - game._engine.yardline
+        # Blocked at LOS, recovery_offset = 0
+        return _calculate_proportional_return(
+            sim_yardline=game._engine.yardline,
+            original_yardline=play_data["yardline_100"],
+            recovery_offset=0,
+            return_yards=play_data["return_yards"],
+        )
 
 
 class FieldGoalFail(Flip):
     expr: ClassVar[pl.Expr] = pl.col("field_goal_result").is_in(["missed", "blocked"])
     log_template: ClassVar[str] = "FG missed by {posteam} | {defteam} takes over"
     log_level: ClassVar[str] = "info"
+
+    def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
+        # Missed/blocked at LOS, recovery_offset = 0
+        return _calculate_proportional_return(
+            sim_yardline=game._engine.yardline,
+            original_yardline=play_data["yardline_100"],
+            recovery_offset=0,
+            return_yards=play_data["return_yards"],
+        )
 
 
 class FlipReset(_FlipsPossession, _SetsYardline):

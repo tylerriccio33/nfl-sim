@@ -61,6 +61,7 @@ columns = [
     "return_touchdown",    # For pick-sixes
     "fumble",
     "fumble_lost",
+    "return_yards",        # For proportional return calculation
 ]
 # Commented columns for future use:
 # - safety
@@ -120,12 +121,17 @@ columns = [
 #     "qb_epa",
 # ]
 
+# Passing details (for proportional INT return calculation)
+[passing]
+columns = [
+    "air_yards",             # For INT recovery point estimation
+]
+
 # Passing details (for future player-level simulation)
-# [passing]
+# [passing_extended]
 # columns = [
 #     "pass_length",           # "short" or "deep"
 #     "pass_location",         # "left", "middle", "right"
-#     "air_yards",
 #     "yards_after_catch",
 #     "pass_attempt",
 #     "passer_player_id",
