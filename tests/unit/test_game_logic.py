@@ -6,6 +6,7 @@ import pytest
 from nfl_sim._event import (
     EVENT_EXPR_MAP,
     FieldGoalSuccess,
+    FumbleLost,
     Interception,
     PuntBlocked,
     PuntEndzone,
@@ -169,6 +170,42 @@ def test_interception_yardline_flips(make_play_dict, game: SingleGame):
 
     # BUF intercepts. From BUF's perspective: 100 - 60 = 40 (BUF's own 40)
     assert game._engine.yardline == 40
+
+
+# Fumble lost tests
+
+
+def test_fumble_lost_flips_possession(make_play_dict, game: SingleGame):
+    """Fumble lost should give ball to defense."""
+    initial_posteam = game._posteam
+    play = make_play_dict(yards_gained=-4, event_key=EVENT_EXPR_MAP[FumbleLost])
+
+    process_play(game, play)
+
+    assert game._posteam != initial_posteam
+    assert game._posteam == "BUF"
+
+
+def test_fumble_lost_no_points(make_play_dict, game: SingleGame):
+    """Fumble lost should not award points (defense didn't score)."""
+    play = make_play_dict(yards_gained=-4, event_key=EVENT_EXPR_MAP[FumbleLost])
+
+    process_play(game, play)
+
+    assert game._posteam_score == 0
+    assert game._defteam_score == 0
+
+
+def test_fumble_lost_yardline_flips(make_play_dict, game: SingleGame):
+    """Recovering team gets ball at flipped yardline."""
+    # KC at their own 35 = yardline_100 of 65 (65 yards from opponent's endzone)
+    game._engine.yardline = 65
+    play = make_play_dict(yards_gained=-4, event_key=EVENT_EXPR_MAP[FumbleLost])
+
+    process_play(game, play)
+
+    # BUF recovers. From BUF's perspective: 100 - 65 = 35 (on KC's 35)
+    assert game._engine.yardline == 35
 
 
 # Turnover on downs tests

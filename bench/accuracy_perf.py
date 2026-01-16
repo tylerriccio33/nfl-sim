@@ -14,9 +14,7 @@ from nfl_sim.simulate import SimulationResult
 NGAMES = 500
 NSIMS = 250
 
-BEST_RMSE = 15.09
-
-# TODO: Need a better way to log the "best" RMSE
+BEST_RMSE = 14.90
 
 
 def configure_logging(level: str = "WARNING") -> None:

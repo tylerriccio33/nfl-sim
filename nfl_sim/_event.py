@@ -101,6 +101,18 @@ class Interception(Flip):
     log_level: ClassVar[str] = "info"
 
 
+class FumbleLost(Flip):
+    """Fumble recovered by defense without a return touchdown."""
+
+    expr: ClassVar[pl.Expr] = (
+        (pl.col("fumble_lost") == 1)
+        & (pl.col("return_touchdown") != 1)
+        & (pl.col("interception") != 1)  # Not an INT-fumble combo
+    )
+    log_template: ClassVar[str] = "FUMBLE by {posteam} | {defteam} recovers"
+    log_level: ClassVar[str] = "info"
+
+
 class TurnoverOnDowns(Flip):
     log_template: ClassVar[str] = "Turnover on downs | {posteam} -> {defteam}"
     log_level: ClassVar[str] = "info"
@@ -240,8 +252,9 @@ EVENT_EXPR_MAP: dict[type[_MetaEvent], int] = {
     FieldGoalFail: 5,
     PickSix: 6,
     FumbleSix: 7,
-    Interception: 8,
-    Touchdown: 9,
+    FumbleLost: 8,
+    Interception: 9,
+    Touchdown: 10,
 }
 
 # Reverse map: integer key -> event class

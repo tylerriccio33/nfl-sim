@@ -128,4 +128,4 @@ def test_returns_play_row_dict(mock_play_data: pl.DataFrame):
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-sv"])
+    pytest.main([__file__, "-sv", "-k", "test_raises_when_no_matches"])

@@ -424,7 +424,7 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
     for row in offendors.iter_rows():
         field, val = row
         raise AssertionError(
-            f"Field: `{field}` is {val * 100:.2}% different between identical runs."
+            f"Field: `{field}` is {val * 100:.2f}% different between identical runs."
         )
 
     ## For mean we'll use some preset heuristics.

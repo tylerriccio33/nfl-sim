@@ -116,7 +116,8 @@ def build_sample_data(all_data: pl.DataFrame, team: str) -> PartitionedSampleDat
         PartitionedSampleData with pre-partitioned filter matrices and play dicts.
 
     """
-    team_data = (
+    # Partition by down group
+    down_filtered: pl.DataFrame = (
         all_data.lazy()
         .select(ENGINE_COLUMNS)
         .filter(pl.col("posteam") == team)
@@ -124,10 +125,14 @@ def build_sample_data(all_data: pl.DataFrame, team: str) -> PartitionedSampleDat
         .collect()
     )
 
-    # Partition by down group
-    early_df = team_data.filter(pl.col("down").is_in([1, 2]))
-    third_df = team_data.filter(pl.col("down") == 3)
-    fourth_df = team_data.filter(pl.col("down") == 4)
+    # Sometimes (rarely) there are no instances of a sample so we have the backfill
+    empty_template = down_filtered.slice(0, 0)
+
+    down_dict: dict[str, pl.DataFrame] = down_filtered.partition_by("down", as_dict=True)
+
+    early_df = pl.concat([down_dict.get((1,), empty_template), down_dict.get((2,), empty_template)])
+    third_df = down_dict.get((3,), empty_template)
+    fourth_df = down_dict.get((4,), empty_template)
 
     # Build both matrix and play dicts from same DataFrame (ensures alignment)
     return PartitionedSampleData(
