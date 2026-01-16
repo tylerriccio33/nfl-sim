@@ -24,20 +24,31 @@ columns = [
 columns = [
     "yards_gained",
     "desc",
+    "kick_distance",
     "time_elapsed",  # Seconds consumed by this play (computed in data.py)
 ]
 
-# Columns for event detection (__EVENT_KEY computation)
-# These feed into build_event_expr() in _event.py
-[event_detection]
+# Columns integral to the meata simulation engine
+[meta]
 columns = [
-    "touchdown",
-    "interception",
-    "return_touchdown",
-    "fumble_lost",
-    "field_goal_result",
-    "punt_attempt",
-    "punt_blocked",
-    "punt_in_endzone",
-    "kick_distance",  # Used by PuntRegular.get_new_yardline()
+    "posteam",
+    "defteam",
+    "__EVENT_KEY",
 ]
+
+
+
+# # Columns for event detection (__EVENT_KEY computation)
+# # These feed into build_event_expr() in _event.py
+# [event_detection]
+# columns = [
+#     "touchdown",
+#     "interception",
+#     "return_touchdown",
+#     "fumble_lost",
+#     "field_goal_result",
+#     "punt_attempt",
+#     "punt_blocked",
+#     "punt_in_endzone",
+#     "kick_distance",  # Used by PuntRegular.get_new_yardline()
+# ]

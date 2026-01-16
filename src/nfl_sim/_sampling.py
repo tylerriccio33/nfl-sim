@@ -1,15 +1,18 @@
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
 import nfl_sim_core
+from nfl_sim._columns import ENGINE_COLUMNS
 
 type _FilterMatrix = NDArray[np.int64]
 """Numpy matrix with columns: ydstogo, yardline_100, wp (scaled by 1000)."""
 
 
+# TODO: Can argue this should just be a dict? No need for a class?
 @dataclass
 class PartitionedSampleData:
     """Team's historical play data pre-partitioned by down group.
@@ -38,7 +41,7 @@ class PartitionedSampleData:
     fourth_matrix: _FilterMatrix
     """Filter matrix for down 4: [ydstogo, yardline_100, wp*1000]."""
 
-    def get_partition(self, down: int) -> tuple[pl.DataFrame, _FilterMatrix]:
+    def get_partition(self, down: Literal[1, 2, 3, 4]) -> tuple[pl.DataFrame, _FilterMatrix]:
         """Get the appropriate partition for a given down.
 
         Args:
@@ -50,7 +53,7 @@ class PartitionedSampleData:
         """
         if down <= 2:
             return self.early_df, self.early_matrix
-        elif down == 3:
+        if down == 3:
             return self.third_df, self.third_matrix
         return self.fourth_df, self.fourth_matrix
 
@@ -95,7 +98,11 @@ def build_sample_data(all_data: pl.DataFrame, team: str) -> PartitionedSampleDat
 
     """
     team_data = (
-        all_data.lazy().filter(pl.col("posteam") == team).drop_nulls(subset=_FILTER_COLS).collect()
+        all_data.lazy()
+        .select(ENGINE_COLUMNS)
+        .filter(pl.col("posteam") == team)
+        .drop_nulls(subset=_FILTER_COLS)
+        .collect()
     )
 
     # Partition by down group
@@ -120,7 +127,7 @@ class NoSampleFoundError(Exception):
 def fetch_like_play(
     samples: PartitionedSampleData,
     *,
-    down: int,
+    down: Literal[1, 2, 3, 4],
     dist: int,
     yardline: int,
     wp: float,

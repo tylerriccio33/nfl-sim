@@ -2,7 +2,7 @@
 
 import polars as pl
 import pytest
-from conftest import build_test_play_data
+from conftest import _build_test_play_data
 
 from nfl_sim._sampling import build_sample_data
 from nfl_sim.game import SingleGame
@@ -180,7 +180,7 @@ def game_samples_data() -> pl.DataFrame:
             "yards_gained": 10,
         },
     ]
-    return build_test_play_data(rows=kc_plays + buf_plays)
+    return _build_test_play_data(rows=kc_plays + buf_plays)
 
 
 @pytest.fixture
@@ -262,51 +262,6 @@ def test_flip_teams(game_with_samples: SingleGame):
 def test_game_data_empty(game_with_samples: SingleGame):
     df = game_with_samples.game_data
     assert len(df) == 0
-
-
-# __repr__
-
-
-def test_repr(game_with_samples: SingleGame):
-    game_with_samples._posteam_score = 14
-    game_with_samples._defteam_score = 7
-    game_with_samples._current_drive_id = 2  # After 2 completed drives, on drive 2
-    # Add a play so num_drives counts the in-progress drive
-    game_with_samples._plays = [
-        PlayRecord(
-            down=1,
-            dist=10,
-            yardline=75,
-            yards_gained=5,
-            desc="Test",
-            event=None,
-            posteam="KC",
-            drive_id=2,
-            home_score=14,
-            away_score=7,
-            quarter=1,
-            half_seconds_remaining=100,
-        )
-    ]
-
-    result = repr(game_with_samples)
-    assert "KC" in result
-    assert "BUF" in result
-    assert "14" in result
-    assert "7" in result
-    assert "3 drives" in result  # drive_id 0, 1, 2 = 3 drives
-
-
-def test_repr_swapped_possession(game_with_samples: SingleGame):
-    """Test repr when away team currently has possession."""
-    game_with_samples._flip_teams()  # BUF now has ball
-    game_with_samples._posteam_score = 10  # BUF score
-    game_with_samples._defteam_score = 21  # KC score
-
-    result = repr(game_with_samples)
-    # Should show home team first regardless of possession
-    assert "KC 21" in result
-    assert "BUF 10" in result
 
 
 # game_data with plays

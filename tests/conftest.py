@@ -1,5 +1,6 @@
 """Shared fixtures for NFL sim tests."""
 
+import functools
 from typing import Any
 
 import polars as pl
@@ -42,7 +43,7 @@ DEFAULT_PLAY_COLUMNS: dict[str, Any] = {
 }
 
 
-def build_test_play_data(
+def _build_test_play_data(
     rows: list[dict[str, Any]] | None = None,
     n_rows: int = 1,
     **column_overrides: Any,
@@ -61,18 +62,6 @@ def build_test_play_data(
     Returns:
         DataFrame with all required columns and __EVENT_KEY computed.
 
-    Examples:
-        # Single row with defaults
-        df = build_test_play_data()
-
-        # Multiple rows with same values
-        df = build_test_play_data(n_rows=5, touchdown=1)
-
-        # Custom rows with different values
-        df = build_test_play_data(rows=[
-            {"posteam": "KC", "yards_gained": 10},
-            {"posteam": "BUF", "yards_gained": -5, "interception": 1},
-        ])
 
     """
     if rows is not None:
@@ -89,6 +78,13 @@ def build_test_play_data(
     return pl.DataFrame(data).with_columns(build_event_expr())
 
 
+# We occasionally need to call this as a fixture
+@pytest.fixture
+def build_test_play_data(*args, **kwargs):
+    return functools.partial(_build_test_play_data, *args, **kwargs)
+
+
+@pytest.fixture
 def make_play_row(
     yards_gained: int = 5,
     touchdown: int = 0,
@@ -104,13 +100,14 @@ def make_play_row(
     fumble_lost: int = 0,
     desc: str = "Test play",
     time_elapsed: int = 25,
-) -> pl.DataFrame:
+):
     """Helper to create a single play row for GameEngine.ingest_new_play().
 
     Convenience wrapper around build_test_play_data for single-row creation
     with explicit parameters (better IDE autocomplete).
     """
-    return build_test_play_data(
+    return functools.partial(
+        _build_test_play_data,
         yards_gained=yards_gained,
         touchdown=touchdown,
         interception=interception,
@@ -140,7 +137,7 @@ def mock_play_data() -> pl.DataFrame:
 
     Mimics nflverse play-by-play structure with required columns.
     """
-    return build_test_play_data(
+    return _build_test_play_data(
         rows=[
             {
                 "posteam": "KC",

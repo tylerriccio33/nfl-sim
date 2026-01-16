@@ -23,5 +23,5 @@ PBP_COLUMNS: list[str] = _load_columns(
 )
 ENGINE_COLUMNS: list[str] = _load_columns(
     "engine_columns.toml",
-    ["filter", "play_result", "event_detection"],
+    ["filter", "play_result", "meta"],
 )

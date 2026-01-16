@@ -1,6 +1,7 @@
 """Game engine state machine for play-by-play simulation."""
 
 from dataclasses import dataclass
+from typing import Literal
 
 import polars as pl
 
@@ -19,7 +20,7 @@ from nfl_sim._model import calc_wp
 class PlayRecord:
     """Single play record with full game context."""
 
-    down: int
+    down: Literal[1, 2, 3, 4]
     dist: int
     yardline: int
     yards_gained: int | None
@@ -33,6 +34,7 @@ class PlayRecord:
     half_seconds_remaining: int
 
 
+@dataclass
 class GameEngine:
     """Game state machine tracking down, distance, and field position.
 
@@ -49,16 +51,14 @@ class GameEngine:
         Losing yards INCREASES yardline_100 (getting pushed back toward your own endzone).
     """
 
-    def __init__(self) -> None:
-        """Initialize game state at own 25 yard line."""
-        self._dist = 10
-        self._down = 1
-        self._yardline = 75  # Own 25 yard line (75 yards from opponent's endzone)
-        self._half = 1
-        self._half_seconds_remaining = 1800  # 30 minutes per half
-        self._yards_gained: int | None = None
+    _dist = 10
+    _down = 1
+    _yardline = 75  # Own 25 yard line (75 yards from opponent's endzone)
+    _half = 1
+    _half_seconds_remaining = 1800  # 30 minutes per half
+    _yards_gained: int | None = None
 
-        self.score = 0
+    score = 0
 
     @property
     def wp(self) -> float:
@@ -73,7 +73,7 @@ class GameEngine:
         )
 
     @property
-    def down(self) -> int:
+    def down(self) -> Literal[1, 2, 3, 4]:
         """Current down (1-4)."""
         return self._down
 

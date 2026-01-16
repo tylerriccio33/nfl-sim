@@ -464,4 +464,4 @@ def test_sample_pool_diversity(game_data: pl.DataFrame, available_teams: list[st
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    pytest.main([__file__, "-k", "test_sample_pool_diversity"])

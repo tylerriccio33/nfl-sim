@@ -18,7 +18,7 @@ def configure_logging(level: str = "WARNING") -> None:
     logger.add(sys.stderr, level=level)
 
 
-def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, float]:
+def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
     """Run N simulations per game for multiple matchups and return timing stats.
 
     Args:
@@ -41,11 +41,6 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
         away_samples = build_sample_data(data, "KC")
 
     # Run simulations
-    total_simulations = n_sims_per_game * n_matchups
-    console.print(
-        f"[bold green]Running {n_matchups} matchups x {n_sims_per_game} sims = {total_simulations} total simulations..."
-    )
-
     start = time.perf_counter()
     SimulationResult.simulate(
         home_samples=home_samples,
@@ -57,14 +52,13 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
     elapsed = time.perf_counter() - start
 
     # Calculate stats
-    games_per_second = total_simulations / elapsed if elapsed > 0 else 0
+    games_per_second = n_sims_per_game / elapsed if elapsed > 0 else 0
     games_per_minute = games_per_second * 60
-    ms_per_game = (elapsed / total_simulations) * 1000 if total_simulations > 0 else 0
+    ms_per_game = (elapsed / n_sims_per_game) * 1000 if n_sims_per_game > 0 else 0
 
     return {
-        "matchups": n_matchups,
         "sims_per_matchup": n_sims_per_game,
-        "total_simulations": total_simulations,
+        "total_simulations": n_sims_per_game,
         "elapsed_seconds": elapsed,
         "games_per_second": games_per_second,
         "games_per_minute": games_per_minute,
@@ -80,7 +74,6 @@ def report_results(stats: dict[str, float]) -> None:
     table.add_column("Metric", style="cyan", no_wrap=True)
     table.add_column("Value", style="magenta", justify="right")
 
-    table.add_row("Matchups", f"{stats['matchups']:.0f}")
     table.add_row("Sims/Matchup", f"{stats['sims_per_matchup']:.0f}")
     table.add_row("Total Simulations", f"{stats['total_simulations']:.0f}")
     table.add_row("Total Time", f"{stats['elapsed_seconds']:.2f} sec")
@@ -95,7 +88,7 @@ def report_results(stats: dict[str, float]) -> None:
 
 def main() -> None:
     """Run timing benchmark and display results."""
-    stats = run_benchmark(n_sims_per_game=100, n_matchups=10)
+    stats = run_benchmark(n_sims_per_game=100)
     report_results(stats)
 
 
