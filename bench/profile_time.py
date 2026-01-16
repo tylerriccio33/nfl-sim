@@ -12,7 +12,7 @@ from loguru import logger
 
 from nfl_sim._model import calc_wp
 from nfl_sim._sampling import build_sample_data, fetch_like_play
-from nfl_sim.data import ScheduleData, game_factory, pull_game_data
+from nfl_sim.data import ScheduleData, pull_game_data
 
 ## == Profile These ==============================================
 from nfl_sim.game import _GameOrchestrator
@@ -48,22 +48,22 @@ def main() -> None:
     schedule = ScheduleData.from_cur_week(rm_complete=True)
     data = pull_game_data()
 
-    # Build game orchestrators using game_factory (partitions data once upfront)
-    print("Building game orchestrators...")
-    orchestrators = game_factory(data, schedule)
+    # Get first game metadata
+    meta = schedule[0]
+    home_team = meta["home_team"]
+    away_team = meta["away_team"]
 
-    # Use first orchestrator for profiling
-    game = orchestrators[0]
-    home_team = game.metadata["home_team"]
-    away_team = game.metadata["away_team"]
+    # Build sample data for each team (filters to their offensive plays)
+    home_samples = build_sample_data(data, home_team)
+    away_samples = build_sample_data(data, away_team)
 
     # Profile N simulations
     n_sims = 10
     print(f"Profiling {home_team} vs {away_team} ({n_sims} simulations)...")
     profiler.runcall(
         SimulationResult.simulate,
-        home_samples=game.home_samples,
-        away_samples=game.away_samples,
+        home_samples=home_samples,
+        away_samples=away_samples,
         home_team=home_team,
         away_team=away_team,
         n=n_sims,

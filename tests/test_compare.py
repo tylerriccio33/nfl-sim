@@ -435,7 +435,7 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
     tol_map = {
         "home_score": 3,
         "away_score": 3,
-        "margin": 2,
+        "margin": 1,
         "num_drives": 2,
         "total_plays": 10,
         "home_win": 10,
@@ -451,8 +451,16 @@ def test_sample_pool_diversity(game_data: pl.DataFrame, available_teams: list[st
     team = available_teams[0]
     samples = build_sample_data(game_data, team)
 
-    unique_games = samples.df["game_id"].n_unique()
-    assert unique_games > 5, f"Team {team} has plays from only {unique_games} games"
+    # Access combined games from all partitions
+    all_game_ids = pl.concat(
+        [
+            samples.early_df.select("game_id"),
+            samples.third_df.select("game_id"),
+            samples.fourth_df.select("game_id"),
+        ]
+    )["game_id"].n_unique()
+
+    assert all_game_ids > 5, f"Team {team} has plays from only {all_game_ids} games"
 
 
 if __name__ == "__main__":

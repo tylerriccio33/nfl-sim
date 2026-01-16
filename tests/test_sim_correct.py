@@ -11,7 +11,7 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from nfl_sim._sampling import SampleData, build_sample_data
+from nfl_sim._sampling import PartitionedSampleData, build_sample_data
 from nfl_sim.data import pull_game_data
 from nfl_sim.game import _GameOrchestrator
 
@@ -63,8 +63,8 @@ NFL_TEAMS = [
 
 def create_game(game_data: pl.DataFrame, home_team: str, away_team: str) -> _GameOrchestrator:
     """Create a game instance with given teams."""
-    home_samples: SampleData = build_sample_data(game_data, team=home_team)
-    away_samples: SampleData = build_sample_data(game_data, team=away_team)
+    home_samples: PartitionedSampleData = build_sample_data(game_data, team=home_team)
+    away_samples: PartitionedSampleData = build_sample_data(game_data, team=away_team)
     return _GameOrchestrator(
         home_samples=home_samples,
         away_samples=away_samples,
@@ -360,4 +360,4 @@ def test_no_excessive_play_repetition(
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-sv", "-k", "test_no_excessive_play_repetition"])
+    pytest.main([__file__, "-sv"])

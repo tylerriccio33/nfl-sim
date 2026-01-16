@@ -7,9 +7,9 @@ import datetime
 import polars as pl
 from flask import Blueprint, render_template
 
-from nfl_sim.data import GameMetadata, ScheduleData, game_factory, pull_game_data
-from nfl_sim.game import _GameOrchestrator
-from nfl_sim.simulate import SimulationResult, SingleGameResult
+from nfl_sim._sampling import build_sample_data
+from nfl_sim.data import ScheduleData, pull_game_data
+from nfl_sim.simulate import SimulationResult
 
 bp = Blueprint("main", __name__)
 
@@ -188,56 +188,30 @@ def refresh_games():
 
 @bp.route("/simulate/<home>/<away>", methods=["POST"])
 def simulate(home: str, away: str):
-    """Run simulation for a matchup."""
+    """Run simulation for a matchup using SimulationResult.simulate()."""
     global _sim_cache
     data = get_pbp_data()
 
-    # Create a single-game metadata list for game_factory
-    game_meta: GameMetadata = {"home_team": home, "away_team": away}
-    orchestrators = game_factory(data, [game_meta])
+    # Build sample data for each team
+    home_samples = build_sample_data(data, home)
+    away_samples = build_sample_data(data, away)
 
-    if not orchestrators:
-        return render_template(
-            "partials/sim_results.html", result=None, home=home, away=away, error="No data"
-        )
-
-    orchestrator = orchestrators[0]
     n_sims = 100
 
-    # Run simulations manually to capture play-by-play data
-    single_results: list[SingleGameResult] = []
-    game_plays: list[list[dict]] = []
+    # Use unified simulate API with play capture
+    result = SimulationResult.simulate(
+        home_samples=home_samples,
+        away_samples=away_samples,
+        home_team=home,
+        away_team=away,
+        n=n_sims,
+        capture_plays=True,
+    )
 
-    for _ in range(n_sims):
-        game = _GameOrchestrator(
-            home_samples=orchestrator.home_samples,
-            away_samples=orchestrator.away_samples,
-            home_team=home,
-            away_team=away,
-        )
-        game.play_game()
-
-        # Collect result for stats
-        single_results.append(
-            SingleGameResult(
-                home_score=game.home_score,
-                away_score=game.away_score,
-                num_drives=game.num_drives,
-                total_plays=len(game.game_data),
-                home_win=game.home_score > game.away_score,
-                margin=game.home_score - game.away_score,
-                event_counts=game.event_counts,
-                home_event_counts=game.home_event_counts,
-                away_event_counts=game.away_event_counts,
-            )
-        )
-
-        # Collect play-by-play for this game
-        game_plays.append(game.game_data.to_dicts())
-
-    # Build SimulationResult for stats extraction
-    result = SimulationResult(home, away, single_results)
     result_dict = _extract_result_stats(result)
+
+    # Extract play-by-play from individual results
+    game_plays = [r.plays for r in result.individual_results]
 
     # Cache results server-side (avoids cookie size limits)
     cache_key = f"{home}_{away}"

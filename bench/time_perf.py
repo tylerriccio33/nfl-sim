@@ -7,7 +7,8 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim.data import ScheduleData, game_factory, pull_game_data
+from nfl_sim._sampling import build_sample_data
+from nfl_sim.data import pull_game_data
 from nfl_sim.simulate import SimulationResult
 
 
@@ -32,17 +33,12 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
     console = Console()
 
     with console.status("[bold blue]Loading game data..."):
-        schedule = ScheduleData.from_cur_week(rm_complete=True)
         data = pull_game_data()
 
     # Build game orchestrator using game_factory (partitions data once upfront)
     with console.status("[bold blue]Building game orchestrators..."):
-        orchestrators = game_factory(data, schedule)
-
-    # Use first orchestrator for benchmarking
-    game = orchestrators[0]
-    home_team = game.metadata["home_team"]
-    away_team = game.metadata["away_team"]
+        home_samples = build_sample_data(data, "NYJ")
+        away_samples = build_sample_data(data, "KC")
 
     # Run simulations
     total_simulations = n_sims_per_game * n_matchups
@@ -51,14 +47,13 @@ def run_benchmark(n_sims_per_game: int = 100, n_matchups: int = 5) -> dict[str, 
     )
 
     start = time.perf_counter()
-    for _ in range(n_matchups):
-        SimulationResult.simulate(
-            home_samples=game.home_samples,
-            away_samples=game.away_samples,
-            home_team=home_team,
-            away_team=away_team,
-            n=n_sims_per_game,
-        )
+    SimulationResult.simulate(
+        home_samples=home_samples,
+        away_samples=away_samples,
+        home_team="NYJ",
+        away_team="KC",
+        n=n_sims_per_game,
+    )
     elapsed = time.perf_counter() - start
 
     # Calculate stats

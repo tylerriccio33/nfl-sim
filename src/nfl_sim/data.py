@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict, TypeIs, cast
+from typing import NotRequired, TypedDict, TypeIs, cast
 
 import nflreadpy as nfl
 import polars as pl
@@ -12,8 +12,6 @@ from nflreadpy.utils_date import get_current_season, get_current_week
 
 from nfl_sim._columns import PBP_COLUMNS
 from nfl_sim._event import build_event_expr
-from nfl_sim._sampling import build_sample_data
-from nfl_sim.game import _GameOrchestrator
 
 
 class GameMetadata(TypedDict):
@@ -35,6 +33,7 @@ def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
     """
     if not isinstance(obj, dict):  # pragma: no cover
         return False
+    # TODO: wtf is all this lol
     d = cast("dict[str, object]", obj)
     return (
         "home_team" in d
@@ -211,50 +210,3 @@ class ScheduleData:
         """
         rows = list(self.df.iter_rows(named=True))
         return [row for row in rows if _is_game_metadata(row)]
-
-
-def game_factory(
-    pbp_data: pl.DataFrame,
-    schedule: ScheduleData | list[GameMetadata],
-) -> list[_GameOrchestrator]:
-    """Create GameOrchestrator instances for each scheduled game.
-
-    Partitions play-by-play data by team and builds sample pairs for each
-    matchup. Each orchestrator contains historical plays for both teams
-    (offensive and defensive) to use during simulation.
-
-    Args:
-        pbp_data: Historical play-by-play data from `pull_game_data()`.
-        schedule: ScheduleData or list of GameMetadata dicts.
-
-    Returns:
-        List of configured GameOrchestrator instances ready for simulation.
-
-    """
-    # Normalize input to list of GameMetadata
-    game_metadata: list[GameMetadata]
-    if isinstance(schedule, ScheduleData):
-        game_metadata = schedule.as_metadata()
-    else:  # TODO: Why?
-        game_metadata = schedule
-
-    # Build orchestrator for each game
-    games = []
-    for meta in game_metadata:
-        home_team = meta["home_team"]
-        away_team = meta["away_team"]
-        home_samples = build_sample_data(pbp_data, home_team)
-        away_samples = build_sample_data(pbp_data, away_team)
-        extra: dict[str, Any] = {
-            k: v for k, v in meta.items() if k not in ("home_team", "away_team")
-        }
-        game = _GameOrchestrator(
-            home_samples=home_samples,
-            away_samples=away_samples,
-            home_team=home_team,
-            away_team=away_team,
-            **extra,
-        )
-        games.append(game)
-
-    return games

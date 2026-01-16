@@ -7,7 +7,8 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim.data import ScheduleData, game_factory, pull_game_data
+from nfl_sim._sampling import build_sample_data
+from nfl_sim.data import ScheduleData, pull_game_data
 from nfl_sim.simulate import SimulationResult
 
 NGAMES = 500
@@ -75,10 +76,6 @@ def run_accuracy_benchmark(
     with console.status(f"[bold blue]Fetching {n_games} completed games..."):
         schedule = fetch_completed_games(n_games)
 
-    # Build game orchestrators using game_factory (partitions data once upfront)
-    with console.status("[bold blue]Building game orchestrators..."):
-        orchestrators = game_factory(play_data, schedule)
-
     # Build lookup for actual results by game (home_team, away_team)
     actual_results: dict[tuple[str, str], dict[str, object]] = {}
     for row in schedule:
@@ -87,25 +84,26 @@ def run_accuracy_benchmark(
 
     # Run simulations
     results = []
-    console.print(
-        f"[bold green]Simulating {len(orchestrators)} games ({n_sims_per_game} sims each)..."
-    )
+    console.print(f"[bold green]Simulating {len(schedule)} games ({n_sims_per_game} sims each)...")
 
-    for i, game in enumerate(orchestrators):
+    for i, game in enumerate(schedule):
         if (i + 1) % 10 == 0:
-            console.print(f"  Progress: {i + 1}/{len(orchestrators)}")
+            console.print(f"  Progress: {i + 1}/{len(schedule)}")
 
-        home_team = game.metadata["home_team"]
-        away_team = game.metadata["away_team"]
+        home_team: str = game["home_team"]
+        away_team: str = game["away_team"]
         actual = actual_results[(home_team, away_team)]
         actual_home = actual["home_score"]
         actual_away = actual["away_score"]
         spread = actual["spread_line"]  # Negative = home favored
 
+        home_samples = build_sample_data(play_data, home_team)
+        away_samples = build_sample_data(play_data, away_team)
+
         # Run N simulations using pre-built sample pairs
         sim_result = SimulationResult.simulate(
-            home_samples=game.home_samples,
-            away_samples=game.away_samples,
+            home_samples=home_samples,
+            away_samples=away_samples,
             home_team=home_team,
             away_team=away_team,
             n=n_sims_per_game,

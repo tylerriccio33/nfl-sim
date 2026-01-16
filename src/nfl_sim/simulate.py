@@ -8,12 +8,13 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from nfl_sim._event import EVENT_EXPR_MAP
+from nfl_sim._sampling import NoSampleFoundError
 from nfl_sim.game import _GameOrchestrator
 
 if TYPE_CHECKING:
     from collections.abc import Collection
 
-    from nfl_sim._sampling import SampleData
+    from nfl_sim._sampling import PartitionedSampleData
 
 # Event names used for counting (lowercase class names matching test expectations)
 EVENT_NAMES: list[str] = [cls.__name__.lower() for cls in EVENT_EXPR_MAP]
@@ -32,6 +33,8 @@ class SingleGameResult:
     event_counts: dict[str, int] = field(default_factory=dict)
     home_event_counts: dict[str, int] = field(default_factory=dict)
     away_event_counts: dict[str, int] = field(default_factory=dict)
+    plays: list[dict] | None = field(default=None, repr=False)
+    """Optional play-by-play data when capture_plays=True."""
 
     @staticmethod
     def to_df(results: Collection[SingleGameResult]) -> pl.DataFrame:
@@ -114,15 +117,30 @@ class SimulationResult:
         )
 
     @classmethod
-    def simulate(
+    def simulate(  # TODO: This should be prefixed with from_? Confusing name since it returns a result
         cls,
-        home_samples: SampleData,
-        away_samples: SampleData,
+        home_samples: PartitionedSampleData,
+        away_samples: PartitionedSampleData,
         home_team: str,
         away_team: str,
         n: int = 100,
+        capture_plays: bool = False,
     ) -> SimulationResult:
-        """Run N game simulations and return aggregated statistics."""
+        """Run N game simulations and return aggregated statistics.
+
+        Args:
+            home_samples: Pre-partitioned sample data for home team.
+            away_samples: Pre-partitioned sample data for away team.
+            home_team: Home team abbreviation.
+            away_team: Away team abbreviation.
+            n: Number of simulations to run.
+            capture_plays: If True, capture play-by-play data for each game.
+                          Useful for web interface. Default False for performance.
+
+        Returns:
+            SimulationResult with aggregated statistics from N simulations.
+
+        """
         results: list[SingleGameResult] = []
         for _ in range(n):
             game = _GameOrchestrator(
@@ -131,7 +149,13 @@ class SimulationResult:
                 home_team=home_team,
                 away_team=away_team,
             )
-            game.play_game()
+            try:
+                game.play_game()
+            except NoSampleFoundError:
+                continue
+
+            plays = game.game_data.to_dicts() if capture_plays else None
+
             result = SingleGameResult(
                 home_score=game.home_score,
                 away_score=game.away_score,
@@ -142,6 +166,10 @@ class SimulationResult:
                 event_counts=game.event_counts,
                 home_event_counts=game.home_event_counts,
                 away_event_counts=game.away_event_counts,
+                plays=plays,
             )
             results.append(result)
+
+        # TODO: Better check, like only 50% of games could be played or something
+        assert len(results) != 0, "No games were played due to sampling issues."
         return cls(home_team, away_team, results)

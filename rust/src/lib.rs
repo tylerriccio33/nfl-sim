@@ -5,7 +5,7 @@ use rand::prelude::*;
 
 // Window configuration: (dist_window, wp_window, yardline_window)
 // This is for 1-3 down, where the yardline is less critical.
-const REGULAR_WINDOW_CONFIG: [(u32, f32, u32); 11] = [
+const REGULAR_WINDOW_CONFIG: [(u32, f32, u32); 12] = [
     // 2 - 10 - up to 30 yards
     (2, 0.10, 20),
     (2, 0.10, 30),
@@ -22,6 +22,9 @@ const REGULAR_WINDOW_CONFIG: [(u32, f32, u32); 11] = [
     (10, 0.20, 10),
     (10, 0.20, 20),
     (10, 0.20, 30),
+    // Final resort is basically any dist/yardline.
+    // Thought is this scenario is likely so unusual that we can relax wp a bit more.
+    (20, 0.5, 40),
 ];
 
 // Fourth down and redzone plays are far more specific, and require tighter windows
@@ -50,8 +53,10 @@ const FOURTH_AND_REDZONE_WINDOW_CONFIG: [(u32, f32, u32); 19] = [
     (10, 0.2, 5),
     (10, 0.2, 15),
     (10, 0.2, 25),
-    // Last resort (basically any dist)
-    (20, 0.25, 30),
+    // Final resort is basically any dist/yardline.
+    // Thought is this scenario is likely so unusual that we can relax wp a bit more.
+    (20, 0.5, 40),
+
 ];
 // TODO: implement later
 
@@ -89,24 +94,23 @@ fn weighted_sample(indices: Vec<usize>, n: usize) -> Vec<usize> {
     selected
 }
 
-/// Filter samples to find plays matching the game state.
+/// Filter samples without down matching (samples are pre-partitioned by down).
 ///
-/// The samples matrix should have shape (n_samples, 4) with columns:
-/// - 0: down (u32)
-/// - 1: ydstogo (u32)
-/// - 2: yardline_100 (u32)
-/// - 3: wp (f32, scaled by 1000 to store as u32)
+/// The samples matrix should have shape (n_samples, 3) with columns:
+/// - 0: ydstogo (i64)
+/// - 1: yardline_100 (i64)
+/// - 2: wp (i64, scaled by 1000)
 ///
 /// Returns indices of matching rows (up to n samples), biased toward recent plays.
 #[pyfunction]
-#[pyo3(signature = (samples, down, dist, yardline, wp, n=10))]
+#[pyo3(signature = (samples, dist, yardline, wp, is_fourth_or_redzone, n=10))]
 fn filter_window<'py>(
     py: Python<'py>,
     samples: PyReadonlyArray2<'_, i64>,
-    down: u32,
     dist: u32,
     yardline: u32,
     wp: f32,
+    is_fourth_or_redzone: bool,
     n: usize,
 ) -> Bound<'py, PyArray1<usize>> {
     let arr = samples.as_array();
@@ -115,63 +119,45 @@ fn filter_window<'py>(
     // Goal-to-go adjustment
     let cur_dist = if yardline < dist { yardline } else { dist };
 
-    let window: &[(u32, f32, u32)];
-    if down == 4 {
-        window = &FOURTH_AND_REDZONE_WINDOW_CONFIG;
+    // Select window config based on situation
+    let window: &[(u32, f32, u32)] = if is_fourth_or_redzone {
+        &FOURTH_AND_REDZONE_WINDOW_CONFIG
     } else {
-        window = &REGULAR_WINDOW_CONFIG;
-    }
+        &REGULAR_WINDOW_CONFIG
+    };
 
-    // Try progressively wider windows
-    for (dist_window, wp_window, yardline_window) in window {
-        let mut indices: Vec<usize> = Vec::new();
+    // Use widest window only
+    let (max_dist, max_wp, max_yl) = window.last().unwrap();
 
-        // TODO: Consider not even checking for down, it doesn't really matter.
-        // Alternatively, consider 1-2 down as the same, maybe filter for 3rd and 
-        // of course we have the special window for 4th.
+    let mut matches: Vec<usize> = Vec::new();
 
-        // Hot loop optimized for branch prediction and cache locality
-        for i in 0..n_rows {
-            // Down check tends to be the most performant, but not really sure
-            if unsafe { *arr.uget([i, 0]) as u32 } != down {
+    // Single hot loop - no down matching needed since pre-partitioned
+    for i in 0..n_rows {
+        unsafe {
+            let sample_dist = *arr.uget([i, 0]) as u32;
+            if sample_dist.abs_diff(cur_dist) > *max_dist {
                 continue;
             }
 
-            // Load all remaining values at once to improve cache locality
-            let sample_yardline = unsafe { *arr.uget([i, 2]) as u32 };
-            let sample_ydstogo = unsafe { *arr.uget([i, 1]) as u32 };
-            let sample_wp = unsafe { *arr.uget([i, 3]) as f32 / 1000.0 };
-
-            // Combined boundary checks to reduce branches
-            if sample_yardline >= yardline - yardline_window
-                && sample_yardline <= yardline + yardline_window
-                && sample_ydstogo >= cur_dist - dist_window
-                && sample_ydstogo <= cur_dist + dist_window
-                && sample_wp >= wp - wp_window
-                && sample_wp <= wp + wp_window
-            {
-                indices.push(i);
+            let sample_yl = *arr.uget([i, 1]) as u32;
+            if sample_yl.abs_diff(yardline) > *max_yl {
+                continue;
             }
-        }
 
-        if !indices.is_empty() {
-            return PyArray1::from_vec(py, weighted_sample(indices, n));
+            let sample_wp = *arr.uget([i, 2]) as f32 / 1000.0;
+            if (sample_wp - wp).abs() > *max_wp {
+                continue;
+            }
+
+            matches.push(i);
         }
     }
 
-    // For now, raise an error if no matches found
-    return PyArray1::from_vec(py, Vec::new());
+    if matches.is_empty() {
+        return PyArray1::from_vec(py, Vec::new());
+    }
 
-    // Last resort: just match by down
-    // let mut indices: Vec<usize> = Vec::new();
-    // for i in 0..n_rows {
-    //     let sample_down = arr[[i, 0]] as u32;
-    //     if sample_down == down {
-    //         indices.push(i);
-    //     }
-    // }
-
-    // PyArray1::from_vec(py, weighted_sample(indices, n))
+    PyArray1::from_vec(py, weighted_sample(matches, n))
 }
 
 /// NFL simulation core module implemented in Rust.

@@ -14,20 +14,18 @@ from nfl_sim._event import (
     _ScorePlay,
     _SetsYardline,
 )
-from nfl_sim._sampling import SampleData, fetch_like_play
+from nfl_sim._sampling import PartitionedSampleData, fetch_like_play
 from nfl_sim.play import GameEngine, PlayRecord
 
 if TYPE_CHECKING:
     from nfl_sim.data import GameMetadata
 
-from nfl_sim._columns import ENGINE_COLUMNS
-
 
 class _GameOrchestrator:
     def __init__(
         self,
-        home_samples: SampleData,
-        away_samples: SampleData,
+        home_samples: PartitionedSampleData,
+        away_samples: PartitionedSampleData,
         home_team: str,
         away_team: str,
         **extra_metadata: Any,
@@ -53,21 +51,12 @@ class _GameOrchestrator:
         self._home_events: dict[str, int] = {}
         self._away_events: dict[str, int] = {}
 
-        # Pre-compute engine-only sample DataFrames for faster simulation
-        self._home_engine_df: pl.DataFrame = home_samples.df.select(*ENGINE_COLUMNS, "__EVENT_KEY")
-        self._away_engine_df: pl.DataFrame = away_samples.df.select(*ENGINE_COLUMNS, "__EVENT_KEY")
-
     @property
-    def cur_samples(self) -> tuple[pl.DataFrame, SampleData]:
-        """Get current possession team's samples (engine df and full sample data).
-
-        Returns a pre-computed slimmed-down DataFrame for fast play selection,
-        along with the full SampleData for filter matrix access.
-        """
-        offense_is_home = self._posteam == self.metadata["home_team"]
-        if offense_is_home:
-            return (self._home_engine_df, self.home_samples)
-        return (self._away_engine_df, self.away_samples)
+    def cur_samples(self) -> PartitionedSampleData:
+        """Get current possession team's partitioned samples."""
+        if self._posteam == self.metadata["home_team"]:
+            return self.home_samples
+        return self.away_samples
 
     def _flip_teams(self) -> None:
         self._posteam, self._defteam = self._defteam, self._posteam
@@ -156,11 +145,9 @@ class _GameOrchestrator:
             # Update game-level meta features for models
             self._engine.score = self._posteam_score - self._defteam_score
 
-            offensive_df, samples = self.cur_samples
-            # TODO: Probably include a fallback for more samples if we can't find a play
+            samples = self.cur_samples
             play_row = fetch_like_play(
-                offensive_df,
-                samples.matrix,
+                samples,
                 down=self._engine.down,
                 dist=self._engine.dist,
                 yardline=self._engine.yardline,

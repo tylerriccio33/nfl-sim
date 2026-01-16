@@ -219,20 +219,26 @@ def test_team_order_tuple(game_with_samples: _GameOrchestrator):
 
 def test_cur_samples_home(game_with_samples: _GameOrchestrator):
     # Initially home team (KC) has ball - should get home offensive samples
-    engine_df, samples = game_with_samples.cur_samples
+    samples = game_with_samples.cur_samples
 
-    # Engine df should be a subset of the full samples df
-    assert len(engine_df) <= len(samples.df)
-    assert samples.matrix.shape[1] == 4  # down, ydstogo, yardline_100, wp
+    # Should have all three partitions
+    assert len(samples.early_df) > 0
+    assert len(samples.third_df) > 0
+    assert len(samples.fourth_df) > 0
+    # Matrices should have 3 columns (ydstogo, yardline_100, wp)
+    assert samples.early_matrix.shape[1] == 3
 
 
 def test_cur_samples_away(game_with_samples: _GameOrchestrator):
     game_with_samples._posteam = "BUF"  # simulate switching offense
-    engine_df, samples = game_with_samples.cur_samples
+    samples = game_with_samples.cur_samples
 
-    # Engine df should be a subset of the full samples df
-    assert len(engine_df) <= len(samples.df)
-    assert samples.matrix.shape[1] == 4
+    # Should have all three partitions
+    assert len(samples.early_df) > 0
+    assert len(samples.third_df) > 0
+    assert len(samples.fourth_df) > 0
+    # Matrices should have 3 columns
+    assert samples.early_matrix.shape[1] == 3
 
 
 # _flip_teams

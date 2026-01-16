@@ -7,9 +7,7 @@ import pytest
 
 from nfl_sim.data import (
     PBP_COLUMNS,
-    GameMetadata,
     ScheduleData,
-    game_factory,
     pull_game_data,
 )
 
@@ -204,78 +202,6 @@ class TestFetchCurWeekMetadata:
 
         # With rm_complete=False, we should have at least as many games
         assert len(all_games) >= len(incomplete_only)
-
-
-class TestGameFactory:
-    """Tests for game_factory function."""
-
-    def test_creates_orchestrators_for_each_game(self, mocker, mock_pbp_data: pl.DataFrame):
-        """Verify one orchestrator is created per game in metadata."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
-        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
-        mocker.patch("nfl_sim.data.get_current_week", return_value=15)
-
-        pbp_data = pull_game_data()
-        game_metadata: list[GameMetadata] = [
-            {"home_team": "KC", "away_team": "BUF"},
-            {"home_team": "SF", "away_team": "DAL"},
-        ]
-
-        # Filter to teams that exist in our mock data
-        available_teams = set(pbp_data["posteam"].unique().to_list())
-        game_metadata = [
-            g
-            for g in game_metadata
-            if g["home_team"] in available_teams and g["away_team"] in available_teams
-        ]
-
-        if game_metadata:
-            result = game_factory(pbp_data, game_metadata)
-            assert len(result) == len(game_metadata)
-
-    def test_orchestrators_have_correct_teams(self, mocker, mock_pbp_data: pl.DataFrame):
-        """Verify each orchestrator has the correct home/away teams."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
-        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
-        mocker.patch("nfl_sim.data.get_current_week", return_value=15)
-
-        pbp_data = pull_game_data()
-
-        # Get two teams that exist in the data
-        available_teams = list(pbp_data["posteam"].unique().to_list())
-        if len(available_teams) >= 2:
-            game_metadata: list[GameMetadata] = [
-                {"home_team": available_teams[0], "away_team": available_teams[1]}
-            ]
-
-            result = game_factory(pbp_data, game_metadata)
-
-            assert len(result) == 1
-            assert result[0].metadata["home_team"] == available_teams[0]
-            assert result[0].metadata["away_team"] == available_teams[1]
-
-    def test_accepts_schedule_data(
-        self, mocker, mock_pbp_data: pl.DataFrame, mock_schedule_data: pl.DataFrame
-    ):
-        """Verify game_factory accepts ScheduleData as input."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
-        mocker.patch("nfl_sim.data.nfl.load_schedules", return_value=mock_schedule_data)
-        mocker.patch("nfl_sim.data.get_current_season", return_value=2024)
-        mocker.patch("nfl_sim.data.get_current_week", return_value=15)
-
-        pbp_data = pull_game_data()
-        available_teams = set(pbp_data["posteam"].unique().to_list())
-
-        # Create a ScheduleData with games from available teams
-        schedule_df = mock_schedule_data.filter(
-            pl.col("home_team").is_in(available_teams) & pl.col("away_team").is_in(available_teams)
-        ).head(2)
-
-        if len(schedule_df) > 0:
-            schedule = ScheduleData(schedule_df)
-            result = game_factory(pbp_data, schedule)
-
-            assert len(result) == len(schedule.as_metadata())
 
 
 if __name__ == "__main__":
