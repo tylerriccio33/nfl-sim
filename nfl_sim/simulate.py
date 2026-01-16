@@ -14,6 +14,7 @@ from nfl_sim.game import SingleGame
 if TYPE_CHECKING:
     from collections.abc import Collection
 
+    from nfl_sim._kickoff import KickoffSampleData
     from nfl_sim._sampling import PartitionedSampleData
 
 # Event names used for counting (lowercase class names matching test expectations)
@@ -125,6 +126,8 @@ class SimulationResult:
         away_team: str,
         n: int = 100,
         capture_plays: bool = False,
+        home_kickoff_samples: KickoffSampleData | None = None,
+        away_kickoff_samples: KickoffSampleData | None = None,
     ) -> SimulationResult:
         """Run N game simulations and return aggregated statistics.
 
@@ -136,6 +139,8 @@ class SimulationResult:
             n: Number of simulations to run.
             capture_plays: If True, capture play-by-play data for each game.
                           Useful for web interface. Default False for performance.
+            home_kickoff_samples: Pre-filtered kickoff return data for home team.
+            away_kickoff_samples: Pre-filtered kickoff return data for away team.
 
         Returns:
             SimulationResult with aggregated statistics from N simulations.
@@ -148,6 +153,8 @@ class SimulationResult:
                 away_samples=away_samples,
                 home_team=home_team,
                 away_team=away_team,
+                home_kickoff_samples=home_kickoff_samples,
+                away_kickoff_samples=away_kickoff_samples,
             )
             try:
                 game.play_game()

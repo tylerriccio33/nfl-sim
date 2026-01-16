@@ -101,6 +101,15 @@ columns = [
 # - punt_fair_catch
 # - touchback
 
+# Kickoff columns (for kickoff return sampling)
+[kickoff]
+columns = [
+    "kickoff_attempt",
+    "touchback",
+    "kickoff_fair_catch",
+    "kickoff_in_endzone",
+]
+
 # Play description (useful for debugging/display)
 [description]
 columns = [

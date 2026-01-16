@@ -26,6 +26,7 @@ PBP_COLUMNS: list[str] = _load_columns(
         "outcomes",
         "field_goal",
         "punt",
+        "kickoff",
         "description",
         "passing",
     ],

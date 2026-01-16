@@ -8,12 +8,17 @@ import polars as pl
 from loguru import logger
 
 from nfl_sim._event import (
+    FieldGoalSuccess,
     HalfOver,
+    Safety,
+    ScoreReset,
+    Touchdown,
     _FlipsPossession,
     _MetaEvent,
     _ScorePlay,
     _SetsYardline,
 )
+from nfl_sim._kickoff import KickoffSampleData, sample_kickoff
 from nfl_sim._sampling import PartitionedSampleData, PlayRowDict, fetch_like_play
 from nfl_sim.play import GameEngine, PlayRecord
 
@@ -30,6 +35,8 @@ class SingleGame:
         away_samples: PartitionedSampleData,
         home_team: str,
         away_team: str,
+        home_kickoff_samples: KickoffSampleData | None = None,
+        away_kickoff_samples: KickoffSampleData | None = None,
         **extra_metadata: Any,  # TODO: type or enum or somthing
     ) -> None:
         self.metadata: GameMetadata = {  # TODO: Do we really need this?
@@ -39,6 +46,8 @@ class SingleGame:
         }
         self.home_samples = home_samples
         self.away_samples = away_samples
+        self.home_kickoff_samples = home_kickoff_samples
+        self.away_kickoff_samples = away_kickoff_samples
         self._engine = GameEngine()
 
         self._team_order: tuple[str, str] = (home_team, away_team)
@@ -60,6 +69,50 @@ class SingleGame:
         if self._posteam == self.metadata["home_team"]:
             return self.home_samples
         return self.away_samples
+
+    @property
+    def cur_kickoff_samples(self) -> KickoffSampleData | None:
+        """Get current possession team's kickoff samples."""
+        if self._posteam == self.metadata["home_team"]:
+            return self.home_kickoff_samples
+        return self.away_kickoff_samples
+
+    def _perform_kickoff(self) -> int:
+        """Perform a kickoff and return the receiving team's starting yardline.
+
+        Samples from the receiving team's historical kickoff return data.
+        Falls back to default touchback position (own 25) if no samples available.
+
+        Returns:
+            Receiving team's starting yardline (yardline_100 convention).
+
+        """
+        kickoff_samples = self.cur_kickoff_samples
+
+        if kickoff_samples is None or len(kickoff_samples) == 0:
+            # No kickoff data available, default to touchback
+            logger.debug("No kickoff samples for {}, using touchback", self._posteam)
+            return 75  # Own 25 yard line
+
+        result = sample_kickoff(kickoff_samples)
+
+        logger.debug(
+            "Kickoff: {} receives at {} (return: {} yds, touchback: {})",
+            self._posteam,
+            result.yardline,
+            result.return_yards,
+            result.is_touchback,
+        )
+
+        # Handle kickoff return TD
+        if result.is_return_td:
+            logger.info("KICKOFF RETURN TD for {}!", self._posteam)
+            self._posteam_score += 7
+            # After return TD, other team receives kickoff
+            self._flip_teams()
+            return self._perform_kickoff()  # Recursive call for the next kickoff
+
+        return result.yardline
 
     def _flip_teams(self) -> None:
         self._posteam, self._defteam = self._defteam, self._posteam
@@ -113,22 +166,37 @@ class SingleGame:
             defteam_score=self._defteam_score,
         )
 
-        # Determine new yardline (default to kickoff position)
-        new_yardline = (
-            # TODO: This yardline logic feels off?
-            event.get_new_yardline(self, play_data) if isinstance(event, _SetsYardline) else 75
-        )
+        # Handle possession change and field position
+        # Events that result in kickoffs: TD, FG, PickSix, FumbleSix, Safety
+        is_kickoff_event = isinstance(event, (Touchdown, FieldGoalSuccess, Safety, ScoreReset))
 
-        self._engine.reset_series(yardline=new_yardline)
+        if is_kickoff_event:
+            # For scoring events, flip possession first (if applicable), then perform kickoff
+            if isinstance(event, _FlipsPossession):
+                self._flip_teams()
 
-        # Only flip possession for events that cause a turnover
-        if isinstance(event, _FlipsPossession):
-            self._flip_teams()
+            # Now the receiving team is posteam - perform kickoff
+            new_yardline = self._perform_kickoff()
+            self._engine.reset_series(yardline=new_yardline)
             logger.debug(
-                "Possession change: {} now has ball at {}",
+                "Kickoff: {} receives at {}",
                 self._posteam,
                 new_yardline,
             )
+        else:
+            # Non-kickoff events (turnovers, punts, etc.)
+            new_yardline = (
+                event.get_new_yardline(self, play_data) if isinstance(event, _SetsYardline) else 75
+            )
+            self._engine.reset_series(yardline=new_yardline)
+
+            if isinstance(event, _FlipsPossession):
+                self._flip_teams()
+                logger.debug(
+                    "Possession change: {} now has ball at {}",
+                    self._posteam,
+                    new_yardline,
+                )
 
     def _run_half(self) -> None:
         """Run plays until the half ends."""
@@ -214,13 +282,23 @@ class SingleGame:
             self.metadata["away_team"],
         )
 
+        # Opening kickoff - away team typically receives in our convention
+        # (posteam starts as home, so flip to away receives)
+        self._flip_teams()
+        opening_yardline = self._perform_kickoff()
+        self._engine.reset_series(yardline=opening_yardline)
+        logger.debug("Opening kickoff: {} receives at {}", self._posteam, opening_yardline)
+
         # First half
         self._run_half()
 
-        # Halftime: flip possession, reset for second half
+        # Halftime: flip possession, reset for second half with kickoff
         logger.info("--- HALFTIME ---")
         self._flip_teams()
         self._engine.start_second_half()
+        halftime_yardline = self._perform_kickoff()
+        self._engine.reset_series(yardline=halftime_yardline)
+        logger.debug("Second half kickoff: {} receives at {}", self._posteam, halftime_yardline)
 
         # Second half
         self._run_half()

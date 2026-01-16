@@ -7,14 +7,16 @@ import datetime
 import polars as pl
 from flask import Blueprint, render_template
 
+from nfl_sim._kickoff import build_kickoff_data
 from nfl_sim._sampling import build_sample_data
-from nfl_sim.data import ScheduleData, pull_game_data
+from nfl_sim.data import ScheduleData, pull_game_data, pull_kickoff_data
 from nfl_sim.simulate import SimulationResult
 
 bp = Blueprint("main", __name__)
 
 # Module-level cache for expensive data
 _pbp_data: pl.DataFrame | None = None
+_kickoff_data: pl.DataFrame | None = None
 _schedule: ScheduleData | None = None
 
 # Server-side cache for simulation results (avoids cookie size limits)
@@ -135,6 +137,14 @@ def get_pbp_data() -> pl.DataFrame:
     return _pbp_data
 
 
+def get_kickoff_data() -> pl.DataFrame:
+    """Lazy-load and cache kickoff data."""
+    global _kickoff_data
+    if _kickoff_data is None:
+        _kickoff_data = pull_kickoff_data()
+    return _kickoff_data
+
+
 def get_schedule() -> ScheduleData:
     """Lazy-load and cache current week schedule, sorted by game date.
 
@@ -191,10 +201,15 @@ def simulate(home: str, away: str):
     """Run simulation for a matchup using SimulationResult.simulate()."""
     global _sim_cache
     data = get_pbp_data()
+    kickoff_data = get_kickoff_data()
 
     # Build sample data for each team
     home_samples = build_sample_data(data, home)
     away_samples = build_sample_data(data, away)
+
+    # Build kickoff sample data for each team
+    home_kickoff_samples = build_kickoff_data(kickoff_data, home)
+    away_kickoff_samples = build_kickoff_data(kickoff_data, away)
 
     n_sims = 100
 
@@ -206,6 +221,8 @@ def simulate(home: str, away: str):
         away_team=away,
         n=n_sims,
         capture_plays=True,
+        home_kickoff_samples=home_kickoff_samples,
+        away_kickoff_samples=away_kickoff_samples,
     )
 
     result_dict = _extract_result_stats(result)

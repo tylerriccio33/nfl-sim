@@ -122,6 +122,67 @@ def pull_game_data(week_window: int = 12) -> pl.DataFrame:
     return data
 
 
+# Columns needed for kickoff sampling (subset of PBP_COLUMNS + kickoff-specific)
+KICKOFF_COLUMNS = [
+    "play_id",
+    "game_id",
+    "posteam",
+    "defteam",
+    "season",
+    "week",
+    "play_type",
+    "kick_distance",
+    "return_yards",
+    "return_touchdown",
+    "touchback",
+    "kickoff_fair_catch",
+    "kickoff_in_endzone",
+    "yardline_100",
+    "desc",
+]
+
+
+def pull_kickoff_data(week_window: int = 12) -> pl.DataFrame:
+    """Pull kickoff play data from nflverse.
+
+    Downloads kickoff plays for sampling kick returns. Uses the same week window
+    as regular play data.
+
+    Args:
+        week_window: Number of weeks back from current week to include.
+
+    Returns:
+        pl.DataFrame: Filtered kickoff plays with relevant columns.
+
+    """
+    cur_year, cur_week = get_current_season(), get_current_week()
+    min_week = cur_week - week_window
+    if min_week <= 0:
+        raise NotImplementedError("Week window extends beyond current season")
+    min_year = cur_year
+    window_expr: pl.Expr = (pl.col("season").eq(min_year) & pl.col("week").ge(min_week)) | (
+        pl.col("season") > min_year
+    )
+
+    raw_data = nfl.load_pbp(min_year)
+    available_cols = set(raw_data.columns)
+    cols_to_select = [c for c in KICKOFF_COLUMNS if c in available_cols]
+
+    data = (
+        raw_data.lazy()
+        .filter(window_expr)
+        .filter(
+            pl.col("play_type") == "kickoff",
+            pl.col("kick_distance").is_not_null(),
+        )
+        .select(cols_to_select)
+        .collect()
+    )
+
+    logger.debug("Loaded {} kickoff plays", len(data))
+    return data
+
+
 class ScheduleData:
     """Wrapper around schedule DataFrame with convenience methods.
 
