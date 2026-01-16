@@ -359,5 +359,24 @@ def test_no_excessive_play_repetition(
     )
 
 
+@given(
+    home_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
+    away_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
+)
+@settings(
+    max_examples=5,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+def test_event_counter_no_error(game_data: pl.DataFrame, home_idx: int, away_idx: int):
+    game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
+    game.play_game()
+
+    counts = game.event_counts
+
+    # TODO: Check all the events are there
+    # TODO: Check there are no None, it's a 0 if anything
+
+
 if __name__ == "__main__":
-    pytest.main([__file__, "-sv"])
+    pytest.main([__file__, "-sv", "-k", "test_event_counter_no_error"])

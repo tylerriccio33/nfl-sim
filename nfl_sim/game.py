@@ -48,6 +48,7 @@ class SingleGame:
         # Flat list of all plays with full context
         self._plays: list[PlayRecord] = []
         self._current_drive_id: int = 0
+        self._game_data: pl.DataFrame | None = None  # initialize this because we use a cache later
 
         # Track per-team events (for team-level stats)
         self._home_events: dict[str, int] = {}
@@ -235,7 +236,9 @@ class SingleGame:
     @property
     def game_data(self) -> pl.DataFrame:
         """Convert plays to DataFrame with realistic PBP structure."""
-        return pl.DataFrame(
+        if self._game_data is not None:
+            return self._game_data
+        self._game_data = pl.DataFrame(
             {
                 "down": [p.down for p in self._plays],
                 "dist": [p.dist for p in self._plays],
@@ -251,6 +254,7 @@ class SingleGame:
                 "half_seconds_remaining": [p.half_seconds_remaining for p in self._plays],
             }
         )
+        return self._game_data
 
     @property
     def num_drives(self) -> int:
@@ -282,17 +286,16 @@ class SingleGame:
 
         Returns lowercase event names for consistency.
         """
-        # TODO: EXPENSIVE
-        data = self.game_data
-        if "event" not in data.columns or len(data) == 0:
-            return {}
-
-        counts: dict[str, int] = {}
-        events = data.filter(pl.col("event").is_not_null())["event"].to_list()
-        for event in events:
-            event_lower = event.lower()
-            counts[event_lower] = counts.get(event_lower, 0) + 1
-        return counts
+        # struct col -> 2 cols (event, count) -> dict of cols
+        counts: dict[str, list[int | str]] = (
+            self.game_data.select(pl.col("event").str.to_lowercase().value_counts())
+            .unnest("event")
+            .filter(pl.col("event").is_not_null())
+            .to_dict(as_series=False)
+        )
+        # TODO: Do i need to fill in all possible events?
+        # dict corresponding to count (dict[str, int])
+        return dict(zip(counts["event"], counts["count"]))
 
     @property
     def home_event_counts(self) -> dict[str, int]:

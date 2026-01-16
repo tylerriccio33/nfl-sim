@@ -354,3 +354,7 @@ class TestExtractResultStats:
         assert stats["avg_punts"] == 0.0
         assert stats["home_avg_tds"] == 0.0
         assert stats["away_avg_tds"] == 0.0
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])
