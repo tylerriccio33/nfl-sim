@@ -1,4 +1,4 @@
-use numpy::{PyArray1, PyReadonlyArray2};
+use numpy::PyReadonlyArray2;
 use pyo3::prelude::*;
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
@@ -143,11 +143,11 @@ const FOURTH_AND_REDZONE_WINDOW_CONFIG: [(u32, f32, u32); 19] = [
 ];
 // TODO: implement later
 
-/// Sample n indices from a list with exponential decay weighting toward earlier indices.
+/// Sample a single index from a list with exponential decay weighting toward earlier indices.
 /// Earlier indices (more recent plays) have higher probability of being selected.
-fn weighted_sample(indices: Vec<usize>, n: usize) -> Vec<usize> {
-    if indices.len() <= n {
-        return indices;
+fn weighted_sample_single(indices: &[usize]) -> usize {
+    if indices.len() == 1 {
+        return indices[0];
     }
 
     let mut rng = thread_rng();
@@ -159,22 +159,8 @@ fn weighted_sample(indices: Vec<usize>, n: usize) -> Vec<usize> {
     let weights: Vec<f32> = (0..len).map(|i| (-decay * i as f32).exp()).collect();
 
     let dist = WeightedIndex::new(&weights).unwrap();
-    let mut selected: Vec<usize> = Vec::with_capacity(n);
-    let mut used: Vec<bool> = vec![false; len];
-
-    while selected.len() < n {
-        let idx = dist.sample(&mut rng);
-        if !used[idx] {
-            used[idx] = true;
-            unsafe {
-                selected.push(*indices.get_unchecked(idx));
-            }
-        }
-    }
-
-    // Sort to maintain order (optional, but keeps indices ordered)
-    selected.sort_unstable();
-    selected
+    let idx = dist.sample(&mut rng);
+    indices[idx]
 }
 
 /// Filter samples without down matching (samples are pre-partitioned by down).
@@ -186,11 +172,9 @@ fn weighted_sample(indices: Vec<usize>, n: usize) -> Vec<usize> {
 ///
 /// Win probability is calculated internally from game state parameters.
 ///
-/// Returns indices of matching rows (up to n samples), biased toward recent plays.
+/// Returns index of a single matching row (biased toward recent plays), or None if no match.
 #[pyfunction]
-#[pyo3(signature = (samples, down, dist, yardline, half, half_seconds_remaining, score, n=10))]
-fn filter_window<'py>(
-    py: Python<'py>,
+fn filter_window(
     samples: PyReadonlyArray2<'_, i64>,
     down: u32,
     dist: u32,
@@ -198,8 +182,7 @@ fn filter_window<'py>(
     half: u32,
     half_seconds_remaining: u32,
     score: i32,
-    n: usize,
-) -> Bound<'py, PyArray1<usize>> {
+) -> Option<i64> {
     // Calculate current win probability from game state
     let wp: f32 = calc_wp_internal(down, dist, yardline, half, half_seconds_remaining, score);
     let arr = samples.as_array();
@@ -220,9 +203,16 @@ fn filter_window<'py>(
     for (dist_window, wp_window, yardline_window) in window {
         let mut indices: Vec<usize> = Vec::new();
 
-        // Hot loop optimized for branch prediction and cache locality
+        let yardline_top_threshold = yardline + yardline_window;
+        let yardline_bottom_threshold = yardline.saturating_sub(*yardline_window);
+        
+        let cur_dist_top_threshold = cur_dist + dist_window;
+        let cur_dist_bottom_threshold = cur_dist.saturating_sub(*dist_window);
+        
+        let wp_top_threshold = wp + wp_window;
+        let wp_bottom_threshold = wp - wp_window;
+
         for i in 0..n_rows {
-            // TODO: Pre-calc the windows
 
             // Load all remaining values at once to improve cache locality
             let sample_ydstogo = unsafe { *arr.uget([i, 0]) as u32 };
@@ -230,24 +220,24 @@ fn filter_window<'py>(
             let sample_wp = unsafe { *arr.uget([i, 2]) as f32 / 1000.0 };
 
             // Combined boundary checks to reduce branches
-            if sample_yardline >= yardline.saturating_sub(*yardline_window)
-                && sample_yardline <= yardline + yardline_window
-                && sample_ydstogo >= cur_dist.saturating_sub(*dist_window)
-                && sample_ydstogo <= cur_dist + dist_window
-                && sample_wp >= wp - wp_window
-                && sample_wp <= wp + wp_window
+            if sample_yardline >= yardline_bottom_threshold
+                && sample_yardline <= yardline_top_threshold
+                && sample_ydstogo >= cur_dist_bottom_threshold
+                && sample_ydstogo <= cur_dist_top_threshold
+                && sample_wp >= wp_bottom_threshold
+                && sample_wp <= wp_top_threshold
             {
-                indices.push(i);  // Push row index, not yardline value
+                indices.push(i);
             }
         }
 
         if !indices.is_empty() {
-            return PyArray1::from_vec(py, weighted_sample(indices, n));
+            return Some(weighted_sample_single(&indices) as i64);
         }
     }
 
-    // // If no matches found, return empty array
-    PyArray1::from_vec(py, Vec::new())
+    // No matches found
+    None
 }
 
 // TODO: I'd like to change the name from _internal

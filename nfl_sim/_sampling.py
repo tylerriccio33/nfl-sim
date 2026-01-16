@@ -188,11 +188,10 @@ def fetch_like_play(
         half=half,
         half_seconds_remaining=half_seconds_remaining,
         score=score,
-        n=1,
     )
 
-    if len(idx) == 0:
+    if idx is None:
         raise NoSampleFoundError(f"No plays found for down={down}, dist={dist}, yl={yardline}")
 
     # O(1) tuple lookup - no DataFrame slicing needed
-    return partition_plays[int(idx[0])]
+    return partition_plays[idx]

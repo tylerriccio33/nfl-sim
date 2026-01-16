@@ -33,11 +33,11 @@ def test_play_dicts_have_required_keys(mock_play_data: pl.DataFrame):
     assert "kick_distance" in play
 
 
-def test_filter_window_returns_valid_indices_for_partitions(mock_play_data: pl.DataFrame):
-    """Filter window returns indices that map to play dicts."""
+def test_filter_window_returns_valid_index_for_partitions(mock_play_data: pl.DataFrame):
+    """Filter window returns a single index that maps to play dicts."""
     samples = build_sample_data(mock_play_data, "KC")
     # Use early partition (downs 1-2)
-    indices = _internal.filter_window(
+    idx = _internal.filter_window(
         samples.early_matrix,
         down=1,
         dist=10,
@@ -46,10 +46,10 @@ def test_filter_window_returns_valid_indices_for_partitions(mock_play_data: pl.D
         half_seconds_remaining=900,
         score=0,
     )
-    # All indices should be valid for the plays tuple
-    assert all(idx < len(samples.early_plays) for idx in indices)
-    # Should find at least one match
-    assert len(indices) > 0
+    # Should find a match
+    assert idx is not None
+    # Index should be valid for the plays tuple
+    assert idx < len(samples.early_plays)
 
 
 def test_raises_when_no_matches(mock_play_data: pl.DataFrame):
@@ -69,8 +69,8 @@ def test_raises_when_no_matches(mock_play_data: pl.DataFrame):
         )
 
 
-def test_filter_window_returns_valid_indices():
-    """Verify filter_window returns row indices, not column values."""
+def test_filter_window_returns_valid_index():
+    """Verify filter_window returns a valid row index, not a column value."""
     import numpy as np
 
     # Create controlled test data where we know exact matches
@@ -92,15 +92,12 @@ def test_filter_window_returns_valid_indices():
         half=1,
         half_seconds_remaining=900,
         score=0,
-        n=5,
     )
 
-    # All returned indices must be valid row indices (0-3)
-    assert all(idx < len(samples) for idx in result), (
-        f"Indices {result} should all be < {len(samples)}"
-    )
-    # Should find at least one match (row 0 matches well)
-    assert len(result) > 0, "Should find at least one matching sample"
+    # Should find a match
+    assert result is not None, "Should find at least one matching sample"
+    # Returned index must be a valid row index (0-3)
+    assert result < len(samples), f"Index {result} should be < {len(samples)}"
 
 
 # Fetch best tests
