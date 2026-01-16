@@ -12,7 +12,6 @@
 # By flipping for the correct team, you then turn it into a binary by determining if it's positive (win)
 # or negative (loss.)
 
-import pickle
 from pathlib import Path
 
 import numpy as np
@@ -367,41 +366,40 @@ def main() -> None:
 
     print("\nAll assertions passed!")
 
-    # Save model
+    # Save model coefficients to txt file (one per line)
     model_dir = Path(__file__).parent / "dev"
     model_dir.mkdir(exist_ok=True)
-    model_path = model_dir / "wp.pkl"
+    coef_path = model_dir / "wp_coefficients.txt"
 
-    model_data = {
-        "weights": weights,
-        "feature_names": [
-            "intercept",
-            "down_norm",
-            "dist_norm",
-            "yard_norm",
-            "half_norm",
-            "time_norm",
-            "score_norm",
-            "score_time",
-            "score_half",
-            "yard_down",
-            "dist_down",
-            "score_sq",
-            "time_sq",
-            "yard_sq",
-        ],
-    }
+    feature_names = [
+        "intercept",
+        "down_norm",
+        "dist_norm",
+        "yard_norm",
+        "half_norm",
+        "time_norm",
+        "score_norm",
+        "score_time",
+        "score_half",
+        "yard_down",
+        "dist_down",
+        "score_sq",
+        "time_sq",
+        "yard_sq",
+    ]
 
-    with model_path.open("wb") as f:
-        pickle.dump(model_data, f)
+    with coef_path.open("w") as f:
+        for w in weights:
+            f.write(f"{w}\n")
 
-    print(f"\nModel saved to: {model_path}")
+    print(f"\nCoefficients saved to: {coef_path}")
+    print("Copy to src/nfl_sim/wp_coefficients.txt after training.")
 
     # Print weights
     print("\n" + "=" * 50)
     print("MODEL WEIGHTS")
     print("=" * 50)
-    for name, w in zip(model_data["feature_names"], weights):
+    for name, w in zip(feature_names, weights):
         print(f"{name:<15} {w:>10.4f}")
 
 

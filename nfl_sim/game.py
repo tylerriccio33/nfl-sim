@@ -35,7 +35,7 @@ class SingleGame:
         self.metadata: GameMetadata = {  # TODO: Do we really need this?
             "home_team": home_team,
             "away_team": away_team,
-            **extra_metadata,  # type: ignore[typeddict-item]
+            **extra_metadata,
         }
         self.home_samples = home_samples
         self.away_samples = away_samples
@@ -153,7 +153,9 @@ class SingleGame:
                 down=self._engine.down,
                 dist=self._engine.dist,
                 yardline=self._engine.yardline,
-                wp=self._engine.wp,
+                half=self._engine.half,
+                half_seconds_remaining=self._engine.half_seconds_remaining,
+                score=self._engine.score,
             )
 
             # Compute play context before state changes

@@ -31,6 +31,11 @@ make bench-time
 
 # Lint and type check
 make lint
+
+# Build rust and sync
+make build
+uv sync
+
 ```
 
 ## Project Structure

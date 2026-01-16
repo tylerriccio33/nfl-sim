@@ -3,23 +3,23 @@ from functools import lru_cache
 from math import exp
 from pathlib import Path
 
-import numpy as np
-
 # Cache for loaded model weights
-_MODEL_CACHE: dict[str, np.ndarray] = {}
+_MODEL_CACHE: dict[str, tuple[float, ...]] = {}
 
 
 @lru_cache(maxsize=1)
-def _load_weights() -> np.ndarray:
+def _load_weights() -> tuple[float, ...]:
     """Load model weights from pickle file (cached)."""
     if "weights" not in _MODEL_CACHE:
         model_path = Path(__file__).parent.parent.parent / "model" / "dev" / "wp.pkl"
         if not model_path.exists():  # pragma: no cover
-            msg = f"Model file not found: {model_path}. Run model/wp_model_train.py first."
-            raise FileNotFoundError(msg)
+            raise FileNotFoundError(
+                f"Model file not found: {model_path}. Run model/wp_model_train.py first."
+            )
         with model_path.open("rb") as f:
             model_data = pickle.load(f)
-        _MODEL_CACHE["weights"] = model_data["weights"]
+        _MODEL_CACHE["weights"] = tuple(map(float, model_data["weights"]))
+
     return _MODEL_CACHE["weights"]
 
 

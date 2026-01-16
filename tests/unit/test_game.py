@@ -161,7 +161,7 @@ def test_punt_out_of_bounds_raises(make_play_row, game: GameEngine):
 
 
 def test_punt_blocked_raises(make_play_row, game: GameEngine):
-    play = make_play_row(make_play_row, yards_gained=0, punt_attempt=1, punt_blocked=1)
+    play = make_play_row(yards_gained=0, punt_attempt=1, punt_blocked=1)
     with pytest.raises(PuntBlocked):
         game.ingest_new_play(play)
 

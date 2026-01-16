@@ -20,11 +20,9 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
-manifest-path = "rust/Cargo.toml"
-python-source = "src"
+module-name = "nfl_sim._internal"
 python-packages = ["nfl_sim"]
-module-name = "nfl_sim_core"
-features = ["pyo3/extension-module"]
+python-source="."
 
 [project.scripts]
 nfl-sim = "nfl_sim.__main__:main"

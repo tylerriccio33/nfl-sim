@@ -5,7 +5,7 @@ import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
-import nfl_sim_core
+import nfl_sim._internal as _internal
 from nfl_sim._columns import ENGINE_COLUMNS
 
 type _FilterMatrix = NDArray[np.int64]
@@ -130,47 +130,49 @@ def fetch_like_play(
     down: Literal[1, 2, 3, 4],
     dist: int,
     yardline: int,
-    wp: float,
+    half: int,
+    half_seconds_remaining: int,
+    score: int,
 ) -> pl.DataFrame:
     """Gets the most like play from the pre-partitioned samples.
 
     Selects from the appropriate down partition and uses Rust filtering
-    to find plays matching the current game state.
+    to find plays matching the current game state. Win probability is
+    calculated internally by the Rust filter.
 
     Args:
         samples: Pre-partitioned sample data for the offensive team.
         down: Current down (1-4).
         dist: Distance to first down.
         yardline: Yards from opponent's endzone (yardline_100 convention).
-        wp: Win probability (0.0 to 1.0).
+        half: Current half (1 or 2).
+        half_seconds_remaining: Seconds remaining in the half.
+        score: Point differential (posteam_score - defteam_score).
 
     Returns:
         pl.DataFrame: Single play row selected from matching plays.
 
     Raises:
-        AssertionError: If no plays found in the partition.
+        NoSampleFoundError: If no plays found in the partition.
 
     """
     # Get the appropriate partition for this down
     partition_df, partition_matrix = samples.get_partition(down)
 
-    # Determine if we should use tighter windows (4th down or redzone)
-    is_fourth_or_redzone = (down == 4) or (yardline <= 20)
-
-    # Call Rust filter (no down matching needed - already pre-partitioned)
-    idx = nfl_sim_core.filter_window(
+    # Call Rust filter (WP calculated internally from game state)
+    idx = _internal.filter_window(
         samples=partition_matrix,
+        down=down,
         dist=dist,
         yardline=yardline,
-        wp=wp,
-        is_fourth_or_redzone=is_fourth_or_redzone,
+        half=half,
+        half_seconds_remaining=half_seconds_remaining,
+        score=score,
         n=1,
     )
 
     if len(idx) == 0:
-        raise NoSampleFoundError(
-            f"No plays found for down={down}, dist={dist}, yl={yardline}, wp={wp:.2f}"
-        )
+        raise NoSampleFoundError(f"No plays found for down={down}, dist={dist}, yl={yardline}")
 
     idx_int = int(idx[0])
     return partition_df.slice(idx_int, 1)

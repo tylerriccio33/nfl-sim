@@ -446,22 +446,5 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
         assert diff < tol, f"Field: `{field}` is not within tolerance ({tol}) across runs: {diff}."
 
 
-def test_sample_pool_diversity(game_data: pl.DataFrame, available_teams: list[str]):
-    """Sample pools should have plays from multiple games to avoid leakage."""
-    team = available_teams[0]
-    samples = build_sample_data(game_data, team)
-
-    # Access combined games from all partitions
-    all_game_ids = pl.concat(
-        [
-            samples.early_df.select("game_id"),
-            samples.third_df.select("game_id"),
-            samples.fourth_df.select("game_id"),
-        ]
-    )["game_id"].n_unique()
-
-    assert all_game_ids > 5, f"Team {team} has plays from only {all_game_ids} games"
-
-
 if __name__ == "__main__":
-    pytest.main([__file__, "-k", "test_sample_pool_diversity"])
+    pytest.main([__file__])

@@ -13,7 +13,6 @@ from nfl_sim._event import (
     Touchdown,
     TurnoverOnDowns,
 )
-from nfl_sim._model import calc_wp
 
 
 @dataclass
@@ -59,18 +58,6 @@ class GameEngine:
     _yards_gained: int | None = None
 
     score = 0
-
-    @property
-    def wp(self) -> float:
-        """Calculate current win probability."""
-        return calc_wp(
-            down=self._down,
-            dist=self._dist,
-            yardline_100=self._yardline,
-            half=self._half,
-            half_seconds_remaining=self._half_seconds_remaining,
-            score=self.score,
-        )
 
     @property
     def down(self) -> Literal[1, 2, 3, 4]:
