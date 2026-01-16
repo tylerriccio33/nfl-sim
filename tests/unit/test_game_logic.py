@@ -3,18 +3,26 @@
 import polars as pl
 import pytest
 
-from nfl_sim._event import _MetaEvent
-from nfl_sim._sampling import build_sample_data
+from nfl_sim._event import (
+    EVENT_EXPR_MAP,
+    FieldGoalSuccess,
+    Interception,
+    PuntBlocked,
+    PuntEndzone,
+    PuntRegular,
+    Touchdown,
+    _MetaEvent,
+)
+from nfl_sim._sampling import PlayRowDict, build_sample_data
 from nfl_sim.game import SingleGame
 from nfl_sim.play import PlayRecord
 
 
-def process_play(game: SingleGame, play_row: pl.DataFrame) -> None:
+def process_play(game: SingleGame, play_data: PlayRowDict) -> None:
     """Helper to process a play in tests - mirrors the inline logic in _run_half."""
-    # Extract play data
-    row = play_row.row(0, named=True)
-    yards_gained = int(row["yards_gained"])
-    desc = row.get("desc")
+    # Direct dict access - no .row() needed
+    yards_gained = int(play_data["yards_gained"])
+    desc = play_data["desc"]
 
     # Compute play context
     home = game._team_order[0]
@@ -40,9 +48,9 @@ def process_play(game: SingleGame, play_row: pl.DataFrame) -> None:
     game._plays.append(play)
 
     try:
-        game._engine.ingest_new_play(play_row)
+        game._engine.ingest_new_play(play_data)
     except _MetaEvent as e:
-        game._handle_meta_event(e, play_row)
+        game._handle_meta_event(e, play_data)
 
 
 @pytest.fixture
@@ -72,10 +80,10 @@ def game(minimal_play_data: pl.DataFrame) -> SingleGame:
 # Touchdown tests
 
 
-def test_touchdown_awards_7_points(make_play_row, game: SingleGame):
+def test_touchdown_awards_7_points(make_play_dict, game: SingleGame):
     """Touchdown should award 7 points to scoring team."""
     initial_score = game._posteam_score
-    play = make_play_row(yards_gained=75, touchdown=1)
+    play = make_play_dict(yards_gained=75, event_key=EVENT_EXPR_MAP[Touchdown])
 
     process_play(game, play)
 
@@ -83,10 +91,10 @@ def test_touchdown_awards_7_points(make_play_row, game: SingleGame):
     assert game._defteam_score == 7  # Original posteam scored
 
 
-def test_touchdown_flips_possession(make_play_row, game: SingleGame):
+def test_touchdown_flips_possession(make_play_dict, game: SingleGame):
     """After touchdown, other team gets the ball."""
     initial_posteam = game._posteam
-    play = make_play_row(yards_gained=75, touchdown=1)
+    play = make_play_dict(yards_gained=75, event_key=EVENT_EXPR_MAP[Touchdown])
 
     process_play(game, play)
 
@@ -94,9 +102,9 @@ def test_touchdown_flips_possession(make_play_row, game: SingleGame):
     assert game._posteam == "BUF"  # Away team now has ball
 
 
-def test_touchdown_resets_to_own_25(make_play_row, game: SingleGame):
+def test_touchdown_resets_to_own_25(make_play_dict, game: SingleGame):
     """After touchdown, receiving team starts at own 25 (yardline_100 = 75)."""
-    play = make_play_row(yards_gained=75, touchdown=1)
+    play = make_play_dict(yards_gained=75, event_key=EVENT_EXPR_MAP[Touchdown])
 
     process_play(game, play)
 
@@ -108,19 +116,19 @@ def test_touchdown_resets_to_own_25(make_play_row, game: SingleGame):
 # Field goal tests
 
 
-def test_field_goal_awards_3_points(make_play_row, game: SingleGame):
+def test_field_goal_awards_3_points(make_play_dict, game: SingleGame):
     """Field goal should award 3 points to kicking team."""
-    play = make_play_row(yards_gained=0, field_goal_result="made")
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[FieldGoalSuccess])
 
     process_play(game, play)
 
     assert game._defteam_score == 3  # Original posteam scored (now flipped)
 
 
-def test_field_goal_flips_possession(make_play_row, game: SingleGame):
+def test_field_goal_flips_possession(make_play_dict, game: SingleGame):
     """After field goal, other team gets the ball."""
     initial_posteam = game._posteam
-    play = make_play_row(yards_gained=0, field_goal_result="made")
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[FieldGoalSuccess])
 
     process_play(game, play)
 
@@ -130,10 +138,10 @@ def test_field_goal_flips_possession(make_play_row, game: SingleGame):
 # Interception tests
 
 
-def test_interception_flips_possession(make_play_row, game: SingleGame):
+def test_interception_flips_possession(make_play_dict, game: SingleGame):
     """Interception should give ball to defense."""
     initial_posteam = game._posteam
-    play = make_play_row(yards_gained=-5, interception=1)
+    play = make_play_dict(yards_gained=-5, event_key=EVENT_EXPR_MAP[Interception])
 
     process_play(game, play)
 
@@ -141,9 +149,9 @@ def test_interception_flips_possession(make_play_row, game: SingleGame):
     assert game._posteam == "BUF"
 
 
-def test_interception_no_points(make_play_row, game: SingleGame):
+def test_interception_no_points(make_play_dict, game: SingleGame):
     """Regular interception should not award points."""
-    play = make_play_row(yards_gained=-5, interception=1)
+    play = make_play_dict(yards_gained=-5, event_key=EVENT_EXPR_MAP[Interception])
 
     process_play(game, play)
 
@@ -151,11 +159,11 @@ def test_interception_no_points(make_play_row, game: SingleGame):
     assert game._defteam_score == 0
 
 
-def test_interception_yardline_flips(make_play_row, game: SingleGame):
+def test_interception_yardline_flips(make_play_dict, game: SingleGame):
     """Intercepting team gets ball at flipped yardline."""
     # KC at their own 40 = yardline_100 of 60 (60 yards from opponent's endzone)
     game._engine._yardline = 60
-    play = make_play_row(yards_gained=-5, interception=1)
+    play = make_play_dict(yards_gained=-5, event_key=EVENT_EXPR_MAP[Interception])
 
     process_play(game, play)
 
@@ -166,27 +174,27 @@ def test_interception_yardline_flips(make_play_row, game: SingleGame):
 # Turnover on downs tests
 
 
-def test_turnover_on_downs_flips_possession(make_play_row, game: SingleGame):
+def test_turnover_on_downs_flips_possession(make_play_dict, game: SingleGame):
     """Turnover on downs should give ball to defense."""
     # Get to 4th down at midfield (yardline_100 = 50)
     game._engine._down = 4
     game._engine._dist = 5
     game._engine._yardline = 50
 
-    play = make_play_row(yards_gained=2)  # Short of first down
+    play = make_play_dict(yards_gained=2)  # Short of first down
 
     process_play(game, play)
 
     assert game._posteam == "BUF"  # Defense gets ball
 
 
-def test_turnover_on_downs_at_spot(make_play_row, game: SingleGame):
+def test_turnover_on_downs_at_spot(make_play_dict, game: SingleGame):
     """After turnover on downs, defense gets ball at that spot."""
     game._engine._down = 4
     game._engine._dist = 5
     game._engine._yardline = 50  # Midfield
 
-    play = make_play_row(yards_gained=2)
+    play = make_play_dict(yards_gained=2)
 
     process_play(game, play)
 
@@ -198,21 +206,21 @@ def test_turnover_on_downs_at_spot(make_play_row, game: SingleGame):
 # Punt tests
 
 
-def test_punt_flips_possession(make_play_row, game: SingleGame):
+def test_punt_flips_possession(make_play_dict, game: SingleGame):
     """Punt should give ball to receiving team."""
     initial_posteam = game._posteam
-    play = make_play_row(yards_gained=0, punt_attempt=1, punt_fair_catch=1, kick_distance=45)
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntRegular], kick_distance=45)
 
     process_play(game, play)
 
     assert game._posteam != initial_posteam
 
 
-def test_punt_yardline_calculation(make_play_row, game: SingleGame):
+def test_punt_yardline_calculation(make_play_dict, game: SingleGame):
     """Punt receiving team gets ball at correct yardline."""
     # KC at own 30 = yardline_100 of 70 (70 yards from opponent's endzone)
     game._engine._yardline = 70
-    play = make_play_row(yards_gained=0, punt_attempt=1, punt_fair_catch=1, kick_distance=45)
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntRegular], kick_distance=45)
 
     process_play(game, play)
 
@@ -222,11 +230,11 @@ def test_punt_yardline_calculation(make_play_row, game: SingleGame):
     assert game._engine.yardline == 75
 
 
-def test_punt_touchback_if_into_endzone(make_play_row, game: SingleGame):
+def test_punt_touchback_if_into_endzone(make_play_dict, game: SingleGame):
     """Punt into endzone results in touchback at own 25 (yardline_100 = 75)."""
     # KC at midfield = yardline_100 of 50
     game._engine._yardline = 50
-    play = make_play_row(yards_gained=0, punt_attempt=1, punt_fair_catch=1, kick_distance=60)
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntRegular], kick_distance=60)
 
     process_play(game, play)
 
@@ -235,11 +243,11 @@ def test_punt_touchback_if_into_endzone(make_play_row, game: SingleGame):
     assert game._engine.yardline == 75
 
 
-def test_punt_blocked_defense_recovers(make_play_row, game: SingleGame):
+def test_punt_blocked_defense_recovers(make_play_dict, game: SingleGame):
     """Blocked punt: defense recovers at LOS."""
     # KC at own 30 = yardline_100 of 70
     game._engine._yardline = 70
-    play = make_play_row(yards_gained=0, punt_attempt=1, punt_blocked=1)
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntBlocked])
 
     process_play(game, play)
 
@@ -248,9 +256,9 @@ def test_punt_blocked_defense_recovers(make_play_row, game: SingleGame):
     assert game._posteam == "BUF"
 
 
-def test_punt_endzone_touchback(make_play_row, game: SingleGame):
+def test_punt_endzone_touchback(make_play_dict, game: SingleGame):
     """Punt into endzone results in touchback."""
-    play = make_play_row(yards_gained=0, punt_attempt=1, punt_in_endzone=1)
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntEndzone])
 
     process_play(game, play)
 
@@ -261,11 +269,11 @@ def test_punt_endzone_touchback(make_play_row, game: SingleGame):
 # Safety tests
 
 
-def test_safety_awards_2_points_to_defense(make_play_row, game: SingleGame):
+def test_safety_awards_2_points_to_defense(make_play_dict, game: SingleGame):
     """Safety awards 2 points to defensive team."""
     # Near own endzone: own 2 yard line = yardline_100 of 98 (98 yards from opponent's endzone)
     game._engine._yardline = 98
-    play = make_play_row(yards_gained=-5)  # Tackled in endzone (pushed back 5 yards)
+    play = make_play_dict(yards_gained=-5)  # Tackled in endzone (pushed back 5 yards)
 
     process_play(game, play)
 
@@ -274,21 +282,21 @@ def test_safety_awards_2_points_to_defense(make_play_row, game: SingleGame):
     assert game._defteam_score == 0
 
 
-def test_safety_flips_possession(make_play_row, game: SingleGame):
+def test_safety_flips_possession(make_play_dict, game: SingleGame):
     """After safety, other team gets the ball."""
     # Own 2 yard line = yardline_100 of 98
     game._engine._yardline = 98
-    play = make_play_row(yards_gained=-5)  # Pushed back into endzone
+    play = make_play_dict(yards_gained=-5)  # Pushed back into endzone
 
     process_play(game, play)
 
     assert game._posteam == "BUF"
 
 
-def test_safety_receiving_team_starts_at_own_25(make_play_row, game: SingleGame):
+def test_safety_receiving_team_starts_at_own_25(make_play_dict, game: SingleGame):
     """After safety, receiving team starts at own 25 (yardline_100 = 75)."""
     game._engine._yardline = 98  # Own 2 yard line
-    play = make_play_row(yards_gained=-5)  # Pushed back into endzone
+    play = make_play_dict(yards_gained=-5)  # Pushed back into endzone
 
     process_play(game, play)
 
@@ -299,23 +307,23 @@ def test_safety_receiving_team_starts_at_own_25(make_play_row, game: SingleGame)
 # Drive tracking tests
 
 
-def test_drive_recorded_after_touchdown(make_play_row, game: SingleGame):
+def test_drive_recorded_after_touchdown(make_play_dict, game: SingleGame):
     """Drive should be recorded after touchdown."""
     assert game.num_drives == 0
 
-    play = make_play_row(yards_gained=75, touchdown=1)
+    play = make_play_dict(yards_gained=75, event_key=EVENT_EXPR_MAP[Touchdown])
     process_play(game, play)
 
     # After TD: drive 0 completed, now on drive 1 = 2 total drives
     assert game.num_drives == 2
 
 
-def test_multiple_drives_recorded(make_play_row, game: SingleGame):
+def test_multiple_drives_recorded(make_play_dict, game: SingleGame):
     """Multiple drives should be tracked."""
     # TD - ends drive 0, starts drive 1
-    process_play(game, make_play_row(yards_gained=75, touchdown=1))
+    process_play(game, make_play_dict(yards_gained=75, event_key=EVENT_EXPR_MAP[Touchdown]))
     # INT - ends drive 1, starts drive 2
-    process_play(game, make_play_row(yards_gained=-5, interception=1))
+    process_play(game, make_play_dict(yards_gained=-5, event_key=EVENT_EXPR_MAP[Interception]))
 
     # 3 total drives: 0 (TD), 1 (INT), 2 (in progress)
     assert game.num_drives == 3
@@ -324,21 +332,21 @@ def test_multiple_drives_recorded(make_play_row, game: SingleGame):
 # Normal play tests (no turnover)
 
 
-def test_normal_play_no_possession_change(make_play_row, game: SingleGame):
+def test_normal_play_no_possession_change(make_play_dict, game: SingleGame):
     """Normal gain should not change possession."""
     initial_posteam = game._posteam
-    play = make_play_row(yards_gained=5)
+    play = make_play_dict(yards_gained=5)
 
     process_play(game, play)
 
     assert game._posteam == initial_posteam
 
 
-def test_normal_play_advances_yardline(make_play_row, game: SingleGame):
+def test_normal_play_advances_yardline(make_play_dict, game: SingleGame):
     """Normal play should advance yardline (decrease yardline_100)."""
     # Start at opponent's 25 (red zone) = yardline_100 of 25
     game._engine._yardline = 25
-    play = make_play_row(yards_gained=10)
+    play = make_play_dict(yards_gained=10)
 
     process_play(game, play)
 
@@ -346,11 +354,11 @@ def test_normal_play_advances_yardline(make_play_row, game: SingleGame):
     assert game._engine.yardline == 15
 
 
-def test_first_down_resets_distance(make_play_row, game: SingleGame):
+def test_first_down_resets_distance(make_play_dict, game: SingleGame):
     """Gaining enough yards should reset to 1st and 10."""
     game._engine._down = 2
     game._engine._dist = 5
-    play = make_play_row(yards_gained=8)  # More than needed
+    play = make_play_dict(yards_gained=8)  # More than needed
 
     process_play(game, play)
 

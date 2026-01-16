@@ -1,9 +1,7 @@
 """Game engine state machine for play-by-play simulation."""
 
 from dataclasses import dataclass
-from typing import Literal
-
-import polars as pl
+from typing import TYPE_CHECKING, Literal
 
 from nfl_sim._event import (
     EVENT_KEY_MAP,
@@ -13,6 +11,9 @@ from nfl_sim._event import (
     Touchdown,
     TurnoverOnDowns,
 )
+
+if TYPE_CHECKING:
+    from nfl_sim._sampling import PlayRowDict
 
 
 @dataclass
@@ -129,12 +130,10 @@ class GameEngine:
         self._dist = 10
         self._yardline = yardline
 
-    def ingest_new_play(self, play_row: pl.DataFrame) -> None:
+    def ingest_new_play(self, play_data: "PlayRowDict") -> None:
         """Update game state from a play. Raises meta events on scoring/turnovers."""
-        row = play_row.row(0, named=True)
-
-        yards = int(row["yards_gained"])
-        event_key: int | None = row["__EVENT_KEY"]
+        yards = int(play_data["yards_gained"])
+        event_key = play_data["__EVENT_KEY"]
 
         self._yards_gained = yards
 

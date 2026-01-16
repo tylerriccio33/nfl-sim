@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 
 from nfl_sim._event import build_event_expr
+from nfl_sim._sampling import PlayRowDict
 from nfl_sim.play import GameEngine
 
 # =============================================================================
@@ -78,10 +79,49 @@ def _build_test_play_data(
     return pl.DataFrame(data).with_columns(build_event_expr())
 
 
+def _make_play_dict(
+    yards_gained: int = 5,
+    desc: str = "Test play",
+    time_elapsed: int = 25,
+    event_key: int | None = None,
+    kick_distance: int | None = None,
+) -> PlayRowDict:
+    """Create a PlayRowDict for direct use with GameEngine.ingest_new_play().
+
+    This is the preferred way to create test play data after the DataFrame
+    slicing refactor. Use this instead of _build_test_play_data when testing
+    game engine behavior directly.
+
+    Args:
+        yards_gained: Yards gained on the play.
+        desc: Play description.
+        time_elapsed: Seconds elapsed during the play.
+        event_key: Event key from EVENT_KEY_MAP (None for regular plays).
+        kick_distance: Kick distance for punts (None for non-punt plays).
+
+    Returns:
+        PlayRowDict ready for ingest_new_play().
+
+    """
+    return PlayRowDict(
+        yards_gained=yards_gained,
+        desc=desc,
+        time_elapsed=time_elapsed,
+        __EVENT_KEY=event_key,
+        kick_distance=kick_distance,
+    )
+
+
 # We occasionally need to call this as a fixture
 @pytest.fixture
 def build_test_play_data(*args, **kwargs):
     return functools.partial(_build_test_play_data, *args, **kwargs)
+
+
+@pytest.fixture
+def make_play_dict():
+    """Fixture for creating PlayRowDict for GameEngine tests."""
+    return _make_play_dict
 
 
 @pytest.fixture

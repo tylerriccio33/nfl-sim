@@ -3,6 +3,7 @@
 import pytest
 
 from nfl_sim._event import (
+    EVENT_EXPR_MAP,
     FieldGoalSuccess,
     Interception,
     MoveChains,
@@ -106,79 +107,79 @@ def test_reset_custom_yardline(game: GameEngine):
 # Ingest new play tests
 
 
-def test_basic_gain_advances_yardline(make_play_row, game: GameEngine):
+def test_basic_gain_advances_yardline(make_play_dict, game: GameEngine):
     # Start at own 25 (yardline_100 = 75), gain 5 yards -> now at own 30 (yardline_100 = 70)
-    play = make_play_row(yards_gained=5)
+    play = make_play_dict(yards_gained=5)
     game.ingest_new_play(play)
     assert game.yardline == 70  # 75 - 5 (gaining yards decreases yardline_100)
     assert game.down == 2
     assert game.dist == 5
 
 
-def test_first_down_resets_dist(make_play_row, game: GameEngine):
+def test_first_down_resets_dist(make_play_dict, game: GameEngine):
     # Start at own 25 (yardline_100 = 75), gain 12 yards -> now at own 37 (yardline_100 = 63)
-    play = make_play_row(yards_gained=12)
+    play = make_play_dict(yards_gained=12)
     game.ingest_new_play(play)
     assert game.down == 1
     assert game.dist == 10
     assert game.yardline == 63  # 75 - 12
 
 
-def test_touchdown_raises(make_play_row, game: GameEngine):
-    play = make_play_row(yards_gained=5, touchdown=1)
+def test_touchdown_raises(make_play_dict, game: GameEngine):
+    play = make_play_dict(yards_gained=5, event_key=EVENT_EXPR_MAP[Touchdown])
     with pytest.raises(Touchdown):
         game.ingest_new_play(play)
 
 
-def test_field_goal_made_raises(make_play_row, game: GameEngine):
-    play = make_play_row(yards_gained=0, field_goal_result="made")
+def test_field_goal_made_raises(make_play_dict, game: GameEngine):
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[FieldGoalSuccess])
     with pytest.raises(FieldGoalSuccess):
         game.ingest_new_play(play)
 
 
-def test_interception_raises(make_play_row, game: GameEngine):
-    play = make_play_row(yards_gained=-5, interception=1)
+def test_interception_raises(make_play_dict, game: GameEngine):
+    play = make_play_dict(yards_gained=-5, event_key=EVENT_EXPR_MAP[Interception])
     with pytest.raises(Interception):
         game.ingest_new_play(play)
 
 
-def test_pick_six_raises(make_play_row, game: GameEngine):
-    play = make_play_row(yards_gained=-5, interception=1, return_touchdown=1)
+def test_pick_six_raises(make_play_dict, game: GameEngine):
+    play = make_play_dict(yards_gained=-5, event_key=EVENT_EXPR_MAP[PickSix])
     with pytest.raises(PickSix):
         game.ingest_new_play(play)
 
 
-def test_punt_fair_catch_raises(make_play_row, game: GameEngine):
-    play = make_play_row(yards_gained=0, punt_attempt=1, punt_fair_catch=1)
+def test_punt_fair_catch_raises(make_play_dict, game: GameEngine):
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntRegular])
     with pytest.raises(PuntRegular):
         game.ingest_new_play(play)
 
 
-def test_punt_out_of_bounds_raises(make_play_row, game: GameEngine):
-    play = make_play_row(yards_gained=0, punt_attempt=1, punt_out_of_bounds=1)
+def test_punt_out_of_bounds_raises(make_play_dict, game: GameEngine):
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntRegular])
     with pytest.raises(PuntRegular):
         game.ingest_new_play(play)
 
 
-def test_punt_blocked_raises(make_play_row, game: GameEngine):
-    play = make_play_row(yards_gained=0, punt_attempt=1, punt_blocked=1)
+def test_punt_blocked_raises(make_play_dict, game: GameEngine):
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntBlocked])
     with pytest.raises(PuntBlocked):
         game.ingest_new_play(play)
 
 
-def test_punt_in_endzone_raises(make_play_row, game: GameEngine):
-    play = make_play_row(yards_gained=0, punt_attempt=1, punt_in_endzone=1)
+def test_punt_in_endzone_raises(make_play_dict, game: GameEngine):
+    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntEndzone])
     with pytest.raises(PuntEndzone):
         game.ingest_new_play(play)
 
 
-def test_turnover_on_downs_after_4th(make_play_row, game: GameEngine):
+def test_turnover_on_downs_after_4th(make_play_dict, game: GameEngine):
     # Advance to 4th down
     for _ in range(3):
-        play = make_play_row(yards_gained=2)
+        play = make_play_dict(yards_gained=2)
         game.ingest_new_play(play)
     assert game.down == 4
     # 4th down play that doesn't convert
-    play = make_play_row(yards_gained=1)
+    play = make_play_dict(yards_gained=1)
     with pytest.raises(TurnoverOnDowns):
         game.ingest_new_play(play)

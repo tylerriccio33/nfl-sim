@@ -221,10 +221,10 @@ def test_cur_samples_home(game_with_samples: SingleGame):
     # Initially home team (KC) has ball - should get home offensive samples
     samples = game_with_samples.cur_samples
 
-    # Should have all three partitions
-    assert len(samples.early_df) > 0
-    assert len(samples.third_df) > 0
-    assert len(samples.fourth_df) > 0
+    # Should have all three partitions with pre-converted play dicts
+    assert len(samples.early_plays) > 0
+    assert len(samples.third_plays) > 0
+    assert len(samples.fourth_plays) > 0
     # Matrices should have 3 columns (ydstogo, yardline_100, wp)
     assert samples.early_matrix.shape[1] == 3
 
@@ -233,10 +233,10 @@ def test_cur_samples_away(game_with_samples: SingleGame):
     game_with_samples._posteam = "BUF"  # simulate switching offense
     samples = game_with_samples.cur_samples
 
-    # Should have all three partitions
-    assert len(samples.early_df) > 0
-    assert len(samples.third_df) > 0
-    assert len(samples.fourth_df) > 0
+    # Should have all three partitions with pre-converted play dicts
+    assert len(samples.early_plays) > 0
+    assert len(samples.third_plays) > 0
+    assert len(samples.fourth_plays) > 0
     # Matrices should have 3 columns
     assert samples.early_matrix.shape[1] == 3
 

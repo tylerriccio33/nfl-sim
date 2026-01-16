@@ -10,7 +10,6 @@ from pathlib import Path
 from line_profiler import LineProfiler
 from loguru import logger
 
-import nfl_sim._internal as _internal
 from nfl_sim._sampling import build_sample_data, fetch_like_play
 from nfl_sim.data import ScheduleData, pull_game_data
 
@@ -28,7 +27,6 @@ FUNCTIONS = (
     build_sample_data,
     ## Game Engine:
     GameEngine.ingest_new_play,
-    _internal.calc_wp,
 )
 
 logger.remove()

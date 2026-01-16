@@ -6,6 +6,7 @@ import polars as pl
 from loguru import logger
 
 if TYPE_CHECKING:
+    from nfl_sim._sampling import PlayRowDict
     from nfl_sim.game import SingleGame
 
 # TODO: Need to generate a UML or something here
@@ -51,7 +52,7 @@ class _Event(Exception):
 class _SetsYardline(Protocol):
     """A play where the yardline is reset after it's finished."""
 
-    def get_new_yardline(self, game: SingleGame, play_row: pl.DataFrame) -> int:
+    def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
         raise NotImplementedError  # pragma: no cover
 
 
@@ -89,7 +90,7 @@ class _FlipsPossession(_MetaEvent):
 class Flip(_FlipsPossession, _SetsYardline):  # TODO: Better name FlipInPlace
     """Possession change without score reset."""
 
-    def get_new_yardline(self, game: SingleGame, play_row: pl.DataFrame) -> int:
+    def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
         # Flip in place (interception, turnover on downs)
         return 100 - game._engine.yardline
 
@@ -113,8 +114,9 @@ class PuntRegular(Flip, _SetsYardline):
     )
     log_template: ClassVar[str] = "Punt {posteam} -> {defteam}"
 
-    def get_new_yardline(self, game: SingleGame, play_row: pl.DataFrame) -> int:
-        punt_dist = play_row["kick_distance"][0]
+    def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
+        punt_dist = play_data["kick_distance"]
+        assert punt_dist is not None, "kick_distance required for PuntRegular"
         # Punt travels toward opponent's endzone (decreases yardline_100)
         # Ball lands at: punting_yardline - punt_dist
         # Flip for receiving team: 100 - landing
@@ -133,7 +135,7 @@ class PuntBlocked(Flip):
     log_template: ClassVar[str] = "Blocked punt! {defteam} recovers"
     log_level: ClassVar[str] = "info"
 
-    def get_new_yardline(self, game: SingleGame, play_row: pl.DataFrame) -> int:
+    def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
         # Defense recovers at LOS (simplified)
         return 100 - game._engine.yardline
 
@@ -147,7 +149,7 @@ class FieldGoalFail(Flip):
 class FlipReset(_FlipsPossession, _SetsYardline):
     """Possession change with field position reset (touchback)."""
 
-    def get_new_yardline(self, game: SingleGame, play_row: pl.DataFrame) -> int:
+    def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
         return 75  # touchback (own 25 = yardline_100 of 75)
 
 
@@ -181,7 +183,7 @@ class Safety(_FlipsPossession, _ScorePlay, _SetsYardline):
     log_level: ClassVar[str] = "info"
     include_score: ClassVar[bool] = True
 
-    def get_new_yardline(self, game: SingleGame, play_row: pl.DataFrame) -> int:
+    def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
         return 75  # safety kick (own 25 = yardline_100 of 75)
 
     def apply_score(self, game):
@@ -195,7 +197,7 @@ class ScoreReset(_MetaEvent, _ScorePlay, _SetsYardline):
     receives the kickoff (so no flip occurs).
     """
 
-    def get_new_yardline(self, game: SingleGame, play_row: pl.DataFrame) -> int:
+    def get_new_yardline(self, game: SingleGame, play_data: PlayRowDict) -> int:
         return 75  # kickoff position (own 25 = yardline_100 of 75)
 
     def apply_score(self, game: SingleGame) -> None:

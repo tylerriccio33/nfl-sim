@@ -14,7 +14,7 @@ from nfl_sim._event import (
     _ScorePlay,
     _SetsYardline,
 )
-from nfl_sim._sampling import PartitionedSampleData, fetch_like_play
+from nfl_sim._sampling import PartitionedSampleData, PlayRowDict, fetch_like_play
 from nfl_sim.play import GameEngine, PlayRecord
 
 if TYPE_CHECKING:
@@ -67,7 +67,7 @@ class SingleGame:
             self._posteam_score,
         )
 
-    def _handle_meta_event(self, event: _MetaEvent, play_row: pl.DataFrame) -> None:
+    def _handle_meta_event(self, event: _MetaEvent, play_data: PlayRowDict) -> None:
         """Handle meta events: turnovers, punts, scores, and safeties."""
         event_name = type(event).__name__
 
@@ -114,8 +114,8 @@ class SingleGame:
 
         # Determine new yardline (default to kickoff position)
         new_yardline = (
-            # TODO: This yardlien logic feels off?
-            event.get_new_yardline(self, play_row) if isinstance(event, _SetsYardline) else 75
+            # TODO: This yardline logic feels off?
+            event.get_new_yardline(self, play_data) if isinstance(event, _SetsYardline) else 75
         )
 
         self._engine.reset_series(yardline=new_yardline)
@@ -148,7 +148,7 @@ class SingleGame:
             self._engine.score = self._posteam_score - self._defteam_score
 
             samples = self.cur_samples
-            play_row = fetch_like_play(
+            play_data = fetch_like_play(
                 samples,
                 down=self._engine.down,
                 dist=self._engine.dist,
@@ -166,10 +166,9 @@ class SingleGame:
                 1 if self._engine.half_seconds_remaining > 900 else 2
             )
 
-            # Extract play data
-            row = play_row.row(0, named=True)
-            yards_gained = int(row["yards_gained"])
-            desc = row["desc"]
+            # Direct dict access - no .row() needed
+            yards_gained = int(play_data["yards_gained"])
+            desc = play_data["desc"]
 
             # Record the play with full context
             play = PlayRecord(
@@ -189,12 +188,12 @@ class SingleGame:
             self._plays.append(play)
 
             try:
-                self._engine.ingest_new_play(play_row)
+                self._engine.ingest_new_play(play_data)
             except _MetaEvent as e:
-                self._handle_meta_event(e, play_row)
+                self._handle_meta_event(e, play_data)
 
             # Consume time from the sampled play's actual time elapsed
-            time_elapsed: int = int(row["time_elapsed"])
+            time_elapsed = int(play_data["time_elapsed"])
             try:
                 self._engine.consume_time(time_elapsed)
             except HalfOver:
