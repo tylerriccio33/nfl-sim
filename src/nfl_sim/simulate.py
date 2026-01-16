@@ -9,7 +9,7 @@ import polars as pl
 
 from nfl_sim._event import EVENT_EXPR_MAP
 from nfl_sim._sampling import NoSampleFoundError
-from nfl_sim.game import _GameOrchestrator
+from nfl_sim.game import SingleGame
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -143,7 +143,7 @@ class SimulationResult:
         """
         results: list[SingleGameResult] = []
         for _ in range(n):
-            game = _GameOrchestrator(
+            game = SingleGame(
                 home_samples=home_samples,
                 away_samples=away_samples,
                 home_team=home_team,

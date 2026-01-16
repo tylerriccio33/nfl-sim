@@ -5,7 +5,7 @@ import pytest
 from conftest import build_test_play_data
 
 from nfl_sim._sampling import build_sample_data
-from nfl_sim.game import _GameOrchestrator
+from nfl_sim.game import SingleGame
 from nfl_sim.play import PlayRecord
 
 
@@ -184,11 +184,11 @@ def game_samples_data() -> pl.DataFrame:
 
 
 @pytest.fixture
-def game_with_samples(game_samples_data: pl.DataFrame) -> _GameOrchestrator:
+def game_with_samples(game_samples_data: pl.DataFrame) -> SingleGame:
     """Game instance with real Samples objects."""
     home_samples = build_sample_data(game_samples_data, "KC")
     away_samples = build_sample_data(game_samples_data, "BUF")
-    return _GameOrchestrator(
+    return SingleGame(
         home_samples=home_samples,
         away_samples=away_samples,
         home_team="KC",
@@ -200,7 +200,7 @@ def game_with_samples(game_samples_data: pl.DataFrame) -> _GameOrchestrator:
 # Init tests
 
 
-def test_game_init(game_with_samples: _GameOrchestrator):
+def test_game_init(game_with_samples: SingleGame):
     assert game_with_samples.metadata["home_team"] == "KC"
     assert game_with_samples.metadata["away_team"] == "BUF"
     assert game_with_samples._posteam == "KC"
@@ -210,14 +210,14 @@ def test_game_init(game_with_samples: _GameOrchestrator):
     assert game_with_samples.num_drives == 0
 
 
-def test_team_order_tuple(game_with_samples: _GameOrchestrator):
+def test_team_order_tuple(game_with_samples: SingleGame):
     assert game_with_samples._team_order == ("KC", "BUF")
 
 
 # cur_samples property
 
 
-def test_cur_samples_home(game_with_samples: _GameOrchestrator):
+def test_cur_samples_home(game_with_samples: SingleGame):
     # Initially home team (KC) has ball - should get home offensive samples
     samples = game_with_samples.cur_samples
 
@@ -229,7 +229,7 @@ def test_cur_samples_home(game_with_samples: _GameOrchestrator):
     assert samples.early_matrix.shape[1] == 3
 
 
-def test_cur_samples_away(game_with_samples: _GameOrchestrator):
+def test_cur_samples_away(game_with_samples: SingleGame):
     game_with_samples._posteam = "BUF"  # simulate switching offense
     samples = game_with_samples.cur_samples
 
@@ -244,7 +244,7 @@ def test_cur_samples_away(game_with_samples: _GameOrchestrator):
 # _flip_teams
 
 
-def test_flip_teams(game_with_samples: _GameOrchestrator):
+def test_flip_teams(game_with_samples: SingleGame):
     game_with_samples._posteam_score = 7
     game_with_samples._defteam_score = 3
 
@@ -259,7 +259,7 @@ def test_flip_teams(game_with_samples: _GameOrchestrator):
 # game_data property
 
 
-def test_game_data_empty(game_with_samples: _GameOrchestrator):
+def test_game_data_empty(game_with_samples: SingleGame):
     df = game_with_samples.game_data
     assert len(df) == 0
 
@@ -267,7 +267,7 @@ def test_game_data_empty(game_with_samples: _GameOrchestrator):
 # __repr__
 
 
-def test_repr(game_with_samples: _GameOrchestrator):
+def test_repr(game_with_samples: SingleGame):
     game_with_samples._posteam_score = 14
     game_with_samples._defteam_score = 7
     game_with_samples._current_drive_id = 2  # After 2 completed drives, on drive 2
@@ -297,7 +297,7 @@ def test_repr(game_with_samples: _GameOrchestrator):
     assert "3 drives" in result  # drive_id 0, 1, 2 = 3 drives
 
 
-def test_repr_swapped_possession(game_with_samples: _GameOrchestrator):
+def test_repr_swapped_possession(game_with_samples: SingleGame):
     """Test repr when away team currently has possession."""
     game_with_samples._flip_teams()  # BUF now has ball
     game_with_samples._posteam_score = 10  # BUF score
@@ -312,7 +312,7 @@ def test_repr_swapped_possession(game_with_samples: _GameOrchestrator):
 # game_data with plays
 
 
-def test_game_data_with_plays(game_with_samples: _GameOrchestrator):
+def test_game_data_with_plays(game_with_samples: SingleGame):
     """Test game_data when there are plays recorded."""
     game_with_samples._plays = [
         PlayRecord(

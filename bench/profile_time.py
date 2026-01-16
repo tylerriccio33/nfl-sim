@@ -15,14 +15,14 @@ from nfl_sim._sampling import build_sample_data, fetch_like_play
 from nfl_sim.data import ScheduleData, pull_game_data
 
 ## == Profile These ==============================================
-from nfl_sim.game import _GameOrchestrator
+from nfl_sim.game import SingleGame
 from nfl_sim.play import GameEngine
 from nfl_sim.simulate import SimulationResult
 
 FUNCTIONS = (
     ## Game Orchestration:
-    _GameOrchestrator._run_half,
-    _GameOrchestrator.play_game,
+    SingleGame._run_half,
+    SingleGame.play_game,
     ## Sampling:
     fetch_like_play,
     build_sample_data,

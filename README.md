@@ -7,11 +7,11 @@ A play-by-play NFL game simulation engine that uses historical play data and Rus
 The simulator works by sampling real NFL plays from historical data and replaying them in a state machine that tracks game flow.
 
 **Game Flow:**
-1. `SimulationResult.simulate()` runs N games using `_GameOrchestrator`
+1. `SimulationResult.simulate()` runs N games using `SingleGame`
 2. Each game alternates possessions, running plays until the clock expires
 3. On each play, `fetch_like_play()` finds a historical play matching the current game state (down, distance, yardline, win probability) using Rust-accelerated filtering
 4. `GameEngine` ingests the play, updates state (down/distance/yardline), and raises events (touchdown, interception, punt, etc.) as exceptions
-5. `_GameOrchestrator` catches events, applies scores, flips possession, and resets field position
+5. `SingleGame` catches events, applies scores, flips possession, and resets field position
 
 **Play Selection:**
 Plays are selected by finding historical plays with similar game situations. The Rust `filter_window()` function searches through progressively wider windows until matches are found, weighted toward more recent plays.
@@ -38,7 +38,7 @@ make lint
 ```
 src/nfl_sim/
 ├── simulate.py     # Multi-game runner, aggregates results into SimulationResult
-├── game.py         # _GameOrchestrator - coordinates a full game (halves, possessions, drives)
+├── game.py         # SingleGame - coordinates a full game (halves, possessions, drives)
 ├── play.py         # GameEngine state machine (down, distance, yardline, clock)
 ├── _sampling.py    # Play selection via Rust filtering, PartitionedSampleData
 ├── _event.py       # Exception-based events (Touchdown, Interception, Punt, etc.)

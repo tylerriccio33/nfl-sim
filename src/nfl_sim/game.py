@@ -21,16 +21,18 @@ if TYPE_CHECKING:
     from nfl_sim.data import GameMetadata
 
 
-class _GameOrchestrator:
+class SingleGame:
+    """Holds the meta-setup for a game, i.e. teams, samples, etc. Not the underlying engine."""
+
     def __init__(
         self,
         home_samples: PartitionedSampleData,
         away_samples: PartitionedSampleData,
         home_team: str,
         away_team: str,
-        **extra_metadata: Any,
+        **extra_metadata: Any,  # TODO: type or enum or somthing
     ) -> None:
-        self.metadata: GameMetadata = {
+        self.metadata: GameMetadata = {  # TODO: Do we really need this?
             "home_team": home_team,
             "away_team": away_team,
             **extra_metadata,  # type: ignore[typeddict-item]
@@ -287,7 +289,3 @@ class _GameOrchestrator:
     def away_event_counts(self) -> dict[str, int]:
         """Get event counts for the away team."""
         return self._away_events.copy()
-
-    def __repr__(self) -> str:
-        home, away = self._team_order
-        return f"Game({home} {self.home_score}, {away} {self.away_score}, {self.num_drives} drives)"

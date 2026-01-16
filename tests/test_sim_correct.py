@@ -13,7 +13,7 @@ from hypothesis import strategies as st
 
 from nfl_sim._sampling import PartitionedSampleData, build_sample_data
 from nfl_sim.data import pull_game_data
-from nfl_sim.game import _GameOrchestrator
+from nfl_sim.game import SingleGame
 
 # TODO: In general, we should probably increase the samples
 
@@ -61,11 +61,11 @@ NFL_TEAMS = [
 ]
 
 
-def create_game(game_data: pl.DataFrame, home_team: str, away_team: str) -> _GameOrchestrator:
+def create_game(game_data: pl.DataFrame, home_team: str, away_team: str) -> SingleGame:
     """Create a game instance with given teams."""
     home_samples: PartitionedSampleData = build_sample_data(game_data, team=home_team)
     away_samples: PartitionedSampleData = build_sample_data(game_data, team=away_team)
-    return _GameOrchestrator(
+    return SingleGame(
         home_samples=home_samples,
         away_samples=away_samples,
         home_team=home_team,

@@ -167,6 +167,3 @@ class GameEngine:
             return
 
         self.down = self.down + 1
-
-    def __repr__(self) -> str:
-        return f"Down: {self.down}, Dist: {self.dist}, Yardline: {self.yardline}, Yards Gained: {self._yards_gained}"
