@@ -23,9 +23,15 @@ class PlayRowDict(TypedDict):
     return_yards: int | None
     air_yards: int | None
     yardline_100: int
+    # Depth chart position columns (added by DepthChartData.add_cols_to_pbp)
+    __receiver_dc_pos: str | None
+    __receiver_dc_rank: int | None
+    __rusher_dc_pos: str | None
+    __rusher_dc_rank: int | None
 
 
-_PLAY_DICT_COLS = [
+# Core columns always present in play data
+_CORE_PLAY_DICT_COLS = [
     "yards_gained",
     "desc",
     "time_elapsed",
@@ -36,8 +42,17 @@ _PLAY_DICT_COLS = [
     "yardline_100",
 ]
 
+# Optional depth chart columns (only present when DC integration is enabled)
+_DC_PLAY_DICT_COLS = [
+    "__receiver_dc_pos",
+    "__receiver_dc_rank",
+    "__rusher_dc_pos",
+    "__rusher_dc_rank",
+]
 
-_INT_COLS = [
+_PLAY_DICT_COLS = _CORE_PLAY_DICT_COLS + _DC_PLAY_DICT_COLS
+
+_CORE_INT_COLS = [
     "yards_gained",
     "time_elapsed",
     "kick_distance",
@@ -46,11 +61,39 @@ _INT_COLS = [
     "yardline_100",
 ]
 
+_DC_INT_COLS = [
+    "__receiver_dc_rank",
+    "__rusher_dc_rank",
+]
+
+_INT_COLS = _CORE_INT_COLS + _DC_INT_COLS
+
 
 def _build_play_dicts(df: pl.DataFrame) -> tuple[PlayRowDict, ...]:
-    """Convert DataFrame rows to tuple of dicts for O(1) index lookup."""
+    """Convert DataFrame rows to tuple of dicts for O(1) index lookup.
+
+    Handles optional depth chart columns - adds them with None values if missing.
+    """
+    # Determine which columns exist in the DataFrame
+    available_cols = set(df.columns)
+    cols_to_select = [c for c in _CORE_PLAY_DICT_COLS if c in available_cols]
+    int_cols_to_cast = [c for c in _CORE_INT_COLS if c in available_cols]
+
+    # Add DC columns if they exist, otherwise we'll add them as None after
+    dc_cols_present = [c for c in _DC_PLAY_DICT_COLS if c in available_cols]
+    cols_to_select.extend(dc_cols_present)
+    int_cols_to_cast.extend([c for c in _DC_INT_COLS if c in available_cols])
+
     # Cast numeric columns to Int64 (data may come as floats from parquet)
-    casted = df.select(_PLAY_DICT_COLS).with_columns([pl.col(c).cast(pl.Int64) for c in _INT_COLS])
+    casted = df.select(cols_to_select).with_columns(
+        [pl.col(c).cast(pl.Int64) for c in int_cols_to_cast]
+    )
+
+    # Add missing DC columns as null/None
+    missing_dc_cols = [c for c in _DC_PLAY_DICT_COLS if c not in available_cols]
+    if missing_dc_cols:
+        casted = casted.with_columns([pl.lit(None).alias(c) for c in missing_dc_cols])
+
     return tuple(casted.to_dicts())  # type: ignore[return-value]
 
 

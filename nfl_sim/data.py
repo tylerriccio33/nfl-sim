@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import NotRequired, TypedDict, TypeIs, cast
+from typing import TYPE_CHECKING, TypedDict, cast  # TODO: remove cast
 
 import nflreadpy as nfl
 import polars as pl
@@ -12,6 +12,9 @@ from nflreadpy.utils_date import get_current_season, get_current_week
 
 from nfl_sim._columns import PBP_COLUMNS
 from nfl_sim._event import build_event_expr
+
+if TYPE_CHECKING:
+    from typing import ClassVar, NotRequired, Self, TypeIs
 
 
 class GameMetadata(TypedDict):
@@ -183,31 +186,23 @@ def pull_kickoff_data(week_window: int = 12) -> pl.DataFrame:
     return data
 
 
-class ScheduleData:
-    """Wrapper around schedule DataFrame with convenience methods.
+class Data:
+    """Base class for NFL data wrappers with common loading patterns."""
 
-    Provides typed access to schedule data and conversion to GameMetadata.
-    Uses composition rather than inheritance from pl.DataFrame.
-    """
-
-    REQUIRED_COLUMNS: tuple[str, ...] = ("home_team", "away_team", "week", "result")
-
-    __cache = "data/schedules.parquet"
+    REQUIRED_COLUMNS: ClassVar[tuple[str, ...]]
+    df: pl.DataFrame
+    _cache: ClassVar[str]
 
     def __init__(self, df: pl.DataFrame) -> None:
-        """Initialize ScheduleData with a DataFrame."""
-        missing = set(self.REQUIRED_COLUMNS) - set(df.columns)
-        if missing:
-            msg = f"Missing required columns: {missing}"
-            raise ValueError(msg)
+        """Initialize Data wrapper with a DataFrame."""
         self.df = df
 
     @classmethod
     def _loader(cls, seasons: int | list[int]) -> pl.DataFrame:  # pragma: no cover
-        if Path(cls.__cache).exists():
+        if Path(cls._cache).exists():
             if isinstance(seasons, int):
                 seasons = [seasons]
-            return pl.read_parquet(cls.__cache).filter(pl.col("season").is_in(seasons))
+            return pl.read_parquet(cls._cache).filter(pl.col("season").is_in(seasons))
 
         return nfl.load_schedules(seasons=seasons)
 
@@ -217,16 +212,8 @@ class ScheduleData:
     def __iter__(self):
         return iter(self.df.iter_rows(named=True))
 
-    def __getitem__(self, idx: int) -> GameMetadata:
-        """Get a game by index, returning as GameMetadata dict."""
-        row = self.df.row(idx, named=True)
-        if not _is_game_metadata(row):
-            msg = f"Row {idx} is not valid GameMetadata"
-            raise ValueError(msg)
-        return row
-
     @classmethod
-    def from_cur_week(cls, rm_complete: bool = True) -> ScheduleData:
+    def from_cur_week(cls, rm_complete: bool = True) -> Self:
         """Load schedule data for the current NFL week.
 
         Args:
@@ -246,7 +233,7 @@ class ScheduleData:
         return cls(df)
 
     @classmethod
-    def from_season(cls, season: int | list[int], week: int | None = None) -> ScheduleData:
+    def from_season(cls, season: int | list[int] | None = None, week: int | None = None) -> Self:
         """Load schedule data for an entire season or specific week.
 
         Args:
@@ -257,10 +244,41 @@ class ScheduleData:
             ScheduleData for the requested season/week.
 
         """
+        if season is None:
+            season = [get_current_season()]
         df = cls._loader(seasons=season)
         if week is not None:
             df = df.filter(pl.col("week") == week)
         return cls(df)
+
+
+class ScheduleData(Data):
+    """Wrapper around schedule DataFrame with convenience methods.
+
+    Provides typed access to schedule data and conversion to GameMetadata.
+    Uses composition rather than inheritance from pl.DataFrame.
+    """
+
+    REQUIRED_COLUMNS: tuple[str, ...] = ("home_team", "away_team", "week", "result")
+
+    _cache = "data/schedules.parquet"
+
+    def __init__(
+        self, df: pl.DataFrame
+    ) -> None:  # TODO: We should actually just remove init methods alltogether! Use the from_*
+        """Initialize ScheduleData with a DataFrame."""
+        missing = set(self.REQUIRED_COLUMNS) - set(df.columns)
+        if missing:  # TODO: Make this validator in super
+            raise ValueError(f"Missing required columns: {missing}")
+        self.df = df
+
+    def __getitem__(self, idx: int) -> GameMetadata:
+        """Get a game by index, returning as GameMetadata dict."""
+        row = self.df.row(idx, named=True)
+        if not _is_game_metadata(row):
+            msg = f"Row {idx} is not valid GameMetadata"
+            raise ValueError(msg)
+        return row
 
     def as_metadata(self) -> list[GameMetadata]:
         """Convert schedule rows to typed GameMetadata dicts.
@@ -271,3 +289,268 @@ class ScheduleData:
         """
         rows = list(self.df.iter_rows(named=True))
         return [row for row in rows if _is_game_metadata(row)]
+
+
+class PlayerDatabase(Data):
+    """Database of player information extracted from depth charts."""
+
+    REQUIRED_COLUMNS: ClassVar[tuple[str, ...]] = ("gsis_id", "full_name")
+    _cache = "data/players.parquet"
+
+    def __init__(self, df: pl.DataFrame) -> None:
+        """Initialize PlayerDatabase with a DataFrame."""
+        missing = set(self.REQUIRED_COLUMNS) - set(df.columns)
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+        self.df = df
+
+
+class DepthChartData(Data):
+    """Wrapper for depth chart data with PBP integration.
+
+    Depth charts map each player to their team position rank (WR1, RB2, etc.),
+    allowing plays to be abstracted by position rather than specific player.
+
+    The flow works in two phases:
+    1. Historical Phase: Tag each PBP play with the depth chart position of the
+       player who touched the ball (e.g., "WR1 caught this pass")
+    2. Simulation Phase: When replaying a play for a different team, swap the
+       abstract position back to that team's actual player
+
+    Columns from nflverse depth charts:
+    - club_code: Team abbreviation
+    - position: Position abbreviation (WR, RB, TE, QB, etc.)
+    - depth_team: Depth chart rank (1, 2, 3 as strings)
+    - gsis_id: Player ID linking to PBP receiver_player_id, rusher_player_id
+    - season, week: Temporal context (depth charts change weekly)
+    - full_name: Player name for display/debugging
+    """
+
+    REQUIRED_COLUMNS: ClassVar[tuple[str, ...]] = (
+        "gsis_id",
+        "club_code",
+        "position",
+        "depth_team",
+    )
+    _cache = "data/depth-charts.parquet"
+
+    def __init__(self, df: pl.DataFrame) -> None:
+        """Initialize DepthChartData with a DataFrame."""
+        missing = set(self.REQUIRED_COLUMNS) - set(df.columns)
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+        self.df = df
+
+    @classmethod
+    def _loader(cls, seasons: int | list[int]) -> pl.DataFrame:
+        """Load depth chart data from cache or nflverse.
+
+        Handles column name differences between nflverse seasons:
+        - 2024 and earlier: club_code, position, depth_team, season, week
+        - 2025 and later: team, pos_abb, pos_rank, dt (timestamp)
+
+        """
+        if Path(cls._cache).exists():
+            if isinstance(seasons, int):
+                seasons = [seasons]
+            return pl.read_parquet(cls._cache).filter(pl.col("season").is_in(seasons))
+
+        df = nfl.load_depth_charts(seasons=seasons)
+
+        # Normalize column names for different nflverse formats
+        # 2025+ format uses different column names
+        column_renames: dict[str, str] = {}
+        if "team" in df.columns and "club_code" not in df.columns:
+            column_renames["team"] = "club_code"
+        if "pos_abb" in df.columns and "position" not in df.columns:
+            column_renames["pos_abb"] = "position"
+        if "pos_rank" in df.columns and "depth_team" not in df.columns:
+            # pos_rank is an int, depth_team expects string for consistency
+            df = df.with_columns(pl.col("pos_rank").cast(pl.String).alias("depth_team"))
+        if "player_name" in df.columns and "full_name" not in df.columns:
+            column_renames["player_name"] = "full_name"
+
+        if column_renames:
+            df = df.rename(column_renames)
+
+        # Add season/week columns if missing (2025+ format uses dt timestamp)
+        # Parse dt to derive season and week based on NFL schedule
+        if "season" not in df.columns:
+            if isinstance(seasons, int):
+                # Single season requested
+                df = df.with_columns(pl.lit(seasons).alias("season"))
+            else:
+                # Multiple seasons - derive from dt timestamp
+                # NFL season starts in September, so year of Sept = season
+                df = df.with_columns(pl.col("dt").str.slice(0, 4).cast(pl.Int32).alias("season"))
+
+        if "week" not in df.columns:
+            # Depth chart data without explicit week - use None for now
+            # The add_cols_to_pbp will need to handle null weeks appropriately
+            df = df.with_columns(pl.lit(None).cast(pl.Int32).alias("week"))
+
+        return df
+
+    def add_cols_to_pbp(self, pbp_data: pl.DataFrame) -> pl.DataFrame:
+        """Add depth chart position columns to PBP data.
+
+        Joins on gsis_id + season (+ week if available) to add:
+        - __receiver_dc_pos: position abbreviation (WR, TE, RB)
+        - __receiver_dc_rank: depth chart rank (1, 2, 3)
+        - __rusher_dc_pos: position abbreviation
+        - __rusher_dc_rank: depth chart rank
+
+        These abstract the specific player to their positional role, allowing
+        plays to be replayed with different teams' rosters.
+
+        Args:
+            pbp_data: Play-by-play DataFrame with receiver_player_id and
+                rusher_player_id columns.
+
+        Returns:
+            DataFrame with __receiver_dc_* and __rusher_dc_* columns added.
+
+        """
+        # Build lookup table: (gsis_id, season, week) -> (position, depth_rank)
+        # Filter to skill positions that touch the ball
+        skill_positions = ["WR", "RB", "TE", "QB", "FB"]
+
+        # Check if depth chart has week data (2024 format) or not (2025 format)
+        has_week_data = self.df["week"].drop_nulls().len() > 0
+
+        # The depth chart can have multiple entries per player per week (different
+        # positions), so we take the first match grouped by gsis_id/season(/week).
+        # We also cast depth_team from string to int for proper sorting.
+        group_cols = ["gsis_id", "season", "week"] if has_week_data else ["gsis_id", "season"]
+        dc_lookup = (
+            self.df.lazy()
+            .filter(pl.col("position").is_in(skill_positions))
+            .with_columns(pl.col("depth_team").cast(pl.Int64).alias("dc_rank"))
+            .group_by(group_cols)
+            .agg(
+                pl.col("position").first().alias("dc_pos"),
+                pl.col("dc_rank").first(),
+            )
+            .collect()
+        )
+
+        # Determine join keys based on whether we have week data
+        join_keys = (
+            ["receiver_player_id", "season", "week"]
+            if has_week_data
+            else ["receiver_player_id", "season"]
+        )
+
+        # Join for receiver depth chart info
+        receiver_lookup = dc_lookup.select(
+            pl.col("gsis_id").alias("receiver_player_id"),
+            pl.col("season"),
+            *([pl.col("week")] if has_week_data else []),
+            pl.col("dc_pos").alias("__receiver_dc_pos"),
+            pl.col("dc_rank").alias("__receiver_dc_rank"),
+        )
+        result = pbp_data.join(receiver_lookup, on=join_keys, how="left")
+
+        # Join for rusher depth chart info
+        rusher_join_keys = (
+            ["rusher_player_id", "season", "week"]
+            if has_week_data
+            else ["rusher_player_id", "season"]
+        )
+        rusher_lookup = dc_lookup.select(
+            pl.col("gsis_id").alias("rusher_player_id"),
+            pl.col("season"),
+            *([pl.col("week")] if has_week_data else []),
+            pl.col("dc_pos").alias("__rusher_dc_pos"),
+            pl.col("dc_rank").alias("__rusher_dc_rank"),
+        )
+        result = result.join(rusher_lookup, on=rusher_join_keys, how="left")
+
+        # Fill missing values: rank 99 indicates player not found in depth chart
+        result = result.with_columns(
+            pl.col("__receiver_dc_rank").fill_null(99),
+            pl.col("__rusher_dc_rank").fill_null(99),
+        )
+
+        return result
+
+    def swap_dc_to_with_player(
+        self,
+        pbp_data: pl.DataFrame,
+        team: str,
+        season: int,
+        week: int,
+    ) -> pl.DataFrame:
+        """Replace abstract DC positions with actual player IDs for a team.
+
+        Given __receiver_dc_pos=WR, __receiver_dc_rank=1, and team=KC,
+        looks up KC's WR1 and writes their gsis_id to receiver_player_id.
+
+        Args:
+            pbp_data: DataFrame with __receiver_dc_* and __rusher_dc_* columns
+                (output from add_cols_to_pbp).
+            team: Team abbreviation to look up players for.
+            season: Season year for depth chart lookup.
+            week: Week number for depth chart lookup.
+
+        Returns:
+            DataFrame with receiver_player_id and rusher_player_id replaced
+            with the actual players from the specified team's depth chart.
+
+        """
+        # Build lookup: (position, rank) -> gsis_id for the specified team/season/week
+        team_dc = (
+            self.df.lazy()
+            .filter(
+                (pl.col("club_code") == team)
+                & (pl.col("season") == season)
+                & (pl.col("week") == week)
+            )
+            .with_columns(pl.col("depth_team").cast(pl.Int64).alias("dc_rank"))
+            .select(
+                pl.col("position").alias("dc_pos"),
+                pl.col("dc_rank"),
+                pl.col("gsis_id"),
+            )
+            .unique(subset=["dc_pos", "dc_rank"])
+            .collect()
+        )
+
+        # Join for receiver: replace receiver_player_id based on DC position/rank
+        result = pbp_data.join(
+            team_dc.select(
+                pl.col("dc_pos").alias("__receiver_dc_pos"),
+                pl.col("dc_rank").alias("__receiver_dc_rank"),
+                pl.col("gsis_id").alias("__new_receiver_id"),
+            ),
+            on=["__receiver_dc_pos", "__receiver_dc_rank"],
+            how="left",
+        )
+
+        # Join for rusher: replace rusher_player_id based on DC position/rank
+        result = result.join(
+            team_dc.select(
+                pl.col("dc_pos").alias("__rusher_dc_pos"),
+                pl.col("dc_rank").alias("__rusher_dc_rank"),
+                pl.col("gsis_id").alias("__new_rusher_id"),
+            ),
+            on=["__rusher_dc_pos", "__rusher_dc_rank"],
+            how="left",
+        )
+
+        # Replace player IDs with the new ones (keep original if no match)
+        result = result.with_columns(
+            pl.coalesce("__new_receiver_id", "receiver_player_id").alias("receiver_player_id"),
+            pl.coalesce("__new_rusher_id", "rusher_player_id").alias("rusher_player_id"),
+        ).drop(["__new_receiver_id", "__new_rusher_id"])
+
+        return result
+
+    def to_playerdb(self) -> PlayerDatabase:
+        """Extract unique players from depth chart.
+
+        Returns:
+            PlayerDatabase with unique player records (gsis_id, full_name).
+
+        """
+        return PlayerDatabase(self.df.select("gsis_id", "full_name").unique(subset=["gsis_id"]))

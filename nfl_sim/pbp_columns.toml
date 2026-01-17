@@ -136,6 +136,14 @@ columns = [
     "air_yards",             # For INT recovery point estimation
 ]
 
+# Player IDs for depth chart integration
+# These are joined with depth chart data to abstract plays by position (WR1, RB2, etc.)
+[player_ids]
+columns = [
+    "receiver_player_id",    # gsis_id of receiver (for pass plays)
+    "rusher_player_id",      # gsis_id of rusher (for run plays)
+]
+
 # Passing details (for future player-level simulation)
 # [passing_extended]
 # columns = [
@@ -145,7 +153,6 @@ columns = [
 #     "pass_attempt",
 #     "passer_player_id",
 #     "passer_player_name",
-#     "receiver_player_id",
 #     "receiver_player_name",
 #     "passing_yards",
 #     "receiving_yards",
@@ -157,7 +164,6 @@ columns = [
 #     "run_location",          # "left", "middle", "right"
 #     "run_gap",               # "end", "guard", "tackle"
 #     "rush_attempt",
-#     "rusher_player_id",
 #     "rusher_player_name",
 #     "rushing_yards",
 # ]

@@ -33,6 +33,9 @@ bench-profile: ## Run line profiler on single game
 bench-results: ## Run performance of results against real
 	@uv run bench/accuracy_perf.py
 
+bench-converge: ## Run convergence benchmark
+	@uv run bench/convergence_perf.py
+
 train-wp-model: ## Run the model training script for WP model
 	@uv run model/wp_model_train.py
 

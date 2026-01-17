@@ -44,6 +44,11 @@ DEFAULT_PLAY_COLUMNS: dict[str, Any] = {
     # Return yards (for proportional return calculation)
     "return_yards": None,
     "air_yards": None,
+    # Depth chart columns (added by DepthChartData.add_cols_to_pbp)
+    "__receiver_dc_pos": None,
+    "__receiver_dc_rank": None,
+    "__rusher_dc_pos": None,
+    "__rusher_dc_rank": None,
 }
 
 
@@ -91,6 +96,10 @@ def _make_play_dict(
     return_yards: int | None = None,
     air_yards: int | None = None,
     yardline_100: int = 75,
+    receiver_dc_pos: str | None = None,
+    receiver_dc_rank: int | None = None,
+    rusher_dc_pos: str | None = None,
+    rusher_dc_rank: int | None = None,
 ) -> PlayRowDict:
     """Create a PlayRowDict for direct use with GameEngine.ingest_new_play().
 
@@ -107,6 +116,10 @@ def _make_play_dict(
         return_yards: Return yards from the sampled play (for proportional return).
         air_yards: Air yards for interceptions (for recovery point estimation).
         yardline_100: Original yardline from sampled play (for proportion calc).
+        receiver_dc_pos: Depth chart position of receiver (WR, TE, RB, etc.).
+        receiver_dc_rank: Depth chart rank of receiver (1, 2, 3).
+        rusher_dc_pos: Depth chart position of rusher (RB, QB, etc.).
+        rusher_dc_rank: Depth chart rank of rusher (1, 2, 3).
 
     Returns:
         PlayRowDict ready for ingest_new_play().
@@ -121,6 +134,10 @@ def _make_play_dict(
         return_yards=return_yards,
         air_yards=air_yards,
         yardline_100=yardline_100,
+        __receiver_dc_pos=receiver_dc_pos,
+        __receiver_dc_rank=receiver_dc_rank,
+        __rusher_dc_pos=rusher_dc_pos,
+        __rusher_dc_rank=rusher_dc_rank,
     )
 
 

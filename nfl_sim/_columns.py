@@ -29,9 +29,16 @@ PBP_COLUMNS: list[str] = _load_columns(
         "kickoff",
         "description",
         "passing",
+        "player_ids",
     ],
 )
 ENGINE_COLUMNS: list[str] = _load_columns(
     "engine_columns.toml",
     ["filter", "play_result", "meta"],
+)
+
+# DC columns are optional - only present when DepthChartData.add_cols_to_pbp() is called
+DC_COLUMNS: list[str] = _load_columns(
+    "engine_columns.toml",
+    ["depth_chart"],
 )

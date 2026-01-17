@@ -16,7 +16,11 @@ The simulator works by sampling real NFL plays from historical data and replayin
 **Play Selection:**
 Plays are selected by finding historical plays with similar game situations. The Rust `filter_window()` function searches through progressively wider windows until matches are found, weighted toward more recent plays.
 
-## Commands & Agent Instructions
+## Code Style and Conventions
+
+### Helpful Commands
+
+Everything non-uv is a make command, everything else is UV standards. you should never be running something like `python ...` or `pytest ...` directly. Cargo commands can be run directly if need be however, but we do have `make build` which compiles the extensions.
 
 ```bash
 # Run simulation
@@ -35,8 +39,19 @@ make lint
 # Build rust and sync
 make build
 uv sync
-
 ```
+
+### Python Conventions
+
+- Prefer long breaks in code for comments where a section may be complex. I like longform comments that explain the why of things.
+- Prefer wrapper classes for most data structures, even just dataframes that are thin.
+- Favor `@dataclass` + `@classmethod` + `from_*` constructors.
+
+### Project conventions
+
+- Favor `toml` files for configuration and logic over hardcoding values. Use these for as much as we can and use them to drive logic. These files should ship with the package.
+- Use data in the `dictionary` folder for mappings of available columns.
+- Data for testing lives in @data folder (you can't see because it's not tracked).
 
 ## Project Structure
 
