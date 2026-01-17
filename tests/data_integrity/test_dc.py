@@ -341,10 +341,10 @@ def test_dc_from_season():
     dc = DepthChartData.from_season()
     assert len(dc) > 0
 
+
 # TODO: Check a backup running back from 2 weeks ago who's now the 3rd string, gets correctly logged
 # as the backup. i.e. the sample calls for the backup getting a rush, and we should map that to the
 # current backup
-
 
 
 if __name__ == "__main__":

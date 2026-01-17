@@ -10,8 +10,10 @@ from nfl_sim._sampling import build_sample_data
 from nfl_sim.data import pull_game_data
 from nfl_sim.simulate import SimulationResult
 
-# Simulation counts to test: 100 to 2000 in increments of 100
-SIM_COUNTS = list(range(100, 2100, 100))
+start_at = 100
+max_sims = 3_000
+incr_by = 100
+SIM_COUNTS = list(range(start_at, max_sims, incr_by))
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -108,13 +110,14 @@ def report_results(results_df: pl.DataFrame) -> None:
     console = Console()
 
     # Plot avg margin and std dev
-    n_sims = results_df["n_sims"].to_list()
-    avg_margin = results_df["avg_margin"].to_list()
-    margin_std = results_df["margin_std"].to_list()
-    margin_change = results_df["margin_change"].to_list()
+    n_sims: list[int] = results_df["n_sims"].to_list()
+    avg_margin: list[float] = results_df["avg_margin"].to_list()
+    margin_std: list[float] = results_df["margin_std"].to_list()
+    margin_change: list[float] = results_df["margin_change"].to_list()
 
     plt.clear_figure()
     plt.plot(n_sims, avg_margin, label="Avg Margin")
+    plt.yaxes(min(avg_margin) - 5, max(avg_margin) + 5)
     plt.xlabel("N Simulations")
     plt.ylabel("Points")
     plt.title("Convergence: Avg Margin")
@@ -124,6 +127,7 @@ def report_results(results_df: pl.DataFrame) -> None:
 
     plt.clear_figure()
     plt.plot(n_sims, margin_std, label="Std")
+    plt.yaxes(min(margin_std) - 7, max(margin_std) + 7)
     plt.xlabel("N Simulations")
     plt.ylabel("Points")
     plt.title("Convergence: Std")
@@ -133,6 +137,7 @@ def report_results(results_df: pl.DataFrame) -> None:
 
     plt.clear_figure()
     plt.plot(n_sims, margin_change, label="Margin Change")
+    plt.yaxes(min(margin_change) - 3, max(margin_change) + 3)
     plt.xlabel("N Simulations")
     plt.ylabel("Points")
     plt.title("Convergence: Delta Change")

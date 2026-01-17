@@ -378,5 +378,139 @@ def test_rand_game(game_data: pl.DataFrame) -> None:
     print(game)
 
 
+def test_kickoff_field_position_is_in_own_territory(game_data: pl.DataFrame) -> None:
+    """After a kickoff return (non-TD), receiving team should be in their own territory.
+
+    This is a regression test for a bug where kickoff returns would incorrectly
+    place the receiving team at the opponent's 35 yard line (yardline_100 = 35)
+    instead of their own territory (yardline_100 >= 50 typically).
+
+    The bug was caused by using the raw yardline_100 from the historical kickoff
+    data (which was from the kicking team's perspective) instead of calculating
+    the correct field position from kick_distance and return_yards.
+    """
+    from nfl_sim._kickoff import KickoffSampleData, sample_kickoff
+
+    # Create synthetic kickoff samples with known values
+    # A 65-yard kick lands at the goal line (35 + 65 = 100)
+    # A 20-yard return brings it to the 20 yard line (100 - 20 = 80)
+    samples = KickoffSampleData(
+        plays=[
+            {
+                "kick_distance": 65,
+                "return_yards": 20,
+                "return_touchdown": False,
+                "touchback": False,
+                "kickoff_fair_catch": False,
+                "kickoff_in_endzone": False,
+                "desc": "Test kickoff",
+            }
+        ]
+    )
+
+    result = sample_kickoff(samples)
+
+    # yardline_100 = 80 means receiving team is at their own 20 yard line
+    # (80 yards from opponent's endzone)
+    assert result.yardline == 80, (
+        f"Expected yardline 80 (own 20), got {result.yardline}. "
+        f"Receiving team should be in their own territory after kickoff return."
+    )
+    assert result.yardline >= 50, (
+        f"Receiving team at yardline {result.yardline} is in opponent's territory! "
+        f"After a normal kickoff return, should be in own territory (yardline >= 50)."
+    )
+
+
+def test_kickoff_touchback_at_own_25(game_data: pl.DataFrame) -> None:
+    """Touchback should place ball at own 25 (yardline_100 = 75)."""
+    from nfl_sim._kickoff import KickoffSampleData, sample_kickoff
+
+    samples = KickoffSampleData(
+        plays=[
+            {
+                "kick_distance": 70,
+                "return_yards": 0,
+                "return_touchdown": False,
+                "touchback": True,
+                "kickoff_fair_catch": False,
+                "kickoff_in_endzone": True,
+                "desc": "Touchback",
+            }
+        ]
+    )
+
+    result = sample_kickoff(samples)
+    assert result.yardline == 75, (
+        f"Touchback should be at yardline 75 (own 25), got {result.yardline}"
+    )
+    assert result.is_touchback is True
+
+
+def test_kickoff_fair_catch_at_own_25(game_data: pl.DataFrame) -> None:
+    """Fair catch on kickoff should be treated as touchback at own 25."""
+    from nfl_sim._kickoff import KickoffSampleData, sample_kickoff
+
+    samples = KickoffSampleData(
+        plays=[
+            {
+                "kick_distance": 55,
+                "return_yards": 0,
+                "return_touchdown": False,
+                "touchback": False,
+                "kickoff_fair_catch": True,
+                "kickoff_in_endzone": False,
+                "desc": "Fair catch",
+            }
+        ]
+    )
+
+    result = sample_kickoff(samples)
+    assert result.yardline == 75, (
+        f"Fair catch should be at yardline 75 (own 25), got {result.yardline}"
+    )
+
+
+@given(
+    kick_distance=st.integers(min_value=40, max_value=80),
+    return_yards=st.integers(min_value=0, max_value=50),
+)
+@settings(max_examples=50)
+def test_kickoff_return_never_in_opponent_redzone(kick_distance: int, return_yards: int) -> None:
+    """Kickoff returns should rarely place the ball deep in opponent territory.
+
+    A kickoff return ending in the opponent's red zone (yardline_100 <= 25) would
+    require a 75+ yard return, which should be a return TD, not a regular return.
+    """
+    from nfl_sim._kickoff import KickoffSampleData, sample_kickoff
+
+    samples = KickoffSampleData(
+        plays=[
+            {
+                "kick_distance": kick_distance,
+                "return_yards": return_yards,
+                "return_touchdown": False,
+                "touchback": False,
+                "kickoff_fair_catch": False,
+                "kickoff_in_endzone": False,
+                "desc": "Test kickoff",
+            }
+        ]
+    )
+
+    result = sample_kickoff(samples)
+
+    # With realistic kick distances (40-80) and return yards (0-50),
+    # the receiving team should never end up in the opponent's red zone.
+    # Landing point: 35 + kick_distance (75 to 115, clamped to 100)
+    # After return: landing - return_yards (50 to 100)
+    # So minimum expected yardline is around 50 (midfield)
+    assert result.yardline >= 25, (
+        f"Kickoff return ended at yardline {result.yardline} (opponent's {100 - result.yardline}). "
+        f"With kick_distance={kick_distance}, return_yards={return_yards}, this seems too deep. "
+        f"Expected yardline >= 25."
+    )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-sv", "-k", "test_rand_game"])

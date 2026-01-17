@@ -32,6 +32,7 @@ class PlayRowDict(TypedDict):
     __rusher_dc_rank: int | None
 
 
+# TODO: These need to be toml
 # Core columns always present in play data
 _CORE_PLAY_DICT_COLS = [
     "yards_gained",
@@ -78,6 +79,7 @@ def _build_play_dicts(df: pl.DataFrame) -> tuple[PlayRowDict, ...]:
 
     Handles optional depth chart columns - adds them with None values if missing.
     """
+    # TODO: Feel like this should go in data module, has nothing to do really with the sampling.
     # Determine which columns exist in the DataFrame
     available_cols = set(df.columns)
     cols_to_select = [c for c in _CORE_PLAY_DICT_COLS if c in available_cols]
@@ -269,5 +271,4 @@ def fetch_like_play(
     if idx is None:
         raise NoSampleFoundError(f"No plays found for down={down}, dist={dist}, yl={yardline}")
 
-    # O(1) tuple lookup - no DataFrame slicing needed
     return partition_plays[idx]

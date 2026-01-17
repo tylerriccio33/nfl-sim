@@ -359,7 +359,7 @@ class DepthChartData(Data):
 
         # Normalize column names for different nflverse formats
         # 2025+ format uses different column names
-        # TODO: Gotta kill these for sure
+        # TODO: You apparently need these?? check yourself
         column_renames: dict[str, str] = {}
         if "team" in df.columns and "club_code" not in df.columns:
             column_renames["team"] = "club_code"

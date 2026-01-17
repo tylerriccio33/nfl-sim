@@ -69,7 +69,6 @@ def build_kickoff_data(all_data: pl.DataFrame, team: str) -> KickoffSampleData:
         "kickoff_fair_catch",
         "kickoff_in_endzone",
         "desc",
-        "yardline_100",
     ]
 
     # Filter to kickoff plays where this team was receiving (defteam)
@@ -154,49 +153,37 @@ def sample_kickoff(samples: KickoffSampleData) -> KickoffResult:
             desc=desc,
         )
 
-    # Calculate field position from kick distance and return yards
-    # Kickoffs are from the 35 yard line (65 yards from own endzone)
-    # kick_distance goes toward receiving team's endzone
-    # return_yards come back toward kicking team's endzone
-
-    # Landing spot: 100 - kick_distance (if kicked 65 yards from 35, lands at own 0)
-    # Most kickoffs go into the endzone (65+ yards), so landing_yardline <= 0
-    # For a 65-yard kick: landing at goal line = 100 - 65 = 35? No...
+    # Calculate field position from kick distance and return yards.
     #
-    # Actually: Kickoff from 35 yard line.
-    # A 65-yard kick lands at the opponent's goal line (100 - 35 - 65 = 0).
-    # yardline_100 for receiving team after catch at goal line = 100 (own goal line)
-    # After a 25-yard return: 100 - 25 = 75 (own 25)
+    # The yardline_100 in the historical kickoff data is from the KICKING team's
+    # perspective (posteam on kickoffs), but after the kickoff the RECEIVING team
+    # becomes posteam. We need to calculate the correct yardline from the receiving
+    # team's perspective.
     #
-    # Simpler approach: Use the sampled play's result directly
-    # The return_yards represents how far they got, relative to where they caught it
+    # Kickoffs start from the kicking team's 35 yard line, which is 65 yards from
+    # the receiving team's endzone (from kicker's perspective: yardline_100 = 65).
+    #
+    # After a kick of X yards toward the receiving team's endzone:
+    #   - Ball lands at: 65 - X (from receiving team's endzone, kicker's view)
+    #   - From receiving team's perspective: 100 - (65 - X) = 35 + X
+    #
+    # After a return of Y yards toward kicking team's endzone:
+    #   - Final position: (35 + X) - Y (from receiving team's perspective)
+    #
+    # Example: kick_distance=60, return_yards=20
+    #   - Landing: 35 + 60 = 95 (receiving team's own 5 yard line, yardline_100=95)
+    #   - After return: 95 - 20 = 75 (receiving team's own 25, yardline_100=75) ✓
 
-    # Standard kickoff: receiving team starts at their own ~25 after return
-    # We'll use proportional return similar to punts
+    # Calculate where kick lands from receiving team's perspective
+    # Formula: 35 + kick_distance
+    # Clamp to 100 (own goal line) for kicks that go into the endzone
+    landing_yardline = min(100, 35 + kick_distance)
 
-    # Assume kickoff landing point based on kick_distance
-    # From 35-yard line, kick_distance of 65 lands at receiving team's goal line
-    # Receiving team's yardline_100 at catch = 100 - (kick_distance - 65)
-    # But most kicks are touchbacks now, so let's be simpler:
+    # Apply return yards (moves toward opponent's endzone, so subtract)
+    new_yardline = landing_yardline - return_yards
 
-    # Use the actual return result from the play
-    # If return_yards is positive, the receiving team advanced
-    # Typical starting position after a return is own 20-30
-
-    # Calculate based on original play's yardline_100 if available
-    original_yardline = play.get("yardline_100")
-    if original_yardline is not None:
-        # The original play's yardline_100 is where the ball ended up
-        # This is the receiving team's field position after the return
-        # yardline_100 = yards from opponent's endzone
-        # So 75 = own 25, 80 = own 20, etc.
-        new_yardline = max(1, min(99, int(original_yardline)))
-    else:
-        # Fallback: estimate from return yards
-        # Assume catch at ~5 yard line (yardline_100 = 95)
-        # After return: 95 - return_yards
-        catch_yardline = 95  # Assuming catch deep
-        new_yardline = max(1, min(99, catch_yardline - return_yards))
+    # Clamp to valid field range (1-99, no TDs from this path)
+    new_yardline = max(1, min(99, new_yardline))
 
     return KickoffResult(
         yardline=new_yardline,
