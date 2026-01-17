@@ -20,7 +20,7 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
-module-name = "nfl_sim._internal"
+module-name = "nfl_sim._rust_core"
 python-packages = ["nfl_sim"]
 python-source="."
 

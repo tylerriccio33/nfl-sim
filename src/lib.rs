@@ -76,7 +76,7 @@ fn calc_wp(
 
 /// Internal calc_wp for use within Rust (avoids Python overhead).
 #[inline]
-fn calc_wp_internal(
+fn calc_wp_rust_core(
     down: u32,
     dist: u32,
     yardline: u32,
@@ -184,7 +184,7 @@ fn filter_window(
     score: i32,
 ) -> Option<i64> {
     // Calculate current win probability from game state
-    let wp: f32 = calc_wp_internal(down, dist, yardline, half, half_seconds_remaining, score);
+    let wp: f32 = calc_wp_rust_core(down, dist, yardline, half, half_seconds_remaining, score);
     let arr = samples.as_array();
     let n_rows = arr.nrows();
 
@@ -192,8 +192,7 @@ fn filter_window(
     let cur_dist: u32 = if yardline < dist { yardline } else { dist };
 
     let window: &[(u32, f32, u32)];
-    if down == 4 {
-        // TODO: redzone right?
+    if down == 4 || yardline < 20 {
         window = &FOURTH_AND_REDZONE_WINDOW_CONFIG;
     } else {
         window = &REGULAR_WINDOW_CONFIG;
@@ -239,10 +238,9 @@ fn filter_window(
     None
 }
 
-// TODO: I'd like to change the name from _internal
-/// NFL simulation core module implemented in Rust.
+/// Add functions to be exported from the module:
 #[pymodule]
-fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(calc_wp, m)?)?;
     m.add_function(wrap_pyfunction!(filter_window, m)?)?;
     Ok(())

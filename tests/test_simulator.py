@@ -2,26 +2,19 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import polars as pl
-import pytest
 
 from nfl_sim._kickoff import build_kickoff_data
 from nfl_sim._sampling import build_sample_data
-from nfl_sim.data import pull_game_data, pull_kickoff_data
 from nfl_sim.simulate import SimulationResult
 from nfl_sim.simulator import Simulator
 
+if TYPE_CHECKING:
+    from nfl_sim.data import GameMetadata
 
-@pytest.fixture(scope="module")
-def pbp_data() -> pl.DataFrame:
-    """Load play-by-play data once for all tests in this module."""
-    return pull_game_data()
-
-
-@pytest.fixture(scope="module")
-def kickoff_data() -> pl.DataFrame:
-    """Load kickoff data once for all tests in this module."""
-    return pull_kickoff_data()
+# Note: pbp_data and kickoff_data fixtures are provided by conftest.py
 
 
 class TestSimulatorGame:
@@ -178,8 +171,6 @@ class TestSimulatorSchedule:
 
     def test_schedule_yields_results(self, pbp_data: pl.DataFrame, kickoff_data: pl.DataFrame):
         """schedule() should yield SimulationResult for each game in list."""
-        from nfl_sim.data import GameMetadata
-
         sim = Simulator.from_data(pbp_data, kickoff_data, n_simulations=2)
 
         # Use teams we know have sample data

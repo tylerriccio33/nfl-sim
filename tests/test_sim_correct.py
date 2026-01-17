@@ -12,16 +12,15 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from nfl_sim._sampling import PartitionedSampleData, build_sample_data
-from nfl_sim.data import pull_game_data
 from nfl_sim.game import SingleGame
 
-# TODO: In general, we should probably increase the samples
+# Note: pbp_data fixture (aliased as game_data) is provided by conftest.py
 
 
 @pytest.fixture(scope="module")
-def game_data() -> pl.DataFrame:
-    """Load play_game-by-play_game data once for all tests in this module."""
-    return pull_game_data()
+def game_data(pbp_data: pl.DataFrame) -> pl.DataFrame:
+    """Alias pbp_data as game_data for backward compatibility."""
+    return pbp_data
 
 
 # TODO: Pull this from the games I think, don't like this

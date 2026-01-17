@@ -8,7 +8,32 @@ import pytest
 
 from nfl_sim._event import build_event_expr
 from nfl_sim._sampling import PlayRowDict
+from nfl_sim.data import pull_game_data, pull_kickoff_data
 from nfl_sim.play import GameEngine
+
+# =============================================================================
+# DATA FIXTURES: Shared across integration tests
+# =============================================================================
+
+
+@pytest.fixture(scope="module")
+def pbp_data() -> pl.DataFrame:
+    """Load play-by-play data once for all tests in this module.
+
+    Use this fixture for integration tests that need real NFL data.
+    For unit tests that need controlled data, use mock_play_data instead.
+    """
+    return pull_game_data()
+
+
+@pytest.fixture(scope="module")
+def kickoff_data() -> pl.DataFrame:
+    """Load kickoff data once for all tests in this module.
+
+    Use this fixture for integration tests that need real kickoff data.
+    """
+    return pull_kickoff_data()
+
 
 # =============================================================================
 # SINGLE SOURCE OF TRUTH: Default columns for test play data

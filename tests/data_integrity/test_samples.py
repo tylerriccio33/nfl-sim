@@ -1,9 +1,9 @@
 """Tests for Samples play selection."""
 
+import nfl_sim._rust_core as _rust_core
 import polars as pl
 import pytest
 
-import nfl_sim._internal as _internal
 from nfl_sim._sampling import NoSampleFoundError, build_sample_data, fetch_like_play
 
 # Filter window tests (via Rust nfl_sim_core.filter_window)
@@ -37,7 +37,7 @@ def test_filter_window_returns_valid_index_for_partitions(mock_play_data: pl.Dat
     """Filter window returns a single index that maps to play dicts."""
     samples = build_sample_data(mock_play_data, "KC")
     # Use early partition (downs 1-2)
-    idx = _internal.filter_window(
+    idx = _rust_core.filter_window(
         samples.early_matrix,
         down=1,
         dist=10,
@@ -84,7 +84,7 @@ def test_filter_window_returns_valid_index():
         dtype=np.int64,
     )
 
-    result = _internal.filter_window(
+    result = _rust_core.filter_window(
         samples,
         down=1,
         dist=10,

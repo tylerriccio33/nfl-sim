@@ -4,9 +4,8 @@ These tests mirror the sanity checks from the model training script
 to ensure the Rust implementation behaves correctly.
 """
 
+import nfl_sim._rust_core as _rust_core
 import pytest
-
-import nfl_sim._internal as _internal
 
 
 class TestCalcWpSanityChecks:
@@ -14,7 +13,7 @@ class TestCalcWpSanityChecks:
 
     def test_neutral_start_roughly_fifty_percent(self) -> None:
         """1st & 10, own 25, 1st half, 15:00, tied should be ~50%."""
-        wp = _internal.calc_wp(
+        wp = _rust_core.calc_wp(
             down=1,
             dist=10,
             yardline=75,
@@ -26,7 +25,7 @@ class TestCalcWpSanityChecks:
 
     def test_up_14_late_high_wp(self) -> None:
         """1st & 10, own 25, 2nd half, 2:00, up 14 should be very high."""
-        wp = _internal.calc_wp(
+        wp = _rust_core.calc_wp(
             down=1,
             dist=10,
             yardline=75,
@@ -38,7 +37,7 @@ class TestCalcWpSanityChecks:
 
     def test_down_14_late_low_wp(self) -> None:
         """1st & 10, own 25, 2nd half, 2:00, down 14 should be very low."""
-        wp = _internal.calc_wp(
+        wp = _rust_core.calc_wp(
             down=1,
             dist=10,
             yardline=75,
@@ -50,7 +49,7 @@ class TestCalcWpSanityChecks:
 
     def test_goal_line_down_4_reasonable(self) -> None:
         """4th & 1, opp 1, 2nd half, 0:30, down 4 should be in reasonable range."""
-        wp = _internal.calc_wp(
+        wp = _rust_core.calc_wp(
             down=4,
             dist=1,
             yardline=1,
@@ -62,7 +61,7 @@ class TestCalcWpSanityChecks:
 
     def test_redzone_down_6_reasonable(self) -> None:
         """1st & goal, opp 5, 2nd half, 0:10, down 6 should be in reasonable range."""
-        wp = _internal.calc_wp(
+        wp = _rust_core.calc_wp(
             down=1,
             dist=10,
             yardline=5,
@@ -78,10 +77,10 @@ class TestCalcWpDirectionalChecks:
 
     def test_ahead_late_beats_behind_late(self) -> None:
         """Being ahead late should have higher WP than being behind."""
-        ahead = _internal.calc_wp(
+        ahead = _rust_core.calc_wp(
             down=1, dist=10, yardline=50, half=2, half_seconds_remaining=120, score=7
         )
-        behind = _internal.calc_wp(
+        behind = _rust_core.calc_wp(
             down=1, dist=10, yardline=50, half=2, half_seconds_remaining=120, score=-7
         )
         assert ahead > behind, f"Ahead ({ahead:.1%}) should be > behind ({behind:.1%})"
@@ -89,19 +88,19 @@ class TestCalcWpDirectionalChecks:
     def test_score_matters_more_late_than_early(self) -> None:
         """Score differential should have greater impact late in the game."""
         # Late game
-        ahead_late = _internal.calc_wp(
+        ahead_late = _rust_core.calc_wp(
             down=1, dist=10, yardline=50, half=2, half_seconds_remaining=120, score=7
         )
-        behind_late = _internal.calc_wp(
+        behind_late = _rust_core.calc_wp(
             down=1, dist=10, yardline=50, half=2, half_seconds_remaining=120, score=-7
         )
         score_diff_late = ahead_late - behind_late
 
         # Early game
-        ahead_early = _internal.calc_wp(
+        ahead_early = _rust_core.calc_wp(
             down=1, dist=10, yardline=50, half=1, half_seconds_remaining=1500, score=7
         )
-        behind_early = _internal.calc_wp(
+        behind_early = _rust_core.calc_wp(
             down=1, dist=10, yardline=50, half=1, half_seconds_remaining=1500, score=-7
         )
         score_diff_early = ahead_early - behind_early
@@ -125,7 +124,7 @@ class TestCalcWpBoundaryConditions:
         ]
 
         for down, dist, yardline, half, time, score in test_cases:
-            wp = _internal.calc_wp(
+            wp = _rust_core.calc_wp(
                 down=down,
                 dist=dist,
                 yardline=yardline,
@@ -139,7 +138,7 @@ class TestCalcWpBoundaryConditions:
 
     def test_extreme_best_case_high_wp(self) -> None:
         """Best case scenario (goal line, up big, late) should be very high."""
-        wp = _internal.calc_wp(
+        wp = _rust_core.calc_wp(
             down=1,
             dist=1,
             yardline=1,
@@ -151,7 +150,7 @@ class TestCalcWpBoundaryConditions:
 
     def test_extreme_worst_case_low_wp(self) -> None:
         """Worst case scenario (own goal line, down big, late) should be very low."""
-        wp = _internal.calc_wp(
+        wp = _rust_core.calc_wp(
             down=4,
             dist=30,
             yardline=99,

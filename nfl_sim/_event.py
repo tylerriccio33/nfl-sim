@@ -89,7 +89,7 @@ class _FlipsPossession(_MetaEvent):
 
 
 def _clamp_recovery(yardline: int, offset: int) -> int:
-    """Clamp recoverty point."""
+    """Clamp recovery point to valid field position."""
     return max(1, min(99, yardline - offset))
 
 

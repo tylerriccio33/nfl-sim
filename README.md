@@ -47,6 +47,7 @@ uv sync
 - Prefer long breaks in code for comments where a section may be complex. I like longform comments that explain the why of things.
 - Prefer wrapper classes for most data structures, even just dataframes that are thin.
 - Favor `@dataclass` + `@classmethod` + `from_*` constructors.
+- Do not use `cast` for typing (unless in polars), try to type it correctly or use an assertion if you must.
 
 ### Project conventions
 
@@ -69,7 +70,8 @@ src/nfl_sim/
 ├── data.py         # Data loading from nflverse, schedule access
 └── web/            # Flask web interface
 
-rust/src/lib.rs     # filter_window() - fast play matching via FFI
+rust/src/lib.rs     # filter_window() - FFI
+rust/src/lib.rs     # calc_wp() - FFI
 ```
 
 ## Web Interface

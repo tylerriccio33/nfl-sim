@@ -5,7 +5,7 @@ import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
-import nfl_sim._internal as _internal
+import nfl_sim._rust_core as _rust_core
 from nfl_sim._columns import ENGINE_COLUMNS
 
 type _FilterMatrix = NDArray[np.int64]
@@ -258,7 +258,7 @@ def fetch_like_play(
     partition_matrix, partition_plays = samples.get_partition(down)
 
     # Call Rust filter (WP calculated internally from game state)
-    idx = _internal.filter_window(
+    idx = _rust_core.filter_window(
         samples=partition_matrix,
         down=down,
         dist=dist,
