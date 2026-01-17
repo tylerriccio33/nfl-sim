@@ -27,7 +27,7 @@ Everything non-uv is a make command, everything else is UV standards. you should
 # Run simulation
 make run
 
-# Run tests
+# Run tests (tests are really fast)
 make test
 
 # Run benchmarks
@@ -91,3 +91,5 @@ Web interface is a flask-based one page app to:
 - **Narratives & Scripts**: Generate game summaries and narratives based on play-by-play
 - **Smarter Play Selection:** Include more context in selection criteria to bias towards realistic plays (e.g. cur QB, is home, other things). This may require a new model.
 - **Web Interface Improvements:** Team logos, player stats, better PBP, game scripts, summaries, etc.
+- **Situational Adjustments:** How does removing a player effect the game, playing in the cold, etc.
+- **Configure Database:** Web app should use a database since eventually this simulation data will all live on S3. This should also formally decouple the existance of simulation/package code from the web app.

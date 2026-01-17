@@ -3,20 +3,21 @@
 from __future__ import annotations
 
 import datetime
+from typing import TYPE_CHECKING
 
 import polars as pl
 from flask import Blueprint, render_template
 
-from nfl_sim._kickoff import build_kickoff_data
-from nfl_sim._sampling import build_sample_data
-from nfl_sim.data import ScheduleData, pull_game_data, pull_kickoff_data
-from nfl_sim.simulate import SimulationResult
+from nfl_sim.data import ScheduleData
+from nfl_sim.simulator import Simulator
+
+if TYPE_CHECKING:
+    from nfl_sim.simulate import SimulationResult
 
 bp = Blueprint("main", __name__)
 
 # Module-level cache for expensive data
-_pbp_data: pl.DataFrame | None = None
-_kickoff_data: pl.DataFrame | None = None
+_simulator: Simulator | None = None
 _schedule: ScheduleData | None = None
 
 # Server-side cache for simulation results (avoids cookie size limits)
@@ -129,20 +130,12 @@ def _extract_result_stats(result: SimulationResult) -> dict:
     }
 
 
-def get_pbp_data() -> pl.DataFrame:
-    """Lazy-load and cache play-by-play data."""
-    global _pbp_data
-    if _pbp_data is None:
-        _pbp_data = pull_game_data()
-    return _pbp_data
-
-
-def get_kickoff_data() -> pl.DataFrame:
-    """Lazy-load and cache kickoff data."""
-    global _kickoff_data
-    if _kickoff_data is None:
-        _kickoff_data = pull_kickoff_data()
-    return _kickoff_data
+def get_simulator() -> Simulator:
+    """Lazy-load and cache the Simulator with play capture enabled."""
+    global _simulator
+    if _simulator is None:
+        _simulator = Simulator(capture_plays=True)
+    return _simulator
 
 
 def get_schedule() -> ScheduleData:
@@ -198,31 +191,11 @@ def refresh_games():
 
 @bp.route("/simulate/<home>/<away>", methods=["POST"])
 def simulate(home: str, away: str):
-    """Run simulation for a matchup using SimulationResult.simulate()."""
+    """Run simulation for a matchup using the Simulator API."""
     global _sim_cache
-    data = get_pbp_data()
-    kickoff_data = get_kickoff_data()
-
-    # Build sample data for each team
-    home_samples = build_sample_data(data, home)
-    away_samples = build_sample_data(data, away)
-
-    # Build kickoff sample data for each team
-    home_kickoff_samples = build_kickoff_data(kickoff_data, home)
-    away_kickoff_samples = build_kickoff_data(kickoff_data, away)
 
     n_sims = 100
-
-    result = SimulationResult.simulate(
-        home_samples=home_samples,
-        away_samples=away_samples,
-        home_team=home,
-        away_team=away,
-        n=n_sims,
-        capture_plays=True,
-        home_kickoff_samples=home_kickoff_samples,
-        away_kickoff_samples=away_kickoff_samples,
-    )
+    result = get_simulator().game(home, away, n=n_sims)
 
     result_dict = _extract_result_stats(result)
 

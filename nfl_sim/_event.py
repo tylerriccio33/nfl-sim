@@ -88,6 +88,11 @@ class _FlipsPossession(_MetaEvent):
     """
 
 
+def _clamp_recovery(yardline: int, offset: int) -> int:
+    """Clamp recoverty point."""
+    return max(1, min(99, yardline - offset))
+
+
 def _calculate_proportional_return(
     sim_yardline: int,
     original_yardline: int,
@@ -112,33 +117,27 @@ def _calculate_proportional_return(
         New yardline_100 for receiving team.
 
     """
-
-    # Helper to clamp recovery point to valid field range (1-99)
-    # TODO: Don't define it here
-    def clamp_recovery(yardline: int, offset: int) -> int:
-        return max(1, min(99, yardline - offset))
-
     # Handle no return case
     if return_yards is None or return_yards <= 0:
         # Just flip at recovery point
-        sim_recovery = clamp_recovery(sim_yardline, recovery_offset)
+        sim_recovery = _clamp_recovery(sim_yardline, recovery_offset)
         return 100 - sim_recovery
 
     # Calculate original recovery point (clamped to valid range)
-    orig_recovery = clamp_recovery(original_yardline, recovery_offset)
+    orig_recovery = _clamp_recovery(original_yardline, recovery_offset)
 
     # Field remaining after recovery (for original play)
     orig_field = 100 - orig_recovery
     if orig_field <= 0:
         # Recovery in endzone, just flip at yardline 1
-        sim_recovery = clamp_recovery(sim_yardline, recovery_offset)
+        sim_recovery = _clamp_recovery(sim_yardline, recovery_offset)
         return 100 - sim_recovery
 
     # Calculate proportion of field covered by return
     proportion = min(return_yards / orig_field, max_proportion)
 
     # Calculate sim recovery point
-    sim_recovery = clamp_recovery(sim_yardline, recovery_offset)
+    sim_recovery = _clamp_recovery(sim_yardline, recovery_offset)
 
     # Field remaining for sim
     sim_field = 100 - sim_recovery

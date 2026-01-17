@@ -5,11 +5,12 @@ import sys
 from loguru import logger
 from rich.console import Console
 
-from nfl_sim._kickoff import build_kickoff_data
-from nfl_sim._sampling import build_sample_data
-from nfl_sim.data import ScheduleData, pull_game_data, pull_kickoff_data
+from nfl_sim.data import ScheduleData
 from nfl_sim.interactive.tui import _display_results
 from nfl_sim.simulate import SimulationResult
+from nfl_sim.simulator import Simulator
+
+__all__ = ["Simulator", "SimulationResult", "run_week", "configure_logging"]
 
 
 def configure_logging(level: str = "INFO") -> None:
@@ -29,34 +30,17 @@ def run_week() -> None:
 
     with console.status("[bold blue]Loading game data..."):
         game_metadata = ScheduleData.from_cur_week(rm_complete=True)
-        data = pull_game_data()
-        kickoff_data = pull_kickoff_data()
 
     # Get first game metadata
     meta = game_metadata[0]
     home_team = meta["home_team"]
     away_team = meta["away_team"]
 
-    # Build sample data for each team (filters to their offensive plays)
-    home_samples = build_sample_data(data, home_team)
-    away_samples = build_sample_data(data, away_team)
-
-    # Build kickoff sample data for each team (filters to their kick returns)
-    home_kickoff_samples = build_kickoff_data(kickoff_data, home_team)
-    away_kickoff_samples = build_kickoff_data(kickoff_data, away_team)
-
-    # Simulate game N times
+    # Simulate game N times using the new Simulator API
     n_sims = 100
 
     with console.status(f"[bold green]Simulating {home_team} vs {away_team} {n_sims} times..."):
-        result = SimulationResult.simulate(
-            home_samples=home_samples,
-            away_samples=away_samples,
-            home_team=home_team,
-            away_team=away_team,
-            n=n_sims,
-            home_kickoff_samples=home_kickoff_samples,
-            away_kickoff_samples=away_kickoff_samples,
-        )
+        sim = Simulator(n_simulations=n_sims)
+        result = sim.game(home_team, away_team)
 
     _display_results(result, console)

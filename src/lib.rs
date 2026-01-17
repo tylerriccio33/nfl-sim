@@ -141,7 +141,6 @@ const FOURTH_AND_REDZONE_WINDOW_CONFIG: [(u32, f32, u32); 19] = [
     // Thought is this scenario is likely so unusual that we can relax wp a bit more.
     (20, 0.5, 40),
 ];
-// TODO: implement later
 
 /// Sample a single index from a list with exponential decay weighting toward earlier indices.
 /// Earlier indices (more recent plays) have higher probability of being selected.
@@ -155,6 +154,7 @@ fn weighted_sample_single(indices: &[usize]) -> usize {
 
     // Exponential decay weights: weight[i] = exp(-decay * i)
     // decay factor chosen so last element has ~10% weight of first
+    // TODO: Need tests to mess w/this decay
     let decay = 2.3 / (len as f32); // ln(10) ≈ 2.3
     let weights: Vec<f32> = (0..len).map(|i| (-decay * i as f32).exp()).collect();
 
@@ -205,15 +205,14 @@ fn filter_window(
 
         let yardline_top_threshold = yardline + yardline_window;
         let yardline_bottom_threshold = yardline.saturating_sub(*yardline_window);
-        
+
         let cur_dist_top_threshold = cur_dist + dist_window;
         let cur_dist_bottom_threshold = cur_dist.saturating_sub(*dist_window);
-        
+
         let wp_top_threshold = wp + wp_window;
         let wp_bottom_threshold = wp - wp_window;
 
         for i in 0..n_rows {
-
             // Load all remaining values at once to improve cache locality
             let sample_ydstogo = unsafe { *arr.uget([i, 0]) as u32 };
             let sample_yardline = unsafe { *arr.uget([i, 1]) as u32 };
