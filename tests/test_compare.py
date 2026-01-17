@@ -294,7 +294,7 @@ def test_stat_matches_real_nfl(
     sim_value = check.extract(simulation_games_df)
     real_value = check.extract(real_nfl_games_df)
     lower_bound, upper_bound = check.get_bounds(real_value)
-
+    # TODO: The average scores in the sims are def wayyyyyy too high
     tolerance_desc = (
         f"±{check.abs_tolerance}"
         if check.abs_tolerance is not None
@@ -432,6 +432,8 @@ def test_prediction_stability(game_data: pl.DataFrame, available_teams: list[str
         pl.col("variable").str.strip_prefix("mean_"), diff=(pl.col("run1") - pl.col("run2")).abs()
     )
     # TODO: Probably want to hoist these upwards to avoid editing code if we want to update these
+    # TODO: Better yet, create a toml file and add the instructions to the docstring of this module
+    # i.e. 'if you want to add a comparison check, here's where, ...
     tol_map = {
         "home_score": 3,
         "away_score": 3,

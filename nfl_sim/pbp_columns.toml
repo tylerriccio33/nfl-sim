@@ -142,6 +142,8 @@ columns = [
 columns = [
     "receiver_player_id",    # gsis_id of receiver (for pass plays)
     "rusher_player_id",      # gsis_id of rusher (for run plays)
+    "receiver_player_name",  # Display name of receiver (for pass plays)
+    "rusher_player_name",    # Display name of rusher (for run plays)
 ]
 
 # Passing details (for future player-level simulation)

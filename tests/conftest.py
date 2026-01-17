@@ -44,6 +44,9 @@ DEFAULT_PLAY_COLUMNS: dict[str, Any] = {
     # Return yards (for proportional return calculation)
     "return_yards": None,
     "air_yards": None,
+    # Player name columns (for display in PBP)
+    "receiver_player_name": None,
+    "rusher_player_name": None,
     # Depth chart columns (added by DepthChartData.add_cols_to_pbp)
     "__receiver_dc_pos": None,
     "__receiver_dc_rank": None,
@@ -134,6 +137,8 @@ def _make_play_dict(
         return_yards=return_yards,
         air_yards=air_yards,
         yardline_100=yardline_100,
+        receiver_player_name=None,
+        rusher_player_name=None,
         __receiver_dc_pos=receiver_dc_pos,
         __receiver_dc_rank=receiver_dc_rank,
         __rusher_dc_pos=rusher_dc_pos,

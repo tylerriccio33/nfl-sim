@@ -31,6 +31,7 @@ class PlayRecord:
     away_score: int
     quarter: int
     half_seconds_remaining: int
+    player_name: str | None
 
 
 @dataclass

@@ -213,7 +213,6 @@ def simulate(home: str, away: str):
 
     n_sims = 100
 
-    # Use unified simulate API with play capture
     result = SimulationResult.simulate(
         home_samples=home_samples,
         away_samples=away_samples,

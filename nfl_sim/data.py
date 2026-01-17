@@ -359,6 +359,7 @@ class DepthChartData(Data):
 
         # Normalize column names for different nflverse formats
         # 2025+ format uses different column names
+        # TODO: Gotta kill these for sure
         column_renames: dict[str, str] = {}
         if "team" in df.columns and "club_code" not in df.columns:
             column_renames["team"] = "club_code"
@@ -442,6 +443,7 @@ class DepthChartData(Data):
         )
 
         # Join for receiver depth chart info
+        # TODO: Would love to have a separate module dedicated to polars expressions to separate logic
         receiver_lookup = dc_lookup.select(
             pl.col("gsis_id").alias("receiver_player_id"),
             pl.col("season"),

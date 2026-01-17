@@ -283,6 +283,7 @@ def test_game_data_with_plays(game_with_samples: SingleGame):
             away_score=0,
             quarter=1,
             half_seconds_remaining=1800,
+            player_name="P.Mahomes",
         ),
         PlayRecord(
             down=2,
@@ -297,6 +298,7 @@ def test_game_data_with_plays(game_with_samples: SingleGame):
             away_score=0,
             quarter=1,
             half_seconds_remaining=1750,
+            player_name="T.Kelce",
         ),
         PlayRecord(
             down=1,
@@ -311,6 +313,7 @@ def test_game_data_with_plays(game_with_samples: SingleGame):
             away_score=0,
             quarter=1,
             half_seconds_remaining=1700,
+            player_name="I.Pacheco",
         ),
     ]
     df = game_with_samples.game_data

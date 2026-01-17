@@ -200,13 +200,6 @@ def test_game_data_has_required_columns(game_data: pl.DataFrame) -> None:
         assert col in play_games.columns, f"Missing column: {col}"
 
 
-def test_rand_game(game_data: pl.DataFrame) -> None:
-    """Games should complete without raising exceptions."""
-    game = create_game(game_data, "NYJ", "KC")
-    game.play_game()
-    print(game)
-
-
 @given(
     home_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
     away_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
@@ -378,5 +371,12 @@ def test_event_counter_no_error(game_data: pl.DataFrame, home_idx: int, away_idx
     # TODO: Check there are no None, it's a 0 if anything
 
 
+def test_rand_game(game_data: pl.DataFrame) -> None:
+    """Games should complete without raising exceptions."""
+    game = create_game(game_data, "NYJ", "KC")
+    game.play_game()
+    print(game)
+
+
 if __name__ == "__main__":
-    pytest.main([__file__, "-sv", "-k", "test_event_counter_no_error"])
+    pytest.main([__file__, "-sv", "-k", "test_rand_game"])

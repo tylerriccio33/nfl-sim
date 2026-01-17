@@ -7,6 +7,7 @@ A play-by-play NFL game simulation engine that uses historical play data and Rus
 The simulator works by sampling real NFL plays from historical data and replaying them in a state machine that tracks game flow.
 
 **Game Flow:**
+
 1. `SimulationResult.simulate()` runs N games using `SingleGame`
 2. Each game alternates possessions, running plays until the clock expires
 3. On each play, `fetch_like_play()` finds a historical play matching the current game state (down, distance, yardline, win probability) using Rust-accelerated filtering
@@ -52,6 +53,8 @@ uv sync
 - Favor `toml` files for configuration and logic over hardcoding values. Use these for as much as we can and use them to drive logic. These files should ship with the package.
 - Use data in the `dictionary` folder for mappings of available columns.
 - Data for testing lives in @data folder (you can't see because it's not tracked).
+- Duplication is the devil, avoid it at all costs. If you find yourself copy/pasting code, stop and rethink your approach, look to centralize it.
+- If unsure, throw the error. Don't try to catch and handle everything, let things bubble up unless the author explicitly asks you to except it.
 
 ## Project Structure
 
@@ -83,6 +86,7 @@ Web interface is a flask-based one page app to:
 - **Penalty Handling:** Integrate penalties into game flow
 - **Player-Level Simulation:** Incorporate player statistics and depth charts
 - **Defense Play Selection:** Combine offense and defense play choices for realism
+- **Statistical Artifacts:** Confidence intervals, distributions for scores and stats
 - **Advanced Analytics:** Add more detailed statistics (EPA, success rate, etc.)
 - **Narratives & Scripts**: Generate game summaries and narratives based on play-by-play
 - **Smarter Play Selection:** Include more context in selection criteria to bias towards realistic plays (e.g. cur QB, is home, other things). This may require a new model.

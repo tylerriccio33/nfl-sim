@@ -23,6 +23,8 @@ class PlayRowDict(TypedDict):
     return_yards: int | None
     air_yards: int | None
     yardline_100: int
+    receiver_player_name: str | None
+    rusher_player_name: str | None
     # Depth chart position columns (added by DepthChartData.add_cols_to_pbp)
     __receiver_dc_pos: str | None
     __receiver_dc_rank: int | None
@@ -40,6 +42,8 @@ _CORE_PLAY_DICT_COLS = [
     "return_yards",
     "air_yards",
     "yardline_100",
+    "receiver_player_name",
+    "rusher_player_name",
 ]
 
 # Optional depth chart columns (only present when DC integration is enabled)

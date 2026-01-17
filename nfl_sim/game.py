@@ -240,6 +240,11 @@ class SingleGame:
             yards_gained = int(play_data["yards_gained"])
             desc = play_data["desc"]
 
+            # Extract player name (receiver for passes, rusher for rushes)
+            player_name = play_data.get("receiver_player_name") or play_data.get(
+                "rusher_player_name"
+            )
+
             # Record the play with full context
             play = PlayRecord(
                 down=self._engine.down,
@@ -254,6 +259,7 @@ class SingleGame:
                 away_score=away_score,
                 quarter=quarter,
                 half_seconds_remaining=self._engine.half_seconds_remaining,
+                player_name=player_name,
             )
             self._plays.append(play)
 
@@ -330,6 +336,7 @@ class SingleGame:
                 "away_score": [p.away_score for p in self._plays],
                 "quarter": [p.quarter for p in self._plays],
                 "half_seconds_remaining": [p.half_seconds_remaining for p in self._plays],
+                "player_name": [p.player_name for p in self._plays],
             }
         )
         return self._game_data

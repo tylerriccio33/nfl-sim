@@ -37,6 +37,9 @@ class SingleGameResult:
     plays: list[dict] | None = field(default=None, repr=False)
     """Optional play-by-play data when capture_plays=True."""
 
+    # TODO: Feel like a lot of these I don't even need, why even use this class anyways?
+    # TODO: Create method from_game
+
     @staticmethod
     def to_df(results: Collection[SingleGameResult]) -> pl.DataFrame:
         """Convert a collection of SingleGameResult to a Polars DataFrame.

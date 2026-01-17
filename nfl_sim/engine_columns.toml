@@ -28,6 +28,8 @@ columns = [
     "time_elapsed",  # Seconds consumed by this play (computed in data.py)
     "return_yards",  # For proportional return calculation
     "air_yards",     # For INT recovery point estimation
+    "receiver_player_name",  # Display name for pass plays
+    "rusher_player_name",    # Display name for rush plays
     # Note: yardline_100 is already in [filter] section
 ]
 

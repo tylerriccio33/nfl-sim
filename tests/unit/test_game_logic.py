@@ -45,6 +45,7 @@ def process_play(game: SingleGame, play_data: PlayRowDict) -> None:
         away_score=away_score,
         quarter=quarter,
         half_seconds_remaining=game._engine.half_seconds_remaining,
+        player_name=None,
     )
     game._plays.append(play)
 

@@ -114,6 +114,7 @@ def _calculate_proportional_return(
     """
 
     # Helper to clamp recovery point to valid field range (1-99)
+    # TODO: Don't define it here
     def clamp_recovery(yardline: int, offset: int) -> int:
         return max(1, min(99, yardline - offset))
 

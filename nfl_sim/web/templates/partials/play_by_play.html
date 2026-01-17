@@ -14,6 +14,7 @@
                     <th class="p-2 text-left text-gray-300">Gain</th>
                     <th class="p-2 text-left text-gray-300">Result</th>
                     <th class="p-2 text-left text-gray-300">Description</th>
+                    <th class="p-2 text-left text-gray-300">Player</th>
                 </tr>
             </thead>
             <tbody>
@@ -84,6 +85,9 @@
                     </td>
                     <td class="p-2 text-gray-400 text-xs max-w-xs truncate" title="{{ play.desc or '' }}">
                         {{ play.desc or '-' }}
+                    </td>
+                    <td class="p-2 text-gray-300 text-xs">
+                        {{ play.player_name or '-' }}
                     </td>
                 </tr>
                 {% endfor %}
