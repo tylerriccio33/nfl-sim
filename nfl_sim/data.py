@@ -71,7 +71,7 @@ def pull_game_data(week_window: int = 12) -> pl.DataFrame:
     """
     cur_year, cur_week = get_current_season(), get_current_week()
     min_week = cur_week - week_window
-    if min_week <= 0:
+    if min_week <= 0:  # pragma: no cover
         raise NotImplementedError("Week window extends beyond current season")
     min_year = cur_year
     window_expr: pl.Expr = (pl.col("season").eq(min_year) & pl.col("week").ge(min_week)) | (
@@ -160,7 +160,7 @@ def pull_kickoff_data(week_window: int = 12) -> pl.DataFrame:
     """
     cur_year, cur_week = get_current_season(), get_current_week()
     min_week = cur_week - week_window
-    if min_week <= 0:
+    if min_week <= 0:  # pragma: no cover
         raise NotImplementedError("Week window extends beyond current season")
     min_year = cur_year
     window_expr: pl.Expr = (pl.col("season").eq(min_year) & pl.col("week").ge(min_week)) | (

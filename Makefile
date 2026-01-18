@@ -16,7 +16,7 @@ run: ## Run the program
 
 test: ## Run tests
 	@uv run pytest \
-		--cov src \
+		--cov nfl_sim \
 		--cov-report term-missing
 
 load-dictionaries: ## Download data dictionaries

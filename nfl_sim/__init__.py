@@ -1,46 +1,51 @@
-"""Main entry point for NFL game simulation."""
+"""NFL Game Simulation Library.
+
+Main entry points:
+
+    from nfl_sim import sim_games, get_sim_weeks, Understand
+
+    # Simulate current week
+    results = sim_games()
+
+    # Simulate specific games
+    results = sim_games(2024, 14)  # 2024 week 14
+    results = sim_games("2024_01_KC_BUF")  # single game
+
+    # Build week lists with filtering
+    weeks = get_sim_weeks(since=2021, rm_weeks=[17])
+    results = sim_games(weeks=weeks)
+
+    # Analyze results
+    analysis = Understand(results)
+    game_stats = analysis.game()
+"""
 
 import sys
 
 from loguru import logger
-from rich.console import Console
 
-from nfl_sim.data import ScheduleData
-from nfl_sim.interactive.tui import _display_results
-from nfl_sim.simulate import SimulationResult
-from nfl_sim.simulator import Simulator
+from nfl_sim.simulate import clear_cache, get_sim_weeks, sim_games
+from nfl_sim.typing import PBP, GameId, GameSims
+from nfl_sim.understand import Understand
 
-__all__ = ["Simulator", "SimulationResult", "run_week", "configure_logging"]
+__all__ = [
+    "sim_games",
+    "get_sim_weeks",
+    "clear_cache",
+    "Understand",
+    "PBP",
+    "GameId",
+    "GameSims",
+    "run_week",
+    "configure_logging",
+]
 
 
 def configure_logging(level: str = "INFO") -> None:
     """Configure loguru for the simulation."""
-    logger.remove()  # Remove default handler
+    logger.remove()
     logger.add(
         sys.stderr,
         level=level,
         format="<green>{time:HH:mm:ss}</green> | <level>{level: <7}</level> | <level>{message}</level>",
     )
-
-
-def run_week() -> None:
-    """Run N simulations of a game and display results."""
-    configure_logging("WARNING")  # Reduce noise for N simulations
-    console = Console()
-
-    with console.status("[bold blue]Loading game data..."):
-        game_metadata = ScheduleData.from_cur_week(rm_complete=True)
-
-    # Get first game metadata
-    meta = game_metadata[0]
-    home_team = meta["home_team"]
-    away_team = meta["away_team"]
-
-    # Simulate game N times using the new Simulator API
-    n_sims = 100
-
-    with console.status(f"[bold green]Simulating {home_team} vs {away_team} {n_sims} times..."):
-        sim = Simulator(n_simulations=n_sims)
-        result = sim.game(home_team, away_team)
-
-    _display_results(result, console)

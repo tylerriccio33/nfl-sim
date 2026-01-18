@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import datetime
-from typing import TYPE_CHECKING
 
 import polars as pl
 from flask import Blueprint, render_template
 
 from nfl_sim.data import ScheduleData
-from nfl_sim.simulator import Simulator
-
-if TYPE_CHECKING:
-    from nfl_sim.simulate import SimulationResult
+from nfl_sim.simulate import (
+    SimulationResult,
+    _get_kickoff_samples,
+    _get_samples,
+)
 
 bp = Blueprint("main", __name__)
 
-# Module-level cache for expensive data
-_simulator: Simulator | None = None
+# Module-level cache for schedule
 _schedule: ScheduleData | None = None
 
 # Server-side cache for simulation results (avoids cookie size limits)
@@ -130,14 +129,6 @@ def _extract_result_stats(result: SimulationResult) -> dict:
     }
 
 
-def get_simulator() -> Simulator:
-    """Lazy-load and cache the Simulator with play capture enabled."""
-    global _simulator
-    if _simulator is None:
-        _simulator = Simulator(capture_plays=True)
-    return _simulator
-
-
 def get_schedule() -> ScheduleData:
     """Lazy-load and cache current week schedule, sorted by game date.
 
@@ -191,11 +182,28 @@ def refresh_games():
 
 @bp.route("/simulate/<home>/<away>", methods=["POST"])
 def simulate(home: str, away: str):
-    """Run simulation for a matchup using the Simulator API."""
+    """Run simulation for a matchup using the functional API."""
     global _sim_cache
 
     n_sims = 100
-    result = get_simulator().game(home, away, n=n_sims)
+
+    # Use module-level caching for samples
+    home_samples = _get_samples(home)
+    away_samples = _get_samples(away)
+    home_kickoff = _get_kickoff_samples(home)
+    away_kickoff = _get_kickoff_samples(away)
+
+    # Run simulation with play capture
+    result = SimulationResult.simulate(
+        home_samples=home_samples,
+        away_samples=away_samples,
+        home_team=home,
+        away_team=away,
+        n=n_sims,
+        capture_plays=True,
+        home_kickoff_samples=home_kickoff,
+        away_kickoff_samples=away_kickoff,
+    )
 
     result_dict = _extract_result_stats(result)
 

@@ -6,13 +6,59 @@ A play-by-play NFL game simulation engine that uses historical play data and Rus
 
 The simulator works by sampling real NFL plays from historical data and replaying them in a state machine that tracks game flow.
 
-**Game Flow:**
+**Project Flow**
 
-1. `SimulationResult.simulate()` runs N games using `SingleGame`
-2. Each game alternates possessions, running plays until the clock expires
-3. On each play, `fetch_like_play()` finds a historical play matching the current game state (down, distance, yardline, win probability) using Rust-accelerated filtering
-4. `GameEngine` ingests the play, updates state (down/distance/yardline), and raises events (touchdown, interception, punt, etc.) as exceptions
-5. `SingleGame` catches events, applies scores, flips possession, and resets field position
+```python
+import polars as pl
+from nfl_sim import sim_games, Understand, get_sim_weeks
+from typing import Literal
+
+type PBP = pl.DataFrame
+type GameId = str
+type GameSims = list[PBP]
+
+## Sim Weeks/Games:
+res: dict[GameId, [PBP]] = sim_games()          # sims games in current week
+res: dict[GameId, [PBP]] = sim_games(2020, 14)  # sims games in 2020 week 14
+res: dict[GameId, [PBP]] = sim_games(2020)      # sims all of 2020
+res: dict[GameId, [PBP]] = sim_games([...])     # sims selected GameIds
+res: GameSims = sim_games(...)                   # sim single GameId
+
+# More complicated requests
+res: dict[GameId, [PBP]] = sim_games(since = 2023)
+res: dict[GameId, [PBP]] = sim_games(weeks = [(2020, 14), (2021, 15)])
+
+# Use logic to get weeks we'd like
+slicer: list[tuple[int, int]] = get_sim_weeks(since = 2021, rm_weeks= [17])
+res: dict[GameId, [PBP]] = sim_games(weeks = slicer)
+
+slicer: list[tuple[int, int]] = get_sim_weeks(window = 16, rm_weeks = [17, 18, 19])
+res: dict[GameId, [PBP]] = sim_games(weeks = slicer)
+
+
+## Understand Many Sims:
+# Aggregates are declared in `EXPR.py` aggregate section
+res: dict[GameId, [PBP]] = sim_games()
+analysis = Understand(res)
+
+game_aggregates: pl.DataFrame = analysis.game()  # computes aggregates by game
+week_aggregates: pl.DataFrame = analysis.week()  # computes aggregates by week
+
+# Understand a single sim in the game
+game_id = ...
+individual_aggregate: pl.DataFrame = analysis.result(game_id, 88) # get sim 88 only
+individual_aggregate: pl.DataFrame = analysis.result(game_id, [88, 22]) # sim 88 and 22
+individual_aggregate: pl.DataFrame = analysis.result(game_id) # get random
+
+cur_game: GameSims = analysis.fetch_game(game_id)   # retreive simulation PBP if we want
+
+## Understand a Single Sim:
+res = sim_games(game_id)         # run Nsims of a single game
+analysis = Understand(res)       # knows we only need to understand this game
+
+game_aggregates: pl.DataFrame = analysis.understand() # only one sim to understand
+individual_aggregate: pl.DataFrame = analysis.result(88) # no need for game_id
+```
 
 **Play Selection:**
 Plays are selected by finding historical plays with similar game situations. The Rust `filter_window()` function searches through progressively wider windows until matches are found, weighted toward more recent plays.
@@ -45,17 +91,19 @@ uv sync
 ### Python Conventions
 
 - Prefer long breaks in code for comments where a section may be complex. I like longform comments that explain the why of things.
-- Prefer wrapper classes for most data structures, even just dataframes that are thin.
-- Favor `@dataclass` + `@classmethod` + `from_*` constructors.
+- Prefer functional programming wherever possible.
 - Do not use `cast` for typing (unless in polars), try to type it correctly or use an assertion if you must.
+- If unsure, throw the error. Don't try to catch and handle everything, let things bubble up unless the author explicitly asks you to except it.
+- Cascades of if statements are usually problematic, especially if there isn't a really, really strong reason for it.
 
 ### Project conventions
 
 - Favor `toml` files for configuration and logic over hardcoding values. Use these for as much as we can and use them to drive logic. These files should ship with the package.
+- Favor dedicated sections for logic instead of inlining it. i.e favor an EXPR.py module holding all data logic and expressions.
 - Use data in the `dictionary` folder for mappings of available columns.
 - Data for testing lives in @data folder (you can't see because it's not tracked).
 - Duplication is the devil, avoid it at all costs. If you find yourself copy/pasting code, stop and rethink your approach, look to centralize it.
-- If unsure, throw the error. Don't try to catch and handle everything, let things bubble up unless the author explicitly asks you to except it.
+- Everything feeds the web UI, we don't need to test (or write) functionality that does not have the web API in mind.
 
 ## Project Structure
 

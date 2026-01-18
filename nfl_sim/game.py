@@ -89,6 +89,7 @@ class SingleGame:
         """
         kickoff_samples = self.cur_kickoff_samples
 
+        # TODO: Why is this allowed or possible?
         if kickoff_samples is None or len(kickoff_samples) == 0:
             # No kickoff data available, default to touchback
             logger.debug("No kickoff samples for {}, using touchback", self._posteam)
@@ -341,6 +342,7 @@ class SingleGame:
         )
         return self._game_data
 
+    # TODO: A lot of these properties can goooooo
     @property
     def num_drives(self) -> int:
         """Number of drives in the game (including current in-progress drive)."""
