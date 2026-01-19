@@ -6,9 +6,8 @@ import polars as pl
 from loguru import logger
 from rich.console import Console
 
-from nfl_sim._sampling import build_sample_data
-from nfl_sim.data import pull_game_data
-from nfl_sim.simulate import SimulationResult
+from nfl_sim import understand
+from nfl_sim.simulate import _simulate_game
 
 start_at = 100
 max_sims = 3_000
@@ -53,10 +52,6 @@ def run_convergence_benchmark() -> pl.DataFrame:
     configure_logging("WARNING")
     console = Console()
 
-    # Load play data
-    with console.status("[bold blue]Loading play-by-play data..."):
-        play_data = pull_game_data()
-
     # Get a single game
     with console.status("[bold blue]Selecting game for convergence test..."):
         home_team, away_team = fetch_single_game()
@@ -64,24 +59,17 @@ def run_convergence_benchmark() -> pl.DataFrame:
     console.print(f"[bold green]Testing convergence for: {away_team} @ {home_team}")
     console.print(f"[bold green]Running simulations from {SIM_COUNTS[0]} to {SIM_COUNTS[-1]}...")
 
-    # Build sample data once
-    home_samples = build_sample_data(play_data, home_team)
-    away_samples = build_sample_data(play_data, away_team)
-
     results: list[dict[str, float]] = []
     prev_margin: float | None = None
 
     for n_sims in SIM_COUNTS:
-        sim_result = SimulationResult.simulate(
-            home_samples=home_samples,
-            away_samples=away_samples,
-            home_team=home_team,
-            away_team=away_team,
-            n=n_sims,
-        )
+        # Run N simulations using the new functional API
+        sims = _simulate_game(home_team, away_team, n=n_sims, week_window=12)
+        stats = understand(sims)
+        row = stats.row(0, named=True)
 
-        avg_margin = sim_result.get_stat(pl.col("margin").mean())
-        margin_std = sim_result.get_stat(pl.col("margin").std())
+        avg_margin = row["margin_avg"]
+        margin_std = row["margin_std"] or 0.0
 
         # Calculate change from previous
         margin_change = abs(avg_margin - prev_margin) if prev_margin is not None else 0.0

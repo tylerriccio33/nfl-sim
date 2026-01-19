@@ -10,10 +10,11 @@ The simulator works by sampling real NFL plays from historical data and replayin
 
 ```python
 import polars as pl
-from nfl_sim import sim_games, Understand, get_sim_weeks
+from nfl_sim import sim_games, understand, get_sim_weeks
 from typing import Literal
 
 type PBP = pl.DataFrame
+type Agg = pl.DataFrame
 type GameId = str
 type GameSims = list[PBP]
 
@@ -21,8 +22,9 @@ type GameSims = list[PBP]
 res: dict[GameId, [PBP]] = sim_games()          # sims games in current week
 res: dict[GameId, [PBP]] = sim_games(2020, 14)  # sims games in 2020 week 14
 res: dict[GameId, [PBP]] = sim_games(2020)      # sims all of 2020
-res: dict[GameId, [PBP]] = sim_games([...])     # sims selected GameIds
-res: GameSims = sim_games(...)                   # sim single GameId
+game_id = ...
+res: dict[GameId, [PBP]] = sim_games([game_id, ...])     # sims selected GameIds
+res: GameSims = sim_games(game_id)                   # sim single GameId
 
 # More complicated requests
 res: dict[GameId, [PBP]] = sim_games(since = 2023)
@@ -36,28 +38,31 @@ slicer: list[tuple[int, int]] = get_sim_weeks(window = 16, rm_weeks = [17, 18, 1
 res: dict[GameId, [PBP]] = sim_games(weeks = slicer)
 
 
-## Understand Many Sims:
+## Understand Result Set:
 # Aggregates are declared in `EXPR.py` aggregate section
-res: dict[GameId, [PBP]] = sim_games()
-analysis = Understand(res)
+week_of_sims: dict[GameId, [PBP]] = sim_games()
 
-game_aggregates: pl.DataFrame = analysis.game()  # computes aggregates by game
-week_aggregates: pl.DataFrame = analysis.week()  # computes aggregates by week
+# Primary Key -> Game, Posteam
+analysis: Agg = understand(week_of_sims, by = 'game-team')
 
-# Understand a single sim in the game
-game_id = ...
-individual_aggregate: pl.DataFrame = analysis.result(game_id, 88) # get sim 88 only
-individual_aggregate: pl.DataFrame = analysis.result(game_id, [88, 22]) # sim 88 and 22
-individual_aggregate: pl.DataFrame = analysis.result(game_id) # get random
+# Primary Key -> Week
+analysis: Agg = understand(week_of_sims, by = 'game')
 
-cur_game: GameSims = analysis.fetch_game(game_id)   # retreive simulation PBP if we want
+# Primary Key -> _sim_id
+game_id = ... # pass a game ID to break it down by simulation.
+analysis: Agg = understand(week_of_sims, by = game_id)
+# OR only a single game
+res: GameSims = sim_games(game_id)
+analysis: Agg = understand(res)
 
-## Understand a Single Sim:
-res = sim_games(game_id)         # run Nsims of a single game
-analysis = Understand(res)       # knows we only need to understand this game
+# In the future...
+player_id = ... # pass a play ID to understand their performance.
+analysis: Agg = understand(week_of_sims, by = player_id)
 
-game_aggregates: pl.DataFrame = analysis.understand() # only one sim to understand
-individual_aggregate: pl.DataFrame = analysis.result(88) # no need for game_id
+# In the future...
+pos_group = 'QB' # pass a position group to understand their performance.
+analysis: Agg = understand(week_of_sims, by ='pos_grou')
+
 ```
 
 **Play Selection:**
@@ -95,6 +100,7 @@ uv sync
 - Do not use `cast` for typing (unless in polars), try to type it correctly or use an assertion if you must.
 - If unsure, throw the error. Don't try to catch and handle everything, let things bubble up unless the author explicitly asks you to except it.
 - Cascades of if statements are usually problematic, especially if there isn't a really, really strong reason for it.
+- Less code is a virtue. Do not solve for functionality/cases we don't explicitly need.
 
 ### Project conventions
 
@@ -104,6 +110,7 @@ uv sync
 - Data for testing lives in @data folder (you can't see because it's not tracked).
 - Duplication is the devil, avoid it at all costs. If you find yourself copy/pasting code, stop and rethink your approach, look to centralize it.
 - Everything feeds the web UI, we don't need to test (or write) functionality that does not have the web API in mind.
+- We will almost never care about backward compatability.
 
 ## Project Structure
 

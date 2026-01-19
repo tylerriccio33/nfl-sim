@@ -22,166 +22,20 @@ This module provides the main entry point for running NFL game simulations:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from functools import cache
 from typing import TYPE_CHECKING, overload
 
-import polars as pl
 from nflreadpy.utils_date import get_current_season, get_current_week
 
-from nfl_sim._event import EVENT_EXPR_MAP
 from nfl_sim._kickoff import KickoffSampleData, build_kickoff_data
 from nfl_sim._sampling import NoSampleFoundError, PartitionedSampleData, build_sample_data
 from nfl_sim.data import GameMetadata, ScheduleData, pull_game_data, pull_kickoff_data
 from nfl_sim.game import SingleGame
 
 if TYPE_CHECKING:
-    from collections.abc import Collection
+    import polars as pl
 
     from nfl_sim.typing import PBP, GameId, GameSims
-
-# =============================================================================
-# INTERNAL DATACLASSES (kept for internal use)
-# =============================================================================
-
-EVENT_NAMES: list[str] = [cls.__name__.lower() for cls in EVENT_EXPR_MAP]
-
-
-@dataclass
-class SingleGameResult:
-    """Result from a single game simulation."""
-
-    home_score: int
-    away_score: int
-    num_drives: int
-    total_plays: int
-    home_win: bool
-    margin: int
-    event_counts: dict[str, int] = field(default_factory=dict)
-    home_event_counts: dict[str, int] = field(default_factory=dict)
-    away_event_counts: dict[str, int] = field(default_factory=dict)
-    plays: list[dict] | None = field(default=None, repr=False)
-
-    @staticmethod
-    def to_df(results: Collection[SingleGameResult]) -> pl.DataFrame:
-        """Convert a collection of SingleGameResult to a Polars DataFrame."""
-        data: dict[str, list[int]] = {
-            "home_score": [r.home_score for r in results],
-            "away_score": [r.away_score for r in results],
-            "margin": [r.margin for r in results],
-            "ndrives": [r.num_drives for r in results],
-            "nplays": [r.total_plays for r in results],
-        }
-        for event_name in EVENT_NAMES:
-            col_name = f"n_{event_name}"
-            data[col_name] = [r.event_counts.get(event_name, 0) for r in results]
-
-        return pl.DataFrame(data)
-
-
-@dataclass
-class SimulationResult:
-    """Aggregated results from N game simulations (internal use)."""
-
-    home_team: str
-    away_team: str
-    individual_results: list[SingleGameResult] = field(default_factory=list)
-    _df_cache: pl.DataFrame | None = field(default=None, repr=False)
-    _stat_cache: dict[str, float] = field(default_factory=dict, repr=False)
-
-    @property
-    def df(self) -> pl.DataFrame:
-        """Lazily build DataFrame from individual results."""
-        if self._df_cache is None:
-            self._df_cache = pl.DataFrame(
-                {
-                    "home_score": [r.home_score for r in self.individual_results],
-                    "away_score": [r.away_score for r in self.individual_results],
-                    "margin": [r.margin for r in self.individual_results],
-                    "num_drives": [r.num_drives for r in self.individual_results],
-                    "total_plays": [r.total_plays for r in self.individual_results],
-                    "home_win": [r.home_win for r in self.individual_results],
-                }
-            )
-        return self._df_cache
-
-    def get_stat(self, expr: pl.Expr) -> float:
-        """Compute a statistic by running a Polars expression against results."""
-        cache_key = str(expr)
-        if cache_key in self._stat_cache:
-            return self._stat_cache[cache_key]
-        result = self.df.select(expr).item()
-        value = float(result) if result is not None else 0.0
-        self._stat_cache[cache_key] = value
-        return value
-
-    @classmethod
-    def simulate(
-        cls,
-        home_samples: PartitionedSampleData,
-        away_samples: PartitionedSampleData,
-        home_team: str,
-        away_team: str,
-        n: int = 100,
-        capture_plays: bool = False,
-        home_kickoff_samples: KickoffSampleData | None = None,
-        away_kickoff_samples: KickoffSampleData | None = None,
-    ) -> SimulationResult:
-        """Run N game simulations and return aggregated statistics.
-
-        This is an internal method used by benchmarks and the web interface.
-        For the public API, use sim_games() instead.
-
-        Args:
-            home_samples: Pre-partitioned sample data for home team.
-            away_samples: Pre-partitioned sample data for away team.
-            home_team: Home team abbreviation.
-            away_team: Away team abbreviation.
-            n: Number of simulations to run.
-            capture_plays: If True, capture play-by-play data for each game.
-            home_kickoff_samples: Pre-filtered kickoff return data for home team.
-            away_kickoff_samples: Pre-filtered kickoff return data for away team.
-
-        Returns:
-            SimulationResult with aggregated statistics from N simulations.
-
-        """
-        results: list[SingleGameResult] = []
-        for _ in range(n):
-            game = SingleGame(
-                home_samples=home_samples,
-                away_samples=away_samples,
-                home_team=home_team,
-                away_team=away_team,
-                home_kickoff_samples=home_kickoff_samples,
-                away_kickoff_samples=away_kickoff_samples,
-            )
-            try:
-                game.play_game()
-            except NoSampleFoundError:
-                continue
-
-            plays = game.game_data.to_dicts() if capture_plays else None
-
-            result = SingleGameResult(
-                home_score=game.home_score,
-                away_score=game.away_score,
-                num_drives=game.num_drives,
-                total_plays=len(game.game_data),
-                home_win=game.home_score > game.away_score,
-                margin=game.home_score - game.away_score,
-                event_counts=game.event_counts,
-                home_event_counts=game.home_event_counts,
-                away_event_counts=game.away_event_counts,
-                plays=plays,
-            )
-            results.append(result)
-
-        if len(results) == 0:
-            msg = "No games were played due to sampling issues."
-            raise RuntimeError(msg)
-
-        return cls(home_team, away_team, results)
 
 
 # =============================================================================
@@ -189,13 +43,13 @@ class SimulationResult:
 # =============================================================================
 
 
-@cache
+@cache  # TODO: What's the reason for these?
 def _get_pbp_data(week_window: int = 12) -> pl.DataFrame:
     """Load and cache play-by-play data."""
     return pull_game_data(week_window=week_window)
 
 
-@cache
+@cache  # TODO: What's the reason for these?
 def _get_kickoff_data(week_window: int = 12) -> pl.DataFrame:
     """Load and cache kickoff data."""
     return pull_kickoff_data(week_window=week_window)

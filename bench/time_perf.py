@@ -7,9 +7,7 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim._sampling import build_sample_data
-from nfl_sim.data import pull_game_data
-from nfl_sim.simulate import SimulationResult
+from nfl_sim.simulate import _simulate_game
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -23,7 +21,6 @@ def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
 
     Args:
         n_sims_per_game: Number of simulations per game matchup
-        n_matchups: Number of different game matchups to run
 
     Returns:
         Dictionary with timing statistics
@@ -32,23 +29,13 @@ def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
     configure_logging("WARNING")
     console = Console()
 
-    with console.status("[bold blue]Loading game data..."):
-        data = pull_game_data()
-
-    # Build game orchestrator using game_factory (partitions data once upfront)
-    with console.status("[bold blue]Building game orchestrators..."):
-        home_samples = build_sample_data(data, "NYJ")
-        away_samples = build_sample_data(data, "KC")
+    # Warm up caches by loading data once
+    with console.status("[bold blue]Loading game data (warm-up)..."):
+        _simulate_game("NYJ", "KC", n=1, week_window=12)
 
     # Run simulations
     start = time.perf_counter()
-    SimulationResult.simulate(
-        home_samples=home_samples,
-        away_samples=away_samples,
-        home_team="NYJ",
-        away_team="KC",
-        n=n_sims_per_game,
-    )
+    _simulate_game("NYJ", "KC", n=n_sims_per_game, week_window=12)
     elapsed = time.perf_counter() - start
 
     # Calculate stats

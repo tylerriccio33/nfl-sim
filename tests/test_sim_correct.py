@@ -11,19 +11,11 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
+from nfl_sim import sim_games
 from nfl_sim._sampling import PartitionedSampleData, build_sample_data
 from nfl_sim.game import SingleGame
 
-# Note: pbp_data fixture (aliased as game_data) is provided by conftest.py
-
-
-@pytest.fixture(scope="module")
-def game_data(pbp_data: pl.DataFrame) -> pl.DataFrame:
-    """Alias pbp_data as game_data for backward compatibility."""
-    return pbp_data
-
-
-# TODO: Pull this from the games I think, don't like this
+# TODO: Weird how it's defined here
 NFL_TEAMS = [
     "ARI",
     "ATL",
@@ -60,10 +52,11 @@ NFL_TEAMS = [
 ]
 
 
-def create_game(game_data: pl.DataFrame, home_team: str, away_team: str) -> SingleGame:
+# TODO: Remove this so we can use the functional API
+def create_game(pbp_data: pl.DataFrame, home_team: str, away_team: str) -> SingleGame:
     """Create a game instance with given teams."""
-    home_samples: PartitionedSampleData = build_sample_data(game_data, team=home_team)
-    away_samples: PartitionedSampleData = build_sample_data(game_data, team=away_team)
+    home_samples: PartitionedSampleData = build_sample_data(pbp_data, team=home_team)
+    away_samples: PartitionedSampleData = build_sample_data(pbp_data, team=away_team)
     return SingleGame(
         home_samples=home_samples,
         away_samples=away_samples,
@@ -72,21 +65,13 @@ def create_game(game_data: pl.DataFrame, home_team: str, away_team: str) -> Sing
     )
 
 
-@given(
-    home_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
-    away_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
-)
-@settings(
-    max_examples=5,
-    deadline=None,
-    suppress_health_check=[HealthCheck.too_slow],
-)
-def test_game_completes_without_error(
-    game_data: pl.DataFrame, home_idx: int, away_idx: int
-) -> None:
+# TODO: Basically all these need to get moved over to the functional API
+
+
+def test_sim_no_error_all_sigs(mock_pbp) -> None:
     """Games should complete without raising exceptions."""
-    game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
-    game.play_game()
+    sim_games()
+    # TODO: Implement all the other signatures.
 
 
 @given(
@@ -98,12 +83,12 @@ def test_game_completes_without_error(
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
-def test_scores_are_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
+def test_scores_are_reasonable(pbp_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
     """Scores should be within reasonable NFL bounds."""
     home_team = NFL_TEAMS[home_idx]
     away_team = NFL_TEAMS[away_idx]
 
-    game = create_game(game_data, home_team, away_team)
+    game = create_game(pbp_data, home_team, away_team)
     game.play_game()
 
     total_score = game.home_score + game.away_score
@@ -125,10 +110,10 @@ def test_scores_are_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx:
     suppress_health_check=[HealthCheck.too_slow],
 )
 def test_play_game_count_is_reasonable(
-    game_data: pl.DataFrame, home_idx: int, away_idx: int
+    pbp_data: pl.DataFrame, home_idx: int, away_idx: int
 ) -> None:
     """play_game count should be within reasonable NFL bounds."""
-    game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
+    game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
 
     play_game_count = len(game.game_data)
@@ -145,9 +130,9 @@ def test_play_game_count_is_reasonable(
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
-def test_drive_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
+def test_drive_count_is_reasonable(pbp_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
     """Drive count should be within reasonable NFL bounds."""
-    game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
+    game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
 
     drive_count = game.num_drives
@@ -165,10 +150,10 @@ def test_drive_count_is_reasonable(game_data: pl.DataFrame, home_idx: int, away_
     suppress_health_check=[HealthCheck.too_slow],
 )
 def test_yards_gained_stats_reasonable(
-    game_data: pl.DataFrame, home_idx: int, away_idx: int
+    pbp_data: pl.DataFrame, home_idx: int, away_idx: int
 ) -> None:
     """Yards gained per play_game should be reasonable."""
-    game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
+    game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
 
     play_games = game.game_data
@@ -187,9 +172,9 @@ def test_yards_gained_stats_reasonable(
         assert avg_ypp <= 15, f"Average YPP unrealistic: {avg_ypp}"
 
 
-def test_game_data_has_required_columns(game_data: pl.DataFrame) -> None:
+def test_pbp_data_has_required_columns(pbp_data: pl.DataFrame) -> None:
     """Game play_game DataFrame should have all required columns."""
-    game = create_game(game_data, "KC", "BUF")
+    game = create_game(pbp_data, "KC", "BUF")
     game.play_game()
 
     play_games = game.game_data
@@ -208,9 +193,9 @@ def test_game_data_has_required_columns(game_data: pl.DataFrame) -> None:
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
-def test_no_punt_from_redzone(game_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
+def test_no_punt_from_redzone(pbp_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
     """Teams should never punt from within the redzone (yardline_100 <= 25)."""
-    game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
+    game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
 
     plays = game.game_data
@@ -227,14 +212,14 @@ def test_no_punt_from_redzone(game_data: pl.DataFrame, home_idx: int, away_idx: 
         )
 
 
-def _build_desc_to_team_map(game_data: pl.DataFrame, teams: set[str]) -> dict[str, str]:
+def _build_desc_to_team_map(pbp_data: pl.DataFrame, teams: set[str]) -> dict[str, str]:
     """Build a mapping from play description to the team that was on offense.
 
     Only includes plays from the specified teams to avoid noise from other matchups.
     Since descriptions come from historical plays, each unique description
     should map to exactly one team (the posteam when that play occurred).
     """
-    filtered = game_data.filter(pl.col("posteam").is_in(teams))
+    filtered = pbp_data.filter(pl.col("posteam").is_in(teams))
     desc_to_team: dict[str, str] = {}
     for row in filtered.select("desc", "posteam").iter_rows():
         desc, team = row
@@ -253,7 +238,7 @@ def _build_desc_to_team_map(game_data: pl.DataFrame, teams: set[str]) -> dict[st
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
 )
 def test_play_descriptions_match_offensive_team(
-    game_data: pl.DataFrame, home_idx: int, away_idx: int
+    pbp_data: pl.DataFrame, home_idx: int, away_idx: int
 ) -> None:
     """Play descriptions should come from the correct team's sample set.
 
@@ -270,9 +255,9 @@ def test_play_descriptions_match_offensive_team(
     teams = {home_team, away_team}
 
     # Build lookup from description -> original team for these teams only
-    desc_to_team = _build_desc_to_team_map(game_data, teams)
+    desc_to_team = _build_desc_to_team_map(pbp_data, teams)
 
-    game = create_game(game_data, home_team, away_team)
+    game = create_game(pbp_data, home_team, away_team)
     game.play_game()
 
     plays = game.game_data
@@ -321,15 +306,13 @@ def test_play_descriptions_match_offensive_team(
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
-def test_no_excessive_play_repetition(
-    game_data: pl.DataFrame, home_idx: int, away_idx: int
-) -> None:
+def test_no_excessive_play_repetition(pbp_data: pl.DataFrame, home_idx: int, away_idx: int) -> None:
     """Same play should not be selected more than 5 times in a single game.
 
     Uses play description hash as a proxy for play identity since play_id
     is not carried through to game data.
     """
-    game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
+    game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
 
     plays = game.game_data
@@ -360,8 +343,8 @@ def test_no_excessive_play_repetition(
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
-def test_event_counter_no_error(game_data: pl.DataFrame, home_idx: int, away_idx: int):
-    game = create_game(game_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
+def test_event_counter_no_error(pbp_data: pl.DataFrame, home_idx: int, away_idx: int):
+    game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
 
     counts = game.event_counts
@@ -370,14 +353,14 @@ def test_event_counter_no_error(game_data: pl.DataFrame, home_idx: int, away_idx
     # TODO: Check there are no None, it's a 0 if anything
 
 
-def test_rand_game(game_data: pl.DataFrame) -> None:
+def test_rand_game(pbp_data: pl.DataFrame) -> None:
     """Games should complete without raising exceptions."""
-    game = create_game(game_data, "NYJ", "KC")
+    game = create_game(pbp_data, "NYJ", "KC")
     game.play_game()
     print(game)
 
 
-def test_kickoff_field_position_is_in_own_territory(game_data: pl.DataFrame) -> None:
+def test_kickoff_field_position_is_in_own_territory(pbp_data: pl.DataFrame) -> None:
     """After a kickoff return (non-TD), receiving team should be in their own territory.
 
     This is a regression test for a bug where kickoff returns would incorrectly
@@ -421,7 +404,7 @@ def test_kickoff_field_position_is_in_own_territory(game_data: pl.DataFrame) -> 
     )
 
 
-def test_kickoff_touchback_at_own_25(game_data: pl.DataFrame) -> None:
+def test_kickoff_touchback_at_own_25(pbp_data: pl.DataFrame) -> None:
     """Touchback should place ball at own 25 (yardline_100 = 75)."""
     from nfl_sim._kickoff import KickoffSampleData, sample_kickoff
 
@@ -446,7 +429,7 @@ def test_kickoff_touchback_at_own_25(game_data: pl.DataFrame) -> None:
     assert result.is_touchback is True
 
 
-def test_kickoff_fair_catch_at_own_25(game_data: pl.DataFrame) -> None:
+def test_kickoff_fair_catch_at_own_25(pbp_data: pl.DataFrame) -> None:
     """Fair catch on kickoff should be treated as touchback at own 25."""
     from nfl_sim._kickoff import KickoffSampleData, sample_kickoff
 
@@ -512,4 +495,4 @@ def test_kickoff_return_never_in_opponent_redzone(kick_distance: int, return_yar
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-sv", "-k", "test_rand_game"])
+    pytest.main([__file__, "-sv"])

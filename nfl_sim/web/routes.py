@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import datetime
+from typing import TYPE_CHECKING
 
 import polars as pl
 from flask import Blueprint, render_template
 
+from nfl_sim import sim_games, understand
 from nfl_sim.data import ScheduleData
-from nfl_sim.simulate import (
-    SimulationResult,
-    _get_kickoff_samples,
-    _get_samples,
-)
+
+if TYPE_CHECKING:
+    from nfl_sim.typing import GameSims
 
 bp = Blueprint("main", __name__)
 
@@ -20,91 +20,113 @@ bp = Blueprint("main", __name__)
 _schedule: ScheduleData | None = None
 
 # Server-side cache for simulation results (avoids cookie size limits)
-# Key: "home_away" -> {"result": result_dict, "games": list of game play-by-play dicts}
+# Key: "home_away" -> {"stats": stats_dict, "sims": GameSims}
 _sim_cache: dict[str, dict] = {}
 
 
-def _extract_result_stats(result: SimulationResult) -> dict:
-    """Extract all stats from a SimulationResult for template rendering.
+def _build_game_id(home: str, away: str) -> str:
+    """Build a game ID for sim_games() from home/away teams.
 
-    Uses get_stat() with Polars expressions for each stat needed by templates.
+    Uses current season and week 1 as placeholder since we're simulating
+    a hypothetical matchup, not a scheduled game.
     """
-    # Compute average event counts across all simulations
-    n = len(result.individual_results)
-    avg_touchdowns = sum(r.event_counts.get("touchdown", 0) for r in result.individual_results) / n
-    avg_field_goals = (
-        sum(r.event_counts.get("fieldgoalsuccess", 0) for r in result.individual_results) / n
-    )
-    avg_interceptions = (
-        sum(
-            r.event_counts.get("interception", 0) + r.event_counts.get("picksix", 0)
-            for r in result.individual_results
-        )
-        / n
-    )
-    avg_punts = (
-        sum(
-            r.event_counts.get("puntregular", 0)
-            + r.event_counts.get("puntendzone", 0)
-            + r.event_counts.get("puntblocked", 0)
-            for r in result.individual_results
-        )
-        / n
-    )
+    # For web simulations, we use current year and week 01 as placeholder
+    year = datetime.datetime.now().year
+    return f"{year}_01_{away}_{home}"
 
-    # Compute per-team averages
-    home_avg_tds = (
-        sum(r.home_event_counts.get("touchdown", 0) for r in result.individual_results) / n
-    )
-    away_avg_tds = (
-        sum(r.away_event_counts.get("touchdown", 0) for r in result.individual_results) / n
-    )
-    home_avg_fgs = (
-        sum(r.home_event_counts.get("fieldgoalsuccess", 0) for r in result.individual_results) / n
-    )
-    away_avg_fgs = (
-        sum(r.away_event_counts.get("fieldgoalsuccess", 0) for r in result.individual_results) / n
-    )
-    # Turnovers = interceptions thrown + fumbles lost (from offense perspective)
-    home_avg_turnovers = (
-        sum(r.home_event_counts.get("interception", 0) for r in result.individual_results) / n
-    )
-    away_avg_turnovers = (
-        sum(r.away_event_counts.get("interception", 0) for r in result.individual_results) / n
-    )
+
+def _extract_stats_from_sims(
+    sims: GameSims,
+    home: str,
+    away: str,
+) -> dict:
+    """Extract all stats from GameSims for template rendering.
+
+    Uses the understand() function for game-level aggregates and computes
+    per-team stats directly from the play-by-play data.
+    """
+    # Get game-level aggregates using understand()
+    game_stats = understand(sims)
+
+    # Extract values from the single-row DataFrame
+    row = game_stats.row(0, named=True)
+
+    # Compute per-team stats from raw PBP data
+    # Combine all sims into one DataFrame for team-level analysis
+    all_plays = pl.concat([sim.with_columns(_sim_id=pl.lit(i)) for i, sim in enumerate(sims)])
+
+    # Home team stats (when posteam == home)
+    home_plays = all_plays.filter(pl.col("posteam") == home)
+    away_plays = all_plays.filter(pl.col("posteam") == away)
+
+    n_sims = len(sims)
+
+    # Per-team event counts (averaged across simulations)
+    # TODO: This should be built into the Understand class
+    def count_events(df: pl.DataFrame, event_pattern: str) -> float:
+        count = df.filter(pl.col("event").str.to_lowercase() == event_pattern).height
+        return count / n_sims if n_sims > 0 else 0.0
+
+    home_avg_tds = count_events(home_plays, "touchdown")
+    away_avg_tds = count_events(away_plays, "touchdown")
+    home_avg_fgs = count_events(home_plays, "fieldgoalsuccess")
+    away_avg_fgs = count_events(away_plays, "fieldgoalsuccess")
+    home_avg_turnovers = count_events(home_plays, "interception")
+    away_avg_turnovers = count_events(away_plays, "interception")
+
+    # Build individual results for template iteration
+    individual_results = []
+    for sim in sims:
+        if len(sim) == 0:
+            continue
+        last_play = sim.row(-1, named=True)
+        home_score = last_play["home_score"]
+        away_score = last_play["away_score"]
+        individual_results.append(
+            {
+                "home_score": home_score,
+                "away_score": away_score,
+                "home_win": home_score > away_score,
+                "margin": home_score - away_score,
+            }
+        )
+
+    # Extract raw scores for histograms
+    margins = [r["margin"] for r in individual_results]
+    home_scores = [r["home_score"] for r in individual_results]
+    away_scores = [r["away_score"] for r in individual_results]
 
     return {
         # Metadata
-        "home_team": result.home_team,
-        "away_team": result.away_team,
-        "n_simulations": len(result.individual_results),
-        # TODO: For these huge get_stat things, let's try and standardize it.
-        # Win probabilities
-        "home_win_pct": result.get_stat(pl.col("home_win").mean()),
-        "away_win_pct": result.get_stat((~pl.col("home_win") & (pl.col("margin") != 0)).mean()),
-        "tie_pct": result.get_stat((pl.col("margin") == 0).mean()),
+        "home_team": home,
+        "away_team": away,
+        "n_simulations": n_sims,
+        # Win probabilities (from understand)
+        "home_win_pct": row["home_win_pct"],
+        "away_win_pct": row["away_win_pct"],
+        "tie_pct": row["tie_pct"],
         # Home score stats
-        "home_score_avg": result.get_stat(pl.col("home_score").mean()),
-        "home_score_min": int(result.get_stat(pl.col("home_score").min())),
-        "home_score_max": int(result.get_stat(pl.col("home_score").max())),
-        "home_score_std": result.get_stat(pl.col("home_score").std()),
+        "home_score_avg": row["home_score_avg"],
+        "home_score_min": int(row["home_score_min"]),
+        "home_score_max": int(row["home_score_max"]),
+        "home_score_std": row["home_score_std"] or 0.0,
         # Away score stats
-        "away_score_avg": result.get_stat(pl.col("away_score").mean()),
-        "away_score_min": int(result.get_stat(pl.col("away_score").min())),
-        "away_score_max": int(result.get_stat(pl.col("away_score").max())),
-        "away_score_std": result.get_stat(pl.col("away_score").std()),
+        "away_score_avg": row["away_score_avg"],
+        "away_score_min": int(row["away_score_min"]),
+        "away_score_max": int(row["away_score_max"]),
+        "away_score_std": row["away_score_std"] or 0.0,
         # Margin stats
-        "margin_avg": result.get_stat(pl.col("margin").mean()),
-        "margin_min": int(result.get_stat(pl.col("margin").min())),
-        "margin_max": int(result.get_stat(pl.col("margin").max())),
-        "margin_std": result.get_stat(pl.col("margin").std()),
+        "margin_avg": row["margin_avg"],
+        "margin_min": int(row["margin_min"]),
+        "margin_max": int(row["margin_max"]),
+        "margin_std": row["margin_std"] or 0.0,
         # Game stats (averages across simulations)
-        "avg_drives": result.get_stat(pl.col("num_drives").mean()),
-        "avg_plays": result.get_stat(pl.col("total_plays").mean()),
-        "avg_touchdowns": avg_touchdowns,
-        "avg_field_goals": avg_field_goals,
-        "avg_interceptions": avg_interceptions,
-        "avg_punts": avg_punts,
+        "avg_drives": row["num_drives_avg"],
+        "avg_plays": row["total_plays_avg"],
+        "avg_touchdowns": row["touchdowns_avg"],
+        "avg_field_goals": row["field_goals_avg"],
+        "avg_interceptions": row["interceptions_avg"],
+        "avg_punts": row["punts_avg"],
         # Per-team stats
         "home_avg_tds": home_avg_tds,
         "away_avg_tds": away_avg_tds,
@@ -112,20 +134,12 @@ def _extract_result_stats(result: SimulationResult) -> dict:
         "away_avg_fgs": away_avg_fgs,
         "home_avg_turnovers": home_avg_turnovers,
         "away_avg_turnovers": away_avg_turnovers,
-        # Individual results for iteration (as dicts)
-        "individual_results": [
-            {
-                "home_score": r.home_score,
-                "away_score": r.away_score,
-                "home_win": r.home_win,
-                "margin": r.margin,
-            }
-            for r in result.individual_results
-        ],
+        # Individual results for iteration
+        "individual_results": individual_results,
         # Raw lists for histograms
-        "margins": [r.margin for r in result.individual_results],
-        "home_scores": [r.home_score for r in result.individual_results],
-        "away_scores": [r.away_score for r in result.individual_results],
+        "margins": margins,
+        "home_scores": home_scores,
+        "away_scores": away_scores,
     }
 
 
@@ -135,7 +149,7 @@ def get_schedule() -> ScheduleData:
     Falls back to most recent week with games if current week is empty.
     """
     global _schedule
-    if _schedule is None:  # TODO: Surely this can be optimized
+    if _schedule is None:
         # Try to get incomplete games first
         schedule = ScheduleData.from_cur_week(rm_complete=True)
 
@@ -182,42 +196,26 @@ def refresh_games():
 
 @bp.route("/simulate/<home>/<away>", methods=["POST"])
 def simulate(home: str, away: str):
-    """Run simulation for a matchup using the functional API."""
+    """Run simulation for a matchup using sim_games()."""
     global _sim_cache
 
     n_sims = 100
+    game_id = _build_game_id(home, away)
 
-    # Use module-level caching for samples
-    home_samples = _get_samples(home)
-    away_samples = _get_samples(away)
-    home_kickoff = _get_kickoff_samples(home)
-    away_kickoff = _get_kickoff_samples(away)
+    # Use the new sim_games() API - returns GameSims (list of PBP DataFrames)
+    sims: GameSims = sim_games(game_id, n=n_sims)
 
-    # Run simulation with play capture
-    result = SimulationResult.simulate(
-        home_samples=home_samples,
-        away_samples=away_samples,
-        home_team=home,
-        away_team=away,
-        n=n_sims,
-        capture_plays=True,
-        home_kickoff_samples=home_kickoff,
-        away_kickoff_samples=away_kickoff,
-    )
+    # Extract stats using Understand
+    stats_dict = _extract_stats_from_sims(sims, home, away)
 
-    result_dict = _extract_result_stats(result)
-
-    # Extract play-by-play from individual results
-    game_plays = [r.plays for r in result.individual_results]
-
-    # Cache results server-side (avoids cookie size limits)
+    # Cache results server-side
     cache_key = f"{home}_{away}"
     _sim_cache[cache_key] = {
-        "result": result_dict,
-        "plays": game_plays,
+        "stats": stats_dict,
+        "sims": sims,
     }
 
-    return render_template("partials/sim_results.html", result=result_dict, home=home, away=away)
+    return render_template("partials/sim_results.html", result=stats_dict, home=home, away=away)
 
 
 @bp.route("/game/<home>/<away>/<int:sim_idx>/plays")
@@ -226,18 +224,20 @@ def play_by_play(home: str, away: str, sim_idx: int):
     cache_key = f"{home}_{away}"
     cached = _sim_cache.get(cache_key)
 
-    if not cached or "plays" not in cached:
+    if not cached or "sims" not in cached:
         return render_template(
             "partials/play_by_play.html", plays=[], error="No cached simulation data"
         )
 
-    plays_list = cached["plays"]
-    if sim_idx < 0 or sim_idx >= len(plays_list):
+    sims = cached["sims"]
+    if sim_idx < 0 or sim_idx >= len(sims):
         return render_template(
             "partials/play_by_play.html", plays=[], error=f"Invalid simulation index: {sim_idx}"
         )
 
-    plays = plays_list[sim_idx]
+    # Convert DataFrame to list of dicts for template
+    pbp_df = sims[sim_idx]
+    plays = pbp_df.to_dicts()
     return render_template("partials/play_by_play.html", plays=plays, home=home, away=away)
 
 
@@ -247,15 +247,7 @@ def _compute_histogram(
     min_bucket: int | None = None,
     max_bucket: int | None = None,
 ) -> list[dict]:
-    """Compute histogram buckets for a list of values.
-
-    Args:
-        values: List of integer values to histogram
-        bucket_size: Size of each bucket
-        min_bucket: Optional minimum bucket value (for aligned histograms)
-        max_bucket: Optional maximum bucket value (for aligned histograms)
-
-    """
+    """Compute histogram buckets for a list of values."""
     if not values:
         return []
 
@@ -311,24 +303,24 @@ def stats_panel(home: str, away: str):
     """Get statistics panel for current simulation."""
     cache_key = f"{home}_{away}"
     cached = _sim_cache.get(cache_key)
-    if not cached or "result" not in cached:
+    if not cached or "stats" not in cached:
         return render_template("partials/stats_panel.html", result=None)
 
-    result_dict = cached["result"]
+    stats_dict = cached["stats"]
 
     # Pre-compute histograms for the template
-    margin_hist = _compute_histogram(result_dict.get("margins", []), bucket_size=7)
+    margin_hist = _compute_histogram(stats_dict.get("margins", []), bucket_size=7)
 
     # Compute aligned score histograms so they share the same x-axis
     home_score_hist, away_score_hist = _compute_aligned_histograms(
-        result_dict.get("home_scores", []),
-        result_dict.get("away_scores", []),
+        stats_dict.get("home_scores", []),
+        stats_dict.get("away_scores", []),
         bucket_size=7,
     )
 
     return render_template(
         "partials/stats_panel.html",
-        result=result_dict,
+        result=stats_dict,
         home=home,
         away=away,
         margin_hist=margin_hist,

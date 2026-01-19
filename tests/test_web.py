@@ -123,26 +123,26 @@ class TestRoutes:
 
     def test_play_by_play_with_cached_data(self, client):
         """Play-by-play with cached data should return plays."""
+        # Create a DataFrame matching the expected structure
+        mock_sim = pl.DataFrame(
+            {
+                "posteam": ["KC"],
+                "down": [1],
+                "dist": [10],
+                "yardline": [75],
+                "yards_gained": [5],
+                "desc": ["Pass complete"],
+                "event": [None],
+                "home_score": [0],
+                "away_score": [0],
+                "quarter": [1],
+                "half_seconds_remaining": [1750],
+                "drive_id": [0],
+            }
+        )
         _sim_cache["KC_BUF"] = {
-            "result": {},
-            "plays": [
-                [
-                    {
-                        "posteam": "KC",
-                        "down": 1,
-                        "dist": 10,
-                        "yardline": 75,
-                        "yards_gained": 5,
-                        "desc": "Pass complete",
-                        "event": None,
-                        "home_score": 0,
-                        "away_score": 0,
-                        "quarter": 1,
-                        "half_seconds_remaining": 1750,
-                        "drive_id": 0,
-                    }
-                ]
-            ],
+            "stats": {},
+            "sims": [mock_sim],
         }
         response = client.get("/game/KC/BUF/0/plays")
         assert response.status_code == 200
@@ -152,9 +152,10 @@ class TestRoutes:
 
     def test_play_by_play_invalid_index(self, client):
         """Play-by-play with invalid index should return error."""
+        mock_sim = pl.DataFrame({"dummy": [1]})
         _sim_cache["KC_BUF"] = {
-            "result": {},
-            "plays": [[]],  # Only one simulation
+            "stats": {},
+            "sims": [mock_sim],  # Only one simulation
         }
         response = client.get("/game/KC/BUF/5/plays")  # Index 5 doesn't exist
         assert response.status_code == 200
@@ -170,7 +171,7 @@ class TestRoutes:
     def test_stats_panel_with_cached_data(self, client, app):
         """Stats panel with cached data should render histograms."""
         _sim_cache["KC_BUF"] = {
-            "result": {
+            "stats": {
                 "home_team": "KC",
                 "away_team": "BUF",
                 "home_win_pct": 0.55,
@@ -205,7 +206,7 @@ class TestRoutes:
                 "away_scores": [14, 21, 28, 24],
                 "margins": [7, 7, -4, -7],
             },
-            "plays": [],
+            "sims": [],
         }
         response = client.get("/game/KC/BUF/stats")
         assert response.status_code == 200
@@ -214,7 +215,7 @@ class TestRoutes:
     def test_stats_panel_contains_game_stats_section(self, client, app):
         """Stats panel should contain the Game Stats section with team-level stats."""
         _sim_cache["KC_BUF"] = {
-            "result": {
+            "stats": {
                 "home_team": "KC",
                 "away_team": "BUF",
                 "home_win_pct": 0.55,
@@ -249,7 +250,7 @@ class TestRoutes:
                 "away_scores": [14, 21, 28, 24],
                 "margins": [7, 7, -4, -7],
             },
-            "plays": [],
+            "sims": [],
         }
         response = client.get("/game/KC/BUF/stats")
         html = response.data.decode()
@@ -260,100 +261,6 @@ class TestRoutes:
         assert "Avg FGs" in html
         assert "Avg INTs" in html
         _sim_cache.clear()
-
-
-class TestExtractResultStats:
-    """Tests for _extract_result_stats function."""
-
-    def test_extract_result_stats_includes_event_counts(self):
-        """_extract_result_stats should compute average event counts."""
-        from unittest.mock import MagicMock
-
-        from nfl_sim.web.routes import _extract_result_stats
-
-        # Create mock SimulationResult with event counts
-        mock_result = MagicMock()
-        mock_result.home_team = "KC"
-        mock_result.away_team = "BUF"
-
-        # Create mock individual results with event counts
-        mock_game1 = MagicMock()
-        mock_game1.home_score = 28
-        mock_game1.away_score = 21
-        mock_game1.home_win = True
-        mock_game1.margin = 7
-        mock_game1.event_counts = {
-            "touchdown": 4,
-            "fieldgoalsuccess": 2,
-            "interception": 1,
-            "puntregular": 6,
-        }
-        mock_game1.home_event_counts = {"touchdown": 3, "fieldgoalsuccess": 1}
-        mock_game1.away_event_counts = {"touchdown": 1, "fieldgoalsuccess": 1, "interception": 1}
-
-        mock_game2 = MagicMock()
-        mock_game2.home_score = 21
-        mock_game2.away_score = 24
-        mock_game2.home_win = False
-        mock_game2.margin = -3
-        mock_game2.event_counts = {
-            "touchdown": 6,
-            "fieldgoalsuccess": 0,
-            "picksix": 1,
-            "puntregular": 4,
-            "puntendzone": 2,
-        }
-        mock_game2.home_event_counts = {"touchdown": 2}
-        mock_game2.away_event_counts = {"touchdown": 4, "interception": 1}
-
-        mock_result.individual_results = [mock_game1, mock_game2]
-        mock_result.get_stat = MagicMock(return_value=0.5)
-
-        stats = _extract_result_stats(mock_result)
-
-        # Check averages are computed correctly
-        assert stats["avg_touchdowns"] == 5.0  # (4 + 6) / 2
-        assert stats["avg_field_goals"] == 1.0  # (2 + 0) / 2
-        assert stats["avg_interceptions"] == 1.0  # (1 + 0 + 0 + 1) / 2
-        assert stats["avg_punts"] == 6.0  # (6 + 0 + 4 + 2 + 0) / 2
-
-        # Check per-team averages
-        assert stats["home_avg_tds"] == 2.5  # (3 + 2) / 2
-        assert stats["away_avg_tds"] == 2.5  # (1 + 4) / 2
-        assert stats["home_avg_fgs"] == 0.5  # (1 + 0) / 2
-        assert stats["away_avg_fgs"] == 0.5  # (1 + 0) / 2
-
-    def test_extract_result_stats_handles_missing_events(self):
-        """_extract_result_stats should handle missing event counts gracefully."""
-        from unittest.mock import MagicMock
-
-        from nfl_sim.web.routes import _extract_result_stats
-
-        mock_result = MagicMock()
-        mock_result.home_team = "KC"
-        mock_result.away_team = "BUF"
-
-        # Game with no events
-        mock_game = MagicMock()
-        mock_game.home_score = 0
-        mock_game.away_score = 0
-        mock_game.home_win = False
-        mock_game.margin = 0
-        mock_game.event_counts = {}
-        mock_game.home_event_counts = {}
-        mock_game.away_event_counts = {}
-
-        mock_result.individual_results = [mock_game]
-        mock_result.get_stat = MagicMock(return_value=0.0)
-
-        stats = _extract_result_stats(mock_result)
-
-        assert stats["avg_touchdowns"] == 0.0
-        assert stats["avg_field_goals"] == 0.0
-        assert stats["avg_interceptions"] == 0.0
-        assert stats["avg_punts"] == 0.0
-        assert stats["home_avg_tds"] == 0.0
-        assert stats["away_avg_tds"] == 0.0
 
 
 if __name__ == "__main__":

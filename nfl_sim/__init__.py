@@ -2,7 +2,7 @@
 
 Main entry points:
 
-    from nfl_sim import sim_games, get_sim_weeks, Understand
+    from nfl_sim import sim_games, understand, get_sim_weeks
 
     # Simulate current week
     results = sim_games()
@@ -16,8 +16,8 @@ Main entry points:
     results = sim_games(weeks=weeks)
 
     # Analyze results
-    analysis = Understand(results)
-    game_stats = analysis.game()
+    game_stats = understand(results, by="game")  # one row per game
+    single_game_stats = understand(sim_games("2024_01_KC_BUF"))  # single game
 """
 
 import sys
@@ -26,17 +26,16 @@ from loguru import logger
 
 from nfl_sim.simulate import clear_cache, get_sim_weeks, sim_games
 from nfl_sim.typing import PBP, GameId, GameSims
-from nfl_sim.understand import Understand
+from nfl_sim.understand import understand
 
 __all__ = [
     "sim_games",
     "get_sim_weeks",
     "clear_cache",
-    "Understand",
+    "understand",
     "PBP",
     "GameId",
     "GameSims",
-    "run_week",
     "configure_logging",
 ]
 

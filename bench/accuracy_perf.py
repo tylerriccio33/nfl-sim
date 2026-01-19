@@ -7,9 +7,9 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim._sampling import build_sample_data
-from nfl_sim.data import ScheduleData, pull_game_data
-from nfl_sim.simulate import SimulationResult
+from nfl_sim import understand
+from nfl_sim.data import ScheduleData
+from nfl_sim.simulate import _simulate_game
 
 NGAMES = 500
 NSIMS = 250
@@ -66,10 +66,6 @@ def run_accuracy_benchmark(
     configure_logging("WARNING")
     console = Console()
 
-    # Load play data for simulations
-    with console.status("[bold blue]Loading play-by-play data..."):
-        play_data = pull_game_data()
-
     # Get completed games with actual results
     with console.status(f"[bold blue]Fetching {n_games} completed games..."):
         schedule = fetch_completed_games(n_games)
@@ -95,22 +91,13 @@ def run_accuracy_benchmark(
         actual_away = actual["away_score"]
         spread = actual["spread_line"]  # Negative = home favored
 
-        home_samples = build_sample_data(play_data, home_team)
-        away_samples = build_sample_data(play_data, away_team)
-
-        # Run N simulations using pre-built sample pairs
-        sim_result = SimulationResult.simulate(
-            home_samples=home_samples,
-            away_samples=away_samples,
-            home_team=home_team,
-            away_team=away_team,
-            n=n_sims_per_game,
-        )
+        # Run N simulations using the new functional API
+        sims = _simulate_game(home_team, away_team, n=n_sims_per_game, week_window=12)
+        stats = understand(sims)
+        row = stats.row(0, named=True)
 
         # Model prediction (home margin)
-        pred_diff = sim_result.get_stat(pl.col("home_score").mean()) - sim_result.get_stat(
-            pl.col("away_score").mean()
-        )
+        pred_diff = row["home_score_avg"] - row["away_score_avg"]
         # Vegas prediction: spread_line negative = home favored
         vegas_diff = spread
 

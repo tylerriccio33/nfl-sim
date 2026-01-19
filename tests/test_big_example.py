@@ -1,4 +1,4 @@
-"""Example tests demonstrating the sim_games() and Understand API.
+"""Example tests demonstrating the sim_games() and understand() API.
 
 These tests document the intended usage patterns for the simulation library.
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from nfl_sim import GameId, GameSims, Understand, clear_cache, get_sim_weeks, sim_games
+from nfl_sim import GameId, GameSims, clear_cache, get_sim_weeks, sim_games, understand
 
 
 @pytest.fixture(autouse=True)
@@ -22,41 +22,41 @@ def clear_caches():
 class TestSimGamesAPI:
     """Document the full sim_games() API surface."""
 
-    def test_sim_games_season_week(self):
+    def test_sim_games_season_week(self, mock_dates, mock_pbp):
         """Simulate a specific week."""
         n = 2
         res: dict[GameId, GameSims] = sim_games(2024, 14, n=n)
         assert isinstance(res, dict)
         assert len(res) > 0
 
-    def test_sim_games_season(self):
+    def test_sim_games_season(self, mock_dates, mock_pbp):
         """Simulate all games in a season."""
         n = 1
         res: dict[GameId, GameSims] = sim_games(2024, n=n)
         assert isinstance(res, dict)
         assert len(res) > 0
 
-    def test_sim_games_list_of_ids(self):
+    def test_sim_games_list_of_ids(self, mock_dates, mock_pbp):
         """Simulate specific games by ID."""
         n = 2
         res: dict[GameId, GameSims] = sim_games(["2024_01_KC_BAL", "2024_01_PHI_GB"], n=n)
         assert isinstance(res, dict)
         assert len(res) == 2
 
-    def test_sim_games_single_game_id(self):
+    def test_sim_games_single_game_id(self, mock_dates, mock_pbp):
         """Simulate a single game - returns list, not dict."""
         n = 2
         result: GameSims = sim_games("2024_01_KC_BAL", n=n)
         assert isinstance(result, list)
         assert len(result) >= 1
 
-    def test_sim_games_weeks_kwarg(self):
+    def test_sim_games_weeks_kwarg(self, mock_dates, mock_pbp):
         """Use weeks keyword argument."""
         n = 1
         res = sim_games(weeks=[(2024, 14), (2024, 15)], n=n)
         assert isinstance(res, dict)
 
-    def test_get_sim_weeks_with_sim_games(self):
+    def test_get_sim_weeks_with_sim_games(self, mock_dates, mock_pbp):
         """Build week lists with get_sim_weeks()."""
         weeks = get_sim_weeks(since=2024, rm_weeks=[17, 18])
         res = sim_games(weeks=weeks, n=1)
@@ -64,166 +64,91 @@ class TestSimGamesAPI:
 
 
 class TestUnderstandMultipleGames:
-    """Tests for Understand with multiple games."""
+    """Tests for understand() with multiple games."""
 
-    def test_understand_game_aggregates(self):
-        """Understand.game() computes aggregates by game."""
+    def test_understand_game_aggregates(self, mock_dates, mock_pbp):
+        """understand(by='game') computes aggregates by game."""
         res = sim_games(2024, 1, n=5)
-        analysis = Understand(res)
-
-        game_aggs = analysis.game()
+        game_aggs = understand(res, by="game")
         assert isinstance(game_aggs, pl.DataFrame)
         assert len(game_aggs) == len(res)  # One row per game
         assert "home_win_pct" in game_aggs.columns
-        assert "home_score_mean" in game_aggs.columns
+        assert "home_score_avg" in game_aggs.columns
 
-    def test_understand_week_aggregates(self):
-        """Understand.week() computes aggregates across all games."""
-        res = sim_games(2024, 1, n=5)
-        analysis = Understand(res)
-
-        week_aggs = analysis.week()
-        assert isinstance(week_aggs, pl.DataFrame)
-        assert len(week_aggs) == 1  # One row for the whole week
-        assert "avg_home_win_pct" in week_aggs.columns
-        assert "n_games" in week_aggs.columns
-
-    def test_understand_result_specific_sim(self):
-        """Understand.result() gets specific simulation stats."""
+    def test_understand_specific_game_sim_level(self, mock_dates, mock_pbp):
+        """understand(by=game_id) returns sim-level stats for that game."""
         res = sim_games(2024, 1, n=10)
-        analysis = Understand(res)
-
         game_id = next(iter(res))
-        # Get sim #0
-        sim_stats = analysis.result(game_id, 0)
+
+        # Get sim-level stats for specific game
+        sim_stats = understand(res, by=game_id)
         assert isinstance(sim_stats, pl.DataFrame)
-        assert len(sim_stats) == 1  # One row for one simulation
-
-    def test_understand_result_multiple_sims(self):
-        """Understand.result() can get multiple simulations."""
-        res = sim_games(2024, 1, n=10)
-        analysis = Understand(res)
-
-        game_id = next(iter(res))
-        # Get sims #0 and #1
-        sim_stats = analysis.result(game_id, [0, 1])
-        assert isinstance(sim_stats, pl.DataFrame)
-        assert len(sim_stats) == 2  # Two rows for two simulations
-
-    def test_understand_result_random(self):
-        """Understand.result() with just game_id returns random sim."""
-        res = sim_games(2024, 1, n=10)
-        analysis = Understand(res)
-
-        game_id = next(iter(res))
-        sim_stats = analysis.result(game_id)
-        assert isinstance(sim_stats, pl.DataFrame)
-        assert len(sim_stats) == 1
-
-    def test_understand_fetch_game(self):
-        """Understand.fetch_game() retrieves raw simulation data."""
-        res = sim_games(2024, 1, n=5)
-        analysis = Understand(res)
-
-        game_id = next(iter(res))
-        sims: GameSims = analysis.fetch_game(game_id)
-        assert isinstance(sims, list)
-        assert len(sims) == len(res[game_id])
-
-    def test_understand_properties(self):
-        """Test Understand properties and dunder methods."""
-        res = sim_games(2024, 1, n=5)
-        analysis = Understand(res)
-
-        assert len(analysis) == len(res)
-        assert analysis.game_ids == list(res.keys())
-        assert all(gid in analysis.n_simulations for gid in res)
+        assert len(sim_stats) == 10  # One row per simulation
+        # Sim-level columns (from SIM_LEVEL_EXPRS)
+        assert "home_score" in sim_stats.columns
+        assert "away_score" in sim_stats.columns
+        assert "margin" in sim_stats.columns
 
 
 class TestUnderstandSingleGame:
-    """Tests for Understand with a single game (GameSims input)."""
+    """Tests for understand() with a single game (GameSims input)."""
 
-    def test_understand_single_game_init(self):
-        """Understand accepts GameSims (list) for single game mode."""
+    def test_understand_single_game_no_by(self, mock_dates, mock_pbp):
+        """understand() with GameSims and no by returns game-level aggregates."""
         res: GameSims = sim_games("2024_01_KC_BAL", n=5)
-        analysis = Understand(res)
-        assert analysis._is_single_game
-
-    def test_understand_method(self):
-        """Understand.understand() is for single-game mode."""
-        res: GameSims = sim_games("2024_01_KC_BAL", n=5)
-        analysis = Understand(res)
-
-        stats = analysis.understand()
+        stats = understand(res)
         assert isinstance(stats, pl.DataFrame)
         assert len(stats) == 1
-        # Should not have game_id column
+        # Should not have game_id column (dropped for single game)
         assert "game_id" not in stats.columns
-
-    def test_understand_result_no_game_id(self):
-        """In single-game mode, result() doesn't need game_id."""
-        res: GameSims = sim_games("2024_01_KC_BAL", n=5)
-        analysis = Understand(res)
-
-        # Get sim #0 - no game_id needed
-        sim_stats = analysis.result(0)
-        assert isinstance(sim_stats, pl.DataFrame)
-        assert len(sim_stats) == 1
-
-    def test_understand_result_multiple_no_game_id(self):
-        """In single-game mode, result() with list of indices."""
-        res: GameSims = sim_games("2024_01_KC_BAL", n=5)
-        analysis = Understand(res)
-
-        sim_stats = analysis.result([0, 1])
-        assert isinstance(sim_stats, pl.DataFrame)
-        assert len(sim_stats) == 2
-
-    def test_understand_fetch_game_no_game_id(self):
-        """In single-game mode, fetch_game() doesn't need game_id."""
-        res: GameSims = sim_games("2024_01_KC_BAL", n=5)
-        analysis = Understand(res)
-
-        sims = analysis.fetch_game()
-        assert isinstance(sims, list)
-        assert len(sims) == 5
+        # Should have game-level aggregate columns
+        assert "home_win_pct" in stats.columns
+        assert "home_score_avg" in stats.columns
 
 
 class TestUnderstandErrors:
-    """Error handling tests for Understand."""
+    """Error handling tests for understand()."""
 
-    def test_understand_requires_game_id_in_multi_mode(self):
-        """Multi-game mode requires game_id for result()."""
+    def test_understand_no_by_with_multi_game_raises(self, mock_dates, mock_pbp):
+        """by=None with multi-game dict should raise ValueError."""
         res = sim_games(2024, 1, n=5)
-        analysis = Understand(res)
+        with pytest.raises(ValueError, match="only valid for single-game"):
+            understand(res)  # type: ignore[arg-type]  # Intentionally testing error case
 
-        with pytest.raises(ValueError, match="Must provide game_id"):
-            analysis.result()
-
-    def test_understand_invalid_game_id(self):
-        """Invalid game_id raises KeyError."""
+    def test_understand_invalid_game_id(self, mock_dates, mock_pbp):
+        """Invalid game_id in by raises KeyError."""
         res = sim_games(2024, 1, n=5)
-        analysis = Understand(res)
-
         with pytest.raises(KeyError, match="not found"):
-            analysis.result("invalid_game_id")
+            understand(res, by="invalid_game_id")
 
-    def test_understand_invalid_sim_index(self):
-        """Out of range sim index raises IndexError."""
-        res: GameSims = sim_games("2024_01_KC_BAL", n=5)
-        analysis = Understand(res)
-
-        with pytest.raises(IndexError, match="out of range"):
-            analysis.result(100)  # Only 5 sims
-
-    def test_understand_method_in_multi_mode_raises(self):
-        """understand() should raise in multi-game mode."""
+    def test_understand_game_team_not_implemented(self, mock_dates, mock_pbp):
+        """by='game-team' raises NotImplementedError."""
         res = sim_games(2024, 1, n=5)
-        analysis = Understand(res)
+        with pytest.raises(NotImplementedError):
+            understand(res, by="game-team")
 
-        with pytest.raises(ValueError, match="only for single-game mode"):
-            analysis.understand()
+
+class TestUnderstandExamples:
+    """Test the types of questions a user and web app would ask."""
+
+    def test_single_game(self, rand_game: GameSims):
+        game_stats = understand(rand_game)
+
+        # Get me ndrives average, ypp avg, max interceptions for each team
+        ndrives_avg = game_stats["num_drives_avg"].to_list()[0]
+        ypp_avg = game_stats["yards_per_play_avg"].to_list()[0]
+        int_max = game_stats["interceptions_max"].to_list()[0]
+
+        # Use heuristics to check, we just need this to look normal
+        assert ndrives_avg > 10
+        assert ndrives_avg < 30
+
+        assert ypp_avg > 3
+        assert ypp_avg < 9
+
+        assert int_max > -1  # only 2 sims, it's reasonable for there to be 0
+        assert int_max < 5
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-sv"])
+    pytest.main([__file__, "-sv", "-k", "TestUnderstandExamples"])

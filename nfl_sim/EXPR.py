@@ -51,41 +51,39 @@ SIM_LEVEL_EXPRS: list[pl.Expr] = [
 # These expressions aggregate simulation-level stats into game-level summaries.
 # Input: One row per simulation with sim-level stats
 # Output: One row per game with mean/std/distribution stats
-
+# TODO: Probably want to have a toml file for the basic ones
 GAME_LEVEL_EXPRS: list[pl.Expr] = [
-    # Win probabilities
+    # Calculated Fields:
     pl.col("home_win").mean().alias("home_win_pct"),
     (~pl.col("home_win") & (pl.col("margin") != 0)).mean().alias("away_win_pct"),
     (pl.col("margin") == 0).mean().alias("tie_pct"),
-    # Score distributions
-    pl.col("home_score").mean().alias("home_score_mean"),
-    pl.col("home_score").std().alias("home_score_std"),
-    pl.col("home_score").min().alias("home_score_min"),
-    pl.col("home_score").max().alias("home_score_max"),
-    pl.col("away_score").mean().alias("away_score_mean"),
-    pl.col("away_score").std().alias("away_score_std"),
-    pl.col("away_score").min().alias("away_score_min"),
-    pl.col("away_score").max().alias("away_score_max"),
-    # Margin distribution
-    pl.col("margin").mean().alias("margin_mean"),
-    pl.col("margin").std().alias("margin_std"),
-    pl.col("margin").min().alias("margin_min"),
-    pl.col("margin").max().alias("margin_max"),
-    # Yardage summaries
-    pl.col("total_yards").mean().alias("avg_total_yards"),
-    pl.col("yards_per_play").mean().alias("avg_yards_per_play"),
-    # Play/drive summaries
-    pl.col("total_plays").mean().alias("avg_plays"),
-    pl.col("num_drives").mean().alias("avg_drives"),
-    # Event averages
-    pl.col("touchdowns").mean().alias("avg_touchdowns"),
-    pl.col("field_goals").mean().alias("avg_field_goals"),
-    pl.col("interceptions").mean().alias("avg_interceptions"),
-    pl.col("punts").mean().alias("avg_punts"),
-    pl.col("turnovers_on_downs").mean().alias("avg_turnovers_on_downs"),
-    pl.col("fumbles").mean().alias("avg_fumbles"),
-    pl.col("safeties").mean().alias("avg_safeties"),
-    pl.col("first_downs").mean().alias("avg_first_downs"),
+    # Sums
+    pl.col("home_score", "away_score").sum().name.suffix("_sum"),
+    # Standard Deviation
+    pl.col("home_score", "away_score", "margin").std().name.suffix("_std"),
+    # Means
+    pl.col(
+        "home_score",
+        "away_score",
+        "margin",
+        "total_yards",
+        "yards_per_play",
+        "total_plays",
+        "num_drives",
+        "touchdowns",
+        "field_goals",
+        "interceptions",
+        "punts",
+        "turnovers_on_downs",
+        "fumbles",
+        "safeties",
+        "first_downs",
+    )
+    .mean()
+    .name.suffix("_avg"),
+    # Min/Max:
+    pl.col("home_score", "away_score", "margin", "interceptions").min().name.suffix("_min"),
+    pl.col("home_score", "away_score", "margin", "interceptions").max().name.suffix("_max"),
     # Number of simulations
     pl.len().alias("n_simulations"),
     # Raw lists for distributions (useful for histograms)

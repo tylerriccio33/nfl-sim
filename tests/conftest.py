@@ -1,23 +1,81 @@
 """Shared fixtures for NFL sim tests."""
 
+from __future__ import annotations
+
 import functools
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 import pytest
 
+from nfl_sim import sim_games
 from nfl_sim._event import build_event_expr
 from nfl_sim._sampling import PlayRowDict
 from nfl_sim.data import pull_game_data, pull_kickoff_data
 from nfl_sim.play import GameEngine
+
+if TYPE_CHECKING:
+    from nfl_sim.typing import GameId, GameSims
+
+# =============================================================================
+# MOCKS: Mocking data pulling that requires the network.
+# =============================================================================
+
+CUR_WEEK = 18
+CUR_SEASON = 2025
+PBP_LOC = "data/pbp.parquet"
+
+
+@pytest.fixture(scope="session")
+def cur_week(session_mocker):
+    mocked_function = session_mocker.patch("nfl_sim.data.get_current_week")
+    mocked_function.return_value = CUR_WEEK
+
+    mocked_function = session_mocker.patch("nfl_sim.simulate.get_current_week")
+    mocked_function.return_value = CUR_WEEK
+
+
+@pytest.fixture(scope="session")
+def cur_season(session_mocker):
+    mocked_function = session_mocker.patch("nfl_sim.data.get_current_season")
+    mocked_function.return_value = CUR_SEASON
+    mocked_function = session_mocker.patch("nfl_sim.simulate.get_current_season")
+    mocked_function.return_value = CUR_SEASON
+
+
+@pytest.fixture(scope="session")
+def mock_dates(session_mocker, cur_week, cur_season):
+    yield
+    return
+
+
+@pytest.fixture(scope="session")
+def mock_pbp(session_mocker):
+    def _(seasons) -> pl.DataFrame:
+        if isinstance(seasons, int):
+            seasons = [seasons]
+        return pl.scan_parquet(PBP_LOC).filter(pl.col("season").is_in(seasons)).collect()
+
+    session_mocker.patch("nfl_sim.data.nfl.load_pbp", side_effect=_)
+
+
+@pytest.fixture(scope="session")
+def rand_game(mock_dates, mock_pbp) -> GameSims:
+    return sim_games("2024_01_KC_BAL", n=2)
+
+
+@pytest.fixture(scope="session")
+def rand_week(mock_dates, mock_pbp) -> dict[GameId, GameSims]:
+    return sim_games(n=2)
+
 
 # =============================================================================
 # DATA FIXTURES: Shared across integration tests
 # =============================================================================
 
 
-@pytest.fixture(scope="module")
-def pbp_data() -> pl.DataFrame:
+@pytest.fixture(scope="session")
+def pbp_data(mock_pbp, mock_dates) -> pl.DataFrame:
     """Load play-by-play data once for all tests in this module.
 
     Use this fixture for integration tests that need real NFL data.
@@ -26,8 +84,8 @@ def pbp_data() -> pl.DataFrame:
     return pull_game_data()
 
 
-@pytest.fixture(scope="module")
-def kickoff_data() -> pl.DataFrame:
+@pytest.fixture(scope="session")
+def kickoff_data(mock_pbp, mock_dates) -> pl.DataFrame:
     """Load kickoff data once for all tests in this module.
 
     Use this fixture for integration tests that need real kickoff data.
