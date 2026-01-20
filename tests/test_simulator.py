@@ -5,20 +5,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from nfl_sim import clear_cache, get_sim_weeks, sim_games
-
-# =============================================================================
-# FIXTURES
-# =============================================================================
-
-
-@pytest.fixture(autouse=True)
-def clear_caches():
-    """Clear caches before each test to ensure isolation."""
-    clear_cache()
-    yield
-    clear_cache()
-
+from nfl_sim import get_sim_weeks, sim_games
 
 # =============================================================================
 # sim_games() TESTS

@@ -7,8 +7,8 @@ from unittest.mock import patch
 import polars as pl
 import pytest
 
-from nfl_sim.web import create_app
-from nfl_sim.web.routes import _compute_histogram, _sim_cache
+from nfl_sim.web import create_app, storage
+from nfl_sim.web.routes import _compute_histogram
 
 
 @pytest.fixture
@@ -23,6 +23,15 @@ def app():
 def client(app):
     """Flask test client."""
     return app.test_client()
+
+
+@pytest.fixture
+def mock_storage(tmp_path):
+    """Mock storage to use a temp directory."""
+    original_storage_dir = storage.STORAGE_DIR
+    storage.STORAGE_DIR = tmp_path
+    yield tmp_path
+    storage.STORAGE_DIR = original_storage_dir
 
 
 class TestComputeHistogram:
@@ -114,14 +123,13 @@ class TestRoutes:
             response = client.get("/games")
             assert response.status_code == 200
 
-    def test_play_by_play_no_cache_returns_error(self, client):
+    def test_play_by_play_no_cache_returns_error(self, client, mock_storage):
         """Play-by-play without cached data should return error."""
-        _sim_cache.clear()
         response = client.get("/game/KC/BUF/0/plays")
         assert response.status_code == 200
         assert b"No cached simulation data" in response.data
 
-    def test_play_by_play_with_cached_data(self, client):
+    def test_play_by_play_with_cached_data(self, client, mock_storage):
         """Play-by-play with cached data should return plays."""
         # Create a DataFrame matching the expected structure
         mock_sim = pl.DataFrame(
@@ -140,118 +148,106 @@ class TestRoutes:
                 "drive_id": [0],
             }
         )
-        _sim_cache["KC_BUF"] = {
-            "stats": {},
-            "sims": [mock_sim],
-        }
+        # Save using storage
+        storage.save_simulation("KC_BUF", [mock_sim], {})
         response = client.get("/game/KC/BUF/0/plays")
         assert response.status_code == 200
         html = response.data.decode()
         assert "Pass complete" in html
-        _sim_cache.clear()
 
-    def test_play_by_play_invalid_index(self, client):
+    def test_play_by_play_invalid_index(self, client, mock_storage):
         """Play-by-play with invalid index should return error."""
         mock_sim = pl.DataFrame({"dummy": [1]})
-        _sim_cache["KC_BUF"] = {
-            "stats": {},
-            "sims": [mock_sim],  # Only one simulation
-        }
+        # Save using storage - only one simulation
+        storage.save_simulation("KC_BUF", [mock_sim], {})
         response = client.get("/game/KC/BUF/5/plays")  # Index 5 doesn't exist
         assert response.status_code == 200
         assert b"Invalid simulation index" in response.data
-        _sim_cache.clear()
 
-    def test_stats_panel_no_cache_returns_200(self, client):
+    def test_stats_panel_no_cache_returns_200(self, client, mock_storage):
         """Stats panel without cached data should return 200."""
-        _sim_cache.clear()
         response = client.get("/game/KC/BUF/stats")
         assert response.status_code == 200
 
-    def test_stats_panel_with_cached_data(self, client, app):
+    def test_stats_panel_with_cached_data(self, client, app, mock_storage):
         """Stats panel with cached data should render histograms."""
-        _sim_cache["KC_BUF"] = {
-            "stats": {
-                "home_team": "KC",
-                "away_team": "BUF",
-                "home_win_pct": 0.55,
-                "away_win_pct": 0.45,
-                "tie_pct": 0.0,
-                "margin_avg": 3.2,
-                "margin_min": -7,
-                "margin_max": 14,
-                "margin_std": 5.5,
-                "home_score_avg": 24.5,
-                "home_score_min": 17,
-                "home_score_max": 31,
-                "home_score_std": 4.2,
-                "away_score_avg": 21.3,
-                "away_score_min": 14,
-                "away_score_max": 28,
-                "away_score_std": 3.8,
-                "avg_drives": 12.5,
-                "avg_plays": 65.2,
-                "avg_touchdowns": 4.2,
-                "avg_field_goals": 1.8,
-                "avg_interceptions": 1.1,
-                "avg_punts": 5.3,
-                "home_avg_tds": 2.3,
-                "away_avg_tds": 1.9,
-                "home_avg_fgs": 1.0,
-                "away_avg_fgs": 0.8,
-                "home_avg_turnovers": 0.5,
-                "away_avg_turnovers": 0.6,
-                "n_simulations": 100,
-                "home_scores": [21, 28, 24, 17],
-                "away_scores": [14, 21, 28, 24],
-                "margins": [7, 7, -4, -7],
-            },
-            "sims": [],
+        stats_dict = {
+            "home_team": "KC",
+            "away_team": "BUF",
+            "home_win_pct": 0.55,
+            "away_win_pct": 0.45,
+            "tie_pct": 0.0,
+            "margin_avg": 3.2,
+            "margin_min": -7,
+            "margin_max": 14,
+            "margin_std": 5.5,
+            "home_score_avg": 24.5,
+            "home_score_min": 17,
+            "home_score_max": 31,
+            "home_score_std": 4.2,
+            "away_score_avg": 21.3,
+            "away_score_min": 14,
+            "away_score_max": 28,
+            "away_score_std": 3.8,
+            "avg_drives": 12.5,
+            "avg_plays": 65.2,
+            "avg_touchdowns": 4.2,
+            "avg_field_goals": 1.8,
+            "avg_interceptions": 1.1,
+            "avg_punts": 5.3,
+            "home_avg_tds": 2.3,
+            "away_avg_tds": 1.9,
+            "home_avg_fgs": 1.0,
+            "away_avg_fgs": 0.8,
+            "home_avg_turnovers": 0.5,
+            "away_avg_turnovers": 0.6,
+            "n_simulations": 100,
+            "home_scores": [21, 28, 24, 17],
+            "away_scores": [14, 21, 28, 24],
+            "margins": [7, 7, -4, -7],
         }
+        storage.save_simulation("KC_BUF", [], stats_dict)
         response = client.get("/game/KC/BUF/stats")
         assert response.status_code == 200
-        _sim_cache.clear()
 
-    def test_stats_panel_contains_game_stats_section(self, client, app):
+    def test_stats_panel_contains_game_stats_section(self, client, app, mock_storage):
         """Stats panel should contain the Game Stats section with team-level stats."""
-        _sim_cache["KC_BUF"] = {
-            "stats": {
-                "home_team": "KC",
-                "away_team": "BUF",
-                "home_win_pct": 0.55,
-                "away_win_pct": 0.45,
-                "tie_pct": 0.0,
-                "margin_avg": 3.2,
-                "margin_min": -7,
-                "margin_max": 14,
-                "margin_std": 5.5,
-                "home_score_avg": 24.5,
-                "home_score_min": 17,
-                "home_score_max": 31,
-                "home_score_std": 4.2,
-                "away_score_avg": 21.3,
-                "away_score_min": 14,
-                "away_score_max": 28,
-                "away_score_std": 3.8,
-                "avg_drives": 12.5,
-                "avg_plays": 65.2,
-                "avg_touchdowns": 4.2,
-                "avg_field_goals": 1.8,
-                "avg_interceptions": 1.1,
-                "avg_punts": 5.3,
-                "home_avg_tds": 2.3,
-                "away_avg_tds": 1.9,
-                "home_avg_fgs": 1.0,
-                "away_avg_fgs": 0.8,
-                "home_avg_turnovers": 0.5,
-                "away_avg_turnovers": 0.6,
-                "n_simulations": 100,
-                "home_scores": [21, 28, 24, 17],
-                "away_scores": [14, 21, 28, 24],
-                "margins": [7, 7, -4, -7],
-            },
-            "sims": [],
+        stats_dict = {
+            "home_team": "KC",
+            "away_team": "BUF",
+            "home_win_pct": 0.55,
+            "away_win_pct": 0.45,
+            "tie_pct": 0.0,
+            "margin_avg": 3.2,
+            "margin_min": -7,
+            "margin_max": 14,
+            "margin_std": 5.5,
+            "home_score_avg": 24.5,
+            "home_score_min": 17,
+            "home_score_max": 31,
+            "home_score_std": 4.2,
+            "away_score_avg": 21.3,
+            "away_score_min": 14,
+            "away_score_max": 28,
+            "away_score_std": 3.8,
+            "avg_drives": 12.5,
+            "avg_plays": 65.2,
+            "avg_touchdowns": 4.2,
+            "avg_field_goals": 1.8,
+            "avg_interceptions": 1.1,
+            "avg_punts": 5.3,
+            "home_avg_tds": 2.3,
+            "away_avg_tds": 1.9,
+            "home_avg_fgs": 1.0,
+            "away_avg_fgs": 0.8,
+            "home_avg_turnovers": 0.5,
+            "away_avg_turnovers": 0.6,
+            "n_simulations": 100,
+            "home_scores": [21, 28, 24, 17],
+            "away_scores": [14, 21, 28, 24],
+            "margins": [7, 7, -4, -7],
         }
+        storage.save_simulation("KC_BUF", [], stats_dict)
         response = client.get("/game/KC/BUF/stats")
         html = response.data.decode()
         # Check for section header
@@ -260,7 +256,6 @@ class TestRoutes:
         assert "Avg TDs" in html
         assert "Avg FGs" in html
         assert "Avg INTs" in html
-        _sim_cache.clear()
 
 
 if __name__ == "__main__":

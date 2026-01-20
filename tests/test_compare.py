@@ -68,7 +68,10 @@ def _build_real_nfl_games_df(pbp_data: pl.DataFrame) -> pl.DataFrame:
 
 
 def _build_simulation_games_df(
-    game_data: pl.DataFrame, available_teams: list[str], n_sims_per_matchup: int = 50
+    pbp_data: pl.DataFrame,
+    kickoff_data: pl.DataFrame,
+    available_teams: list[str],
+    n_sims_per_matchup: int = 50,
 ) -> pl.DataFrame:
     """Run simulations and build a DataFrame matching real NFL schema.
 
@@ -87,7 +90,7 @@ def _build_simulation_games_df(
         away_team = teams[i + 1]
 
         # Run simulations using the functional API
-        sims = _simulate_game(home_team, away_team, n=n_sims_per_matchup, week_window=12)
+        sims = _simulate_game(home_team, away_team, n_sims_per_matchup, pbp_data, kickoff_data)
 
         # Extract sim-level stats for each simulation
         for sim in sims:
@@ -309,12 +312,30 @@ def available_teams(mock_pbp_data: pl.DataFrame) -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def simulation_games_df(game_data: pl.DataFrame, available_teams: list[str]) -> pl.DataFrame:
+def kickoff_data(mock_pbp_data: pl.DataFrame) -> pl.DataFrame:
+    """Load kickoff data from mock PBP data."""
+    return (
+        mock_pbp_data.lazy()
+        .filter(
+            pl.col("play_type") == "kickoff",
+            pl.col("penalty") != 1,
+            pl.col("return_yards").is_not_null(),
+        )
+        .collect()
+    )
+
+
+@pytest.fixture(scope="module")
+def simulation_games_df(
+    game_data: pl.DataFrame, kickoff_data: pl.DataFrame, available_teams: list[str]
+) -> pl.DataFrame:
     """Run simulations once and return as DataFrame for all tests.
 
     Simulates multiple matchups with enough games to get stable statistics.
     """
-    return _build_simulation_games_df(game_data, available_teams, n_sims_per_matchup=50)
+    return _build_simulation_games_df(
+        game_data, kickoff_data, available_teams, n_sims_per_matchup=50
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -402,14 +423,16 @@ def test_simulation_outcome_diversity(simulation_games_df: pl.DataFrame):
     )
 
 
-def test_prediction_stability(available_teams: list[str]):
+def test_prediction_stability(
+    available_teams: list[str], game_data: pl.DataFrame, kickoff_data: pl.DataFrame
+):
     """Repeated simulations with same inputs should converge to similar stats."""
     home_team = available_teams[0]
     away_team = available_teams[1]
 
     # Run two independent sets of simulations
-    sims1 = _simulate_game(home_team, away_team, n=200, week_window=12)
-    sims2 = _simulate_game(home_team, away_team, n=200, week_window=12)
+    sims1 = _simulate_game(home_team, away_team, 200, game_data, kickoff_data)
+    sims2 = _simulate_game(home_team, away_team, 200, game_data, kickoff_data)
 
     # Get game-level stats for each
     stats1 = understand(sims1)

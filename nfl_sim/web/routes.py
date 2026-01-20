@@ -10,6 +10,7 @@ from flask import Blueprint, render_template
 
 from nfl_sim import sim_games, understand
 from nfl_sim.data import ScheduleData
+from nfl_sim.web.storage import get_sim_count, load_pbp, load_stats, save_simulation
 
 if TYPE_CHECKING:
     from nfl_sim.typing import GameSims
@@ -18,10 +19,6 @@ bp = Blueprint("main", __name__)
 
 # Module-level cache for schedule
 _schedule: ScheduleData | None = None
-
-# Server-side cache for simulation results (avoids cookie size limits)
-# Key: "home_away" -> {"stats": stats_dict, "sims": GameSims}
-_sim_cache: dict[str, dict] = {}
 
 
 def _build_game_id(home: str, away: str) -> str:
@@ -197,8 +194,6 @@ def refresh_games():
 @bp.route("/simulate/<home>/<away>", methods=["POST"])
 def simulate(home: str, away: str):
     """Run simulation for a matchup using sim_games()."""
-    global _sim_cache
-
     n_sims = 100
     game_id = _build_game_id(home, away)
 
@@ -208,35 +203,37 @@ def simulate(home: str, away: str):
     # Extract stats using Understand
     stats_dict = _extract_stats_from_sims(sims, home, away)
 
-    # Cache results server-side
-    cache_key = f"{home}_{away}"
-    _sim_cache[cache_key] = {
-        "stats": stats_dict,
-        "sims": sims,
-    }
+    # Save to temp storage
+    batch_id = f"{home}_{away}"
+    save_simulation(batch_id, sims, stats_dict)
 
     return render_template("partials/sim_results.html", result=stats_dict, home=home, away=away)
 
 
 @bp.route("/game/<home>/<away>/<int:sim_idx>/plays")
 def play_by_play(home: str, away: str, sim_idx: int):
-    """Get play-by-play for a specific simulation from cache."""
-    cache_key = f"{home}_{away}"
-    cached = _sim_cache.get(cache_key)
+    """Get play-by-play for a specific simulation from storage."""
+    batch_id = f"{home}_{away}"
 
-    if not cached or "sims" not in cached:
+    # Check if simulation exists
+    sim_count = get_sim_count(batch_id)
+    if sim_count == 0:
         return render_template(
             "partials/play_by_play.html", plays=[], error="No cached simulation data"
         )
 
-    sims = cached["sims"]
-    if sim_idx < 0 or sim_idx >= len(sims):
+    if sim_idx < 0 or sim_idx >= sim_count:
         return render_template(
             "partials/play_by_play.html", plays=[], error=f"Invalid simulation index: {sim_idx}"
         )
 
-    # Convert DataFrame to list of dicts for template
-    pbp_df = sims[sim_idx]
+    # Load PBP from storage
+    pbp_df = load_pbp(batch_id, sim_idx)
+    if pbp_df is None:
+        return render_template(
+            "partials/play_by_play.html", plays=[], error="Failed to load simulation data"
+        )
+
     plays = pbp_df.to_dicts()
     return render_template("partials/play_by_play.html", plays=plays, home=home, away=away)
 
@@ -301,12 +298,11 @@ def _compute_aligned_histograms(
 @bp.route("/game/<home>/<away>/stats")
 def stats_panel(home: str, away: str):
     """Get statistics panel for current simulation."""
-    cache_key = f"{home}_{away}"
-    cached = _sim_cache.get(cache_key)
-    if not cached or "stats" not in cached:
-        return render_template("partials/stats_panel.html", result=None)
+    batch_id = f"{home}_{away}"
+    stats_dict = load_stats(batch_id)
 
-    stats_dict = cached["stats"]
+    if stats_dict is None:
+        return render_template("partials/stats_panel.html", result=None)
 
     # Pre-compute histograms for the template
     margin_hist = _compute_histogram(stats_dict.get("margins", []), bucket_size=7)

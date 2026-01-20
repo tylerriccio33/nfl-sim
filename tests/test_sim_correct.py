@@ -15,6 +15,8 @@ from nfl_sim import sim_games
 from nfl_sim._sampling import PartitionedSampleData, build_sample_data
 from nfl_sim.game import SingleGame
 
+# TODO: Do a full test run without internet to see if there are leaks pulling real
+
 # TODO: Weird how it's defined here
 NFL_TEAMS = [
     "ARI",
@@ -314,6 +316,9 @@ def test_no_excessive_play_repetition(pbp_data: pl.DataFrame, home_idx: int, awa
     """
     game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
+    raise NotImplementedError(
+        "There are sims that are comically over-sampling. Saw bo nix fumble 6 times (same sample)"
+    )
 
     plays = game.game_data
 

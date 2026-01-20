@@ -7,9 +7,8 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim import understand
+from nfl_sim import sim_games, understand
 from nfl_sim.data import ScheduleData
-from nfl_sim.simulate import _simulate_game
 
 NGAMES = 500
 NSIMS = 250
@@ -91,8 +90,9 @@ def run_accuracy_benchmark(
         actual_away = actual["away_score"]
         spread = actual["spread_line"]  # Negative = home favored
 
-        # Run N simulations using the new functional API
-        sims = _simulate_game(home_team, away_team, n=n_sims_per_game, week_window=12)
+        # Run N simulations using the public API
+        game_id: str = game["game_id"]
+        sims = sim_games(game_id, n=n_sims_per_game)
         stats = understand(sims)
         row = stats.row(0, named=True)
 

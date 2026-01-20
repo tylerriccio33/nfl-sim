@@ -22,13 +22,12 @@ This module provides the main entry point for running NFL game simulations:
 
 from __future__ import annotations
 
-from functools import cache
 from typing import TYPE_CHECKING, overload
 
 from nflreadpy.utils_date import get_current_season, get_current_week
 
-from nfl_sim._kickoff import KickoffSampleData, build_kickoff_data
-from nfl_sim._sampling import NoSampleFoundError, PartitionedSampleData, build_sample_data
+from nfl_sim._kickoff import build_kickoff_data
+from nfl_sim._sampling import NoSampleFoundError, build_sample_data
 from nfl_sim.data import GameMetadata, ScheduleData, pull_game_data, pull_kickoff_data
 from nfl_sim.game import SingleGame
 
@@ -36,53 +35,6 @@ if TYPE_CHECKING:
     import polars as pl
 
     from nfl_sim.typing import PBP, GameId, GameSims
-
-
-# =============================================================================
-# MODULE-LEVEL CACHING
-# =============================================================================
-
-
-@cache  # TODO: What's the reason for these?
-def _get_pbp_data(week_window: int = 12) -> pl.DataFrame:
-    """Load and cache play-by-play data."""
-    return pull_game_data(week_window=week_window)
-
-
-@cache  # TODO: What's the reason for these?
-def _get_kickoff_data(week_window: int = 12) -> pl.DataFrame:
-    """Load and cache kickoff data."""
-    return pull_kickoff_data(week_window=week_window)
-
-
-# Mutable caches for team sample data (keyed by (team, week_window))
-_sample_cache: dict[tuple[str, int], PartitionedSampleData] = {}
-_kickoff_cache: dict[tuple[str, int], KickoffSampleData] = {}
-
-
-def _get_samples(team: str, week_window: int = 12) -> PartitionedSampleData:
-    """Get or build cached sample data for a team's offensive plays."""
-    key = (team, week_window)
-    if key not in _sample_cache:
-        _sample_cache[key] = build_sample_data(_get_pbp_data(week_window), team)
-    return _sample_cache[key]
-
-
-def _get_kickoff_samples(team: str, week_window: int = 12) -> KickoffSampleData:
-    """Get or build cached kickoff sample data for a team."""
-    key = (team, week_window)
-    if key not in _kickoff_cache:
-        _kickoff_cache[key] = build_kickoff_data(_get_kickoff_data(week_window), team)
-    return _kickoff_cache[key]
-
-
-def clear_cache() -> None:
-    """Clear all caches - useful for testing or memory management."""
-    _sample_cache.clear()
-    _kickoff_cache.clear()
-    _get_pbp_data.cache_clear()
-    _get_kickoff_data.cache_clear()
-
 
 # =============================================================================
 # RESOLUTION FUNCTIONS
@@ -158,7 +110,8 @@ def _simulate_game(
     home: str,
     away: str,
     n: int,
-    week_window: int,
+    pbp_data: pl.DataFrame,
+    kickoff_data: pl.DataFrame,
     capture_plays: bool = True,
 ) -> GameSims:
     """Run N simulations of a single game, returning list of PBP DataFrames.
@@ -167,17 +120,18 @@ def _simulate_game(
         home: Home team abbreviation.
         away: Away team abbreviation.
         n: Number of simulations to run.
-        week_window: Number of weeks of historical data to use.
+        pbp_data: Play-by-play data for sampling.
+        kickoff_data: Kickoff data for sampling.
         capture_plays: Whether to capture play-by-play data. Default True.
 
     Returns:
         List of N PBP DataFrames, one per simulation.
 
     """
-    home_samples = _get_samples(home, week_window)
-    away_samples = _get_samples(away, week_window)
-    home_kickoff = _get_kickoff_samples(home, week_window)
-    away_kickoff = _get_kickoff_samples(away, week_window)
+    home_samples = build_sample_data(pbp_data, home)
+    away_samples = build_sample_data(pbp_data, away)
+    home_kickoff = build_kickoff_data(kickoff_data, home)
+    away_kickoff = build_kickoff_data(kickoff_data, away)
 
     results: list[PBP] = []
     for _ in range(n):
@@ -360,6 +314,10 @@ def sim_games(
         msg = f"Invalid selector type: {type(__selector)}"
         raise TypeError(msg)
 
+    # Load data once at top level
+    pbp_data = pull_game_data(week_window=week_window)
+    kickoff_data = pull_kickoff_data(week_window=week_window)
+
     # Run simulations for each game
     results: dict[GameId, GameSims] = {}
     for meta in games:
@@ -370,7 +328,7 @@ def sim_games(
             or f"{meta.get('season', 0)}_{meta.get('week', 0):02d}_{away}_{home}"
         )
 
-        sims = _simulate_game(home, away, n, week_window)
+        sims = _simulate_game(home, away, n, pbp_data, kickoff_data)
         results[game_id] = sims
 
     # For single game_id input, return just the GameSims list

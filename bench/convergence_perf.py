@@ -7,6 +7,7 @@ from loguru import logger
 from rich.console import Console
 
 from nfl_sim import understand
+from nfl_sim.data import pull_game_data, pull_kickoff_data
 from nfl_sim.simulate import _simulate_game
 
 start_at = 100
@@ -59,12 +60,18 @@ def run_convergence_benchmark() -> pl.DataFrame:
     console.print(f"[bold green]Testing convergence for: {away_team} @ {home_team}")
     console.print(f"[bold green]Running simulations from {SIM_COUNTS[0]} to {SIM_COUNTS[-1]}...")
 
+    # Load data once for all iterations
+    pbp_data = pull_game_data(week_window=12)
+    kickoff_data = pull_kickoff_data(week_window=12)
+
     results: list[dict[str, float]] = []
     prev_margin: float | None = None
 
     for n_sims in SIM_COUNTS:
-        # Run N simulations using the new functional API
-        sims = _simulate_game(home_team, away_team, n=n_sims, week_window=12)
+        # Run N simulations
+        sims = _simulate_game(
+            home_team, away_team, n=n_sims, pbp_data=pbp_data, kickoff_data=kickoff_data
+        )
         stats = understand(sims)
         row = stats.row(0, named=True)
 

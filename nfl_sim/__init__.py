@@ -24,14 +24,13 @@ import sys
 
 from loguru import logger
 
-from nfl_sim.simulate import clear_cache, get_sim_weeks, sim_games
+from nfl_sim.simulate import get_sim_weeks, sim_games
 from nfl_sim.typing import PBP, GameId, GameSims
 from nfl_sim.understand import understand
 
 __all__ = [
     "sim_games",
     "get_sim_weeks",
-    "clear_cache",
     "understand",
     "PBP",
     "GameId",
