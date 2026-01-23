@@ -11,7 +11,7 @@ from nfl_sim import sim_games, understand
 from nfl_sim.data import ScheduleData
 
 NGAMES = 500
-NSIMS = 250
+NSIMS = 1_000
 
 BEST_RMSE = 14.90
 
@@ -90,7 +90,7 @@ def run_accuracy_benchmark(
         actual_away = actual["away_score"]
         spread = actual["spread_line"]  # Negative = home favored
 
-        # Run N simulations using the public API
+        # Run N simulations for the game in question
         game_id: str = game["game_id"]
         sims = sim_games(game_id, n=n_sims_per_game)
         stats = understand(sims)

@@ -34,7 +34,7 @@ from nfl_sim.game import SingleGame
 if TYPE_CHECKING:
     import polars as pl
 
-    from nfl_sim.typing import PBP, GameId, GameSims
+    from nfl_sim.typing import PBP, Anchor, GameId, GameSims
 
 # =============================================================================
 # RESOLUTION FUNCTIONS
@@ -168,6 +168,7 @@ def sim_games(
     *,
     n: int = ...,
     week_window: int = ...,
+    anchor: Anchor | None = ...,
 ) -> dict[GameId, GameSims]: ...
 
 
@@ -178,6 +179,7 @@ def sim_games(
     *,
     n: int = ...,
     week_window: int = ...,
+    anchor: Anchor | None = ...,
 ) -> dict[GameId, GameSims]: ...
 
 
@@ -189,6 +191,7 @@ def sim_games(
     *,
     n: int = ...,
     week_window: int = ...,
+    anchor: Anchor | None = ...,
 ) -> dict[GameId, GameSims]: ...
 
 
@@ -199,6 +202,7 @@ def sim_games(
     *,
     n: int = ...,
     week_window: int = ...,
+    anchor: Anchor | None = ...,
 ) -> GameSims: ...
 
 
@@ -209,6 +213,7 @@ def sim_games(
     *,
     n: int = ...,
     week_window: int = ...,
+    anchor: Anchor | None = ...,
 ) -> dict[GameId, GameSims]: ...
 
 
@@ -218,6 +223,7 @@ def sim_games(
     weeks: list[tuple[int, int]],
     n: int = ...,
     week_window: int = ...,
+    anchor: Anchor | None = ...,
 ) -> dict[GameId, GameSims]: ...
 
 
@@ -227,6 +233,7 @@ def sim_games(
     since: int,
     n: int = ...,
     week_window: int = ...,
+    anchor: Anchor | None = ...,
 ) -> dict[GameId, GameSims]: ...
 
 
@@ -239,6 +246,7 @@ def sim_games(
     since: int | None = None,
     n: int = 100,
     week_window: int = 12,
+    anchor: Anchor | None = None,
 ) -> dict[GameId, GameSims] | GameSims:
     """Simulate NFL games with flexible selection.
 
@@ -279,6 +287,9 @@ def sim_games(
         since: Simulate all games from this season to current.
         n: Number of simulations per game. Default 100.
         week_window: Weeks of historical data for sampling. Default 12.
+        anchor: (season, week) exclusive upper bound for sampling window. If None,
+            uses (current_season, current_week). Use for backtesting to restrict
+            data to what was available at a point in time.
 
     Returns:
         dict[GameId, GameSims] for multiple games, or GameSims for a single game.
@@ -315,8 +326,8 @@ def sim_games(
         raise TypeError(msg)
 
     # Load data once at top level
-    pbp_data = pull_game_data(week_window=week_window)
-    kickoff_data = pull_kickoff_data(week_window=week_window)
+    pbp_data = pull_game_data(week_window=week_window, anchor=anchor)
+    kickoff_data = pull_kickoff_data(week_window=week_window, anchor=anchor)
 
     # Run simulations for each game
     results: dict[GameId, GameSims] = {}

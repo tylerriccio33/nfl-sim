@@ -42,7 +42,6 @@ def _extract_stats_from_sims(
     Uses the understand() function for game-level aggregates and computes
     per-team stats directly from the play-by-play data.
     """
-    # Get game-level aggregates using understand()
     game_stats = understand(sims)
 
     # Extract values from the single-row DataFrame
@@ -53,6 +52,7 @@ def _extract_stats_from_sims(
     all_plays = pl.concat([sim.with_columns(_sim_id=pl.lit(i)) for i, sim in enumerate(sims)])
 
     # Home team stats (when posteam == home)
+    # TODO: This needs to use understand function
     home_plays = all_plays.filter(pl.col("posteam") == home)
     away_plays = all_plays.filter(pl.col("posteam") == away)
 

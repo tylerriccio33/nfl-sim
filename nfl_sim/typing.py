@@ -26,3 +26,6 @@ type Aggs = pl.DataFrame
 
 Columns and ways of aggregation are defined in `EXPR.py`.
 """
+
+type Anchor = tuple[int, int]
+"""(season, week) anchor for historical windowing. Data before this point is included (exclusive upper bound)."""

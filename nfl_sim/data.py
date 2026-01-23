@@ -16,6 +16,8 @@ from nfl_sim._event import build_event_expr
 if TYPE_CHECKING:
     from typing import ClassVar, NotRequired, Self, TypeIs
 
+    from nfl_sim.typing import Anchor
+
 
 class GameMetadata(TypedDict):
     """Metadata for a game from the schedule data."""
@@ -48,9 +50,66 @@ def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
 
 # TODO: Remove last week of season when starters rest
 
+WEEKS_PER_SEASON = 18
+
+
+def compute_window_bounds(
+    anchor_season: int,
+    anchor_week: int,
+    week_window: int,
+) -> tuple[list[int], pl.Expr]:
+    """Compute the seasons to load and a filter expression for a historical window.
+
+    The anchor is an exclusive upper bound: anchor=(2024, 10) includes data through
+    week 9 of 2024. The window walks backwards from that endpoint, crossing season
+    boundaries as needed (18 weeks per season).
+
+    Args:
+        anchor_season: The season of the anchor point.
+        anchor_week: The week of the anchor point (exclusive).
+        week_window: Number of weeks to include in the window.
+
+    Returns:
+        A tuple of (seasons_to_load, filter_expression) where seasons_to_load is a
+        list of season years and filter_expression is a polars Expr that selects rows
+        within the window.
+
+    """
+    # End point (inclusive): the week immediately before the anchor
+    end_season, end_week = anchor_season, anchor_week - 1
+    if end_week < 1:
+        end_season -= 1
+        end_week = WEEKS_PER_SEASON
+
+    # Start point: walk back (week_window - 1) weeks from end
+    start_season, start_week = end_season, end_week
+    remaining = week_window - 1
+    while remaining > 0:
+        start_week -= 1
+        if start_week < 1:
+            start_season -= 1
+            start_week = WEEKS_PER_SEASON
+        remaining -= 1
+
+    seasons = list(range(start_season, end_season + 1))
+
+    # Build filter expression for [start, end] inclusive range
+    col = pl.col
+    if start_season == end_season:
+        expr = (
+            col("season").eq(start_season) & col("week").ge(start_week) & col("week").le(end_week)
+        )
+    else:
+        first = col("season").eq(start_season) & col("week").ge(start_week)
+        last = col("season").eq(end_season) & col("week").le(end_week)
+        middle = (col("season") > start_season) & (col("season") < end_season)
+        expr = first | middle | last
+
+    return seasons, expr
+
 
 # TODO: Increase the week window to 16!
-def pull_game_data(week_window: int = 12) -> pl.DataFrame:
+def pull_game_data(week_window: int = 12, anchor: Anchor | None = None) -> pl.DataFrame:
     """Pull play-by-play data from nflverse.
 
     Downloads and caches nflverse play-by-play parquet files, selecting only the
@@ -58,8 +117,10 @@ def pull_game_data(week_window: int = 12) -> pl.DataFrame:
     regular plays plus punts/field goals).
 
     Args:
-        week_window: Number of weeks back from current week to include in the
-            historical sample. Used to calculate the minimum year boundary.
+        week_window: Number of weeks back from the anchor to include in the
+            historical sample.
+        anchor: (season, week) exclusive upper bound for the data window. If None,
+            defaults to (current_season, current_week).
 
     Returns:
         pl.DataFrame: Filtered play-by-play data with columns from pbp_columns.toml.
@@ -69,17 +130,14 @@ def pull_game_data(week_window: int = 12) -> pl.DataFrame:
         Reference: nflverse dictionary/pbp.csv (374 total fields available).
 
     """
-    cur_year, cur_week = get_current_season(), get_current_week()
-    min_week = cur_week - week_window
-    if min_week <= 0:  # pragma: no cover
-        raise NotImplementedError("Week window extends beyond current season")
-    min_year = cur_year
-    window_expr: pl.Expr = (pl.col("season").eq(min_year) & pl.col("week").ge(min_week)) | (
-        pl.col("season") > min_year
-    )
+    if anchor is None:
+        anchor = (get_current_season(), get_current_week())
+    anchor_season, anchor_week = anchor
+
+    seasons, window_expr = compute_window_bounds(anchor_season, anchor_week, week_window)
 
     data = (
-        nfl.load_pbp(min_year)
+        nfl.load_pbp(seasons)
         .lazy()
         # Filter to games within the window first.
         .filter(window_expr)
@@ -145,29 +203,28 @@ KICKOFF_COLUMNS = [
 ]
 
 
-def pull_kickoff_data(week_window: int = 12) -> pl.DataFrame:
+def pull_kickoff_data(week_window: int = 12, anchor: Anchor | None = None) -> pl.DataFrame:
     """Pull kickoff play data from nflverse.
 
     Downloads kickoff plays for sampling kick returns. Uses the same week window
     as regular play data.
 
     Args:
-        week_window: Number of weeks back from current week to include.
+        week_window: Number of weeks back from the anchor to include.
+        anchor: (season, week) exclusive upper bound for the data window. If None,
+            defaults to (current_season, current_week).
 
     Returns:
         pl.DataFrame: Filtered kickoff plays with relevant columns.
 
     """
-    cur_year, cur_week = get_current_season(), get_current_week()
-    min_week = cur_week - week_window
-    if min_week <= 0:  # pragma: no cover
-        raise NotImplementedError("Week window extends beyond current season")
-    min_year = cur_year
-    window_expr: pl.Expr = (pl.col("season").eq(min_year) & pl.col("week").ge(min_week)) | (
-        pl.col("season") > min_year
-    )
+    if anchor is None:
+        anchor = (get_current_season(), get_current_week())
+    anchor_season, anchor_week = anchor
 
-    raw_data = nfl.load_pbp(min_year)
+    seasons, window_expr = compute_window_bounds(anchor_season, anchor_week, week_window)
+
+    raw_data = nfl.load_pbp(seasons)
     available_cols = set(raw_data.columns)
     cols_to_select = [c for c in KICKOFF_COLUMNS if c in available_cols]
 
