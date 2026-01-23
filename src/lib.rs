@@ -1,6 +1,5 @@
 use numpy::PyReadonlyArray2;
 use pyo3::prelude::*;
-use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 use std::sync::OnceLock;
 
@@ -142,25 +141,15 @@ const FOURTH_AND_REDZONE_WINDOW_CONFIG: [(u32, f32, u32); 19] = [
     (20, 0.5, 40),
 ];
 
-/// Sample a single index from a list with exponential decay weighting toward earlier indices.
-/// Earlier indices (more recent plays) have higher probability of being selected.
-fn weighted_sample_single(indices: &[usize]) -> usize {
+/// Sample a single index uniformly at random from a list.
+/// All matching plays have equal probability of being selected.
+fn uniform_sample_single(indices: &[usize]) -> usize {
     if indices.len() == 1 {
         return indices[0];
     }
 
     let mut rng = thread_rng();
-    let len = indices.len();
-
-    // Exponential decay weights: weight[i] = exp(-decay * i)
-    // decay factor chosen so last element has ~10% weight of first
-    // TODO: Need tests to mess w/this decay
-    let decay = 2.3 / (len as f32); // ln(10) ≈ 2.3
-    let weights: Vec<f32> = (0..len).map(|i| (-decay * i as f32).exp()).collect();
-
-    let dist = WeightedIndex::new(&weights).unwrap();
-    let idx = dist.sample(&mut rng);
-    indices[idx]
+    indices[rng.gen_range(0..indices.len())]
 }
 
 /// Filter samples without down matching (samples are pre-partitioned by down).
@@ -230,7 +219,7 @@ fn filter_window(
         }
 
         if !indices.is_empty() {
-            return Some(weighted_sample_single(&indices) as i64);
+            return Some(uniform_sample_single(&indices) as i64);
         }
     }
 

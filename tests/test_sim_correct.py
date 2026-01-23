@@ -316,9 +316,6 @@ def test_no_excessive_play_repetition(pbp_data: pl.DataFrame, home_idx: int, awa
     """
     game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
-    raise NotImplementedError(
-        "There are sims that are comically over-sampling. Saw bo nix fumble 6 times (same sample)"
-    )
 
     plays = game.game_data
 
