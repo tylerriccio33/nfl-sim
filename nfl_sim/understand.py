@@ -10,17 +10,23 @@ from typing import TYPE_CHECKING, overload
 
 import polars as pl
 
-from nfl_sim.EXPR import GAME_LEVEL_EXPRS, SIM_LEVEL_EXPRS
+from nfl_sim.EXPR import (
+    GAME_LEVEL_EXPRS,
+    GAME_TEAM_LEVEL_EXPRS,
+    SIM_LEVEL_EXPRS,
+    SIM_TEAM_LEVEL_EXPRS,
+)
+from nfl_sim.typing import GameId, GameSims
 
 if TYPE_CHECKING:
     from typing import Literal
 
-    from nfl_sim.typing import Aggs, GameId, GameSims
+    from nfl_sim.typing import Aggs
 
 
 @overload
 def understand(
-    target: GameSims,
+    target: dict[GameId, GameSims] | GameSims,
     *,
     by: None = None,
 ) -> Aggs: ...
@@ -28,7 +34,7 @@ def understand(
 
 @overload
 def understand(
-    target: dict[GameId, GameSims],
+    target=dict[GameId, GameSims] | GameSims,
     *,
     by: Literal["game"],
 ) -> Aggs: ...
@@ -36,24 +42,16 @@ def understand(
 
 @overload
 def understand(
-    target: dict[GameId, GameSims],
+    target: dict[GameId, GameSims] | GameSims,
     *,
     by: Literal["game-team"],
-) -> Aggs: ...
-
-
-@overload
-def understand(
-    target: dict[GameId, GameSims],
-    *,
-    by: str,
 ) -> Aggs: ...
 
 
 def understand(
     target: dict[GameId, GameSims] | GameSims,
     *,
-    by: str | None = None,
+    by: Literal["game-team", "game"] | None = None,
 ) -> Aggs:
     """Analyze simulation results at various aggregation levels.
 
@@ -67,7 +65,7 @@ def understand(
         by: Aggregation level:
             - None: For single-game input, returns game-level aggregates
             - "game": Returns one row per game with aggregated stats
-            - "game-team": Raises NotImplementedError (future work)
+            - "game-team": Returns one row per (game, team) with team-level stats
             - str (game_id): Returns sim-level aggregates for that game only
 
     Returns:
@@ -115,8 +113,13 @@ def understand(
 
     # Handle different aggregation levels based on `by` parameter
     if by == "game-team":
-        msg = "game-team aggregation not yet implemented"
-        raise NotImplementedError(msg)
+        sim_team_level = all_plays.group_by("game_id", "_sim_id", "posteam").agg(
+            *SIM_TEAM_LEVEL_EXPRS
+        )
+        result = sim_team_level.group_by("game_id", "posteam").agg(*GAME_TEAM_LEVEL_EXPRS)
+        if is_single_game:
+            return result.drop("game_id")
+        return result
 
     if by is None:
         # Single-game mode: return game-level aggregates without game_id column

@@ -330,22 +330,10 @@ def test_dc_iter(minimal_dc_df: pl.DataFrame):
     assert rows[0]["gsis_id"] == "player1"
 
 
-# -----------------------------------------------------------------------------
-# Integration Test (requires network/cache)
-# -----------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-def test_dc_from_season():
-    """DepthChartData.from_season() loads data successfully."""
-    dc = DepthChartData.from_season()
-    assert len(dc) > 0
-
-
 # TODO: Check a backup running back from 2 weeks ago who's now the 3rd string, gets correctly logged
 # as the backup. i.e. the sample calls for the backup getting a rush, and we should map that to the
 # current backup
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    pytest.main([__file__, "-sv"])

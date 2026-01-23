@@ -2,7 +2,9 @@
 
 This module defines reusable expressions for:
 - SIM_LEVEL_EXPRS: Aggregate play-by-play data to single-simulation summaries
+- SIM_TEAM_LEVEL_EXPRS: Aggregate play-by-play data to per-team simulation summaries
 - GAME_LEVEL_EXPRS: Aggregate multiple simulations to game-level statistics
+- GAME_TEAM_LEVEL_EXPRS: Aggregate sim-team rows across simulations
 - WEEK_LEVEL_EXPRS: Aggregate multiple games to week-level statistics
 """
 
@@ -11,18 +13,12 @@ from __future__ import annotations
 import polars as pl
 
 # =============================================================================
-# SIMULATION-LEVEL AGGREGATIONS
+# SHARED PLAY-LEVEL AGGREGATION EXPRESSIONS
 # =============================================================================
-# These expressions aggregate a single simulation's play-by-play into summary stats.
-# Input: Play-level rows for one simulation
-# Output: One row per simulation with aggregate stats
+# These are the core play-level aggregations used by both SIM_LEVEL and SIM_TEAM_LEVEL.
+# They compute yardage, play counts, event counts, and efficiency metrics.
 
-SIM_LEVEL_EXPRS: list[pl.Expr] = [
-    # Scoring
-    pl.col("home_score").last().alias("home_score"),
-    pl.col("away_score").last().alias("away_score"),
-    (pl.col("home_score").last() - pl.col("away_score").last()).alias("margin"),
-    (pl.col("home_score").last() > pl.col("away_score").last()).alias("home_win"),
+_PLAY_AGG_EXPRS: list[pl.Expr] = [
     # Yardage
     pl.col("yards_gained").sum().alias("total_yards"),
     pl.col("yards_gained").mean().alias("yards_per_play"),
@@ -38,11 +34,40 @@ SIM_LEVEL_EXPRS: list[pl.Expr] = [
     .sum()
     .alias("punts"),
     (pl.col("event").str.to_lowercase() == "turnoverondowns").sum().alias("turnovers_on_downs"),
-    (pl.col("event").str.to_lowercase() == "fumble").sum().alias("fumbles"),
+    (pl.col("event").str.to_lowercase().is_in(["fumblesix", "fumblelost"])).sum().alias("fumbles"),
     (pl.col("event").str.to_lowercase() == "safety").sum().alias("safeties"),
     # Efficiency
     (pl.col("down") == 1).sum().alias("first_downs"),
 ]
+
+# =============================================================================
+# SCORING EXPRESSIONS (game-global, only meaningful at full-game level)
+# =============================================================================
+
+_SCORING_EXPRS: list[pl.Expr] = [
+    pl.col("home_score").last().alias("home_score"),
+    pl.col("away_score").last().alias("away_score"),
+    (pl.col("home_score").last() - pl.col("away_score").last()).alias("margin"),
+    (pl.col("home_score").last() > pl.col("away_score").last()).alias("home_win"),
+]
+
+# =============================================================================
+# SIMULATION-LEVEL AGGREGATIONS
+# =============================================================================
+# These expressions aggregate a single simulation's play-by-play into summary stats.
+# Input: Play-level rows for one simulation
+# Output: One row per simulation with aggregate stats
+
+SIM_LEVEL_EXPRS: list[pl.Expr] = _SCORING_EXPRS + _PLAY_AGG_EXPRS
+
+# =============================================================================
+# SIMULATION-TEAM-LEVEL AGGREGATIONS
+# =============================================================================
+# Same play aggregations as SIM_LEVEL but grouped by posteam.
+# Input: Play-level rows for one simulation, grouped by posteam
+# Output: One row per (simulation, team) pair
+
+SIM_TEAM_LEVEL_EXPRS: list[pl.Expr] = _PLAY_AGG_EXPRS
 
 
 # =============================================================================
@@ -51,7 +76,7 @@ SIM_LEVEL_EXPRS: list[pl.Expr] = [
 # These expressions aggregate simulation-level stats into game-level summaries.
 # Input: One row per simulation with sim-level stats
 # Output: One row per game with mean/std/distribution stats
-# TODO: Probably want to have a toml file for the basic ones
+
 GAME_LEVEL_EXPRS: list[pl.Expr] = [
     # Calculated Fields:
     pl.col("home_win").mean().alias("home_win_pct"),
@@ -94,6 +119,36 @@ GAME_LEVEL_EXPRS: list[pl.Expr] = [
 
 
 # =============================================================================
+# GAME-TEAM-LEVEL AGGREGATIONS
+# =============================================================================
+# These expressions aggregate sim-team rows across simulations into per-team game stats.
+# Input: One row per (simulation, team) from SIM_TEAM_LEVEL aggregation
+# Output: One row per (game, team)
+
+GAME_TEAM_LEVEL_EXPRS: list[pl.Expr] = [
+    pl.col(
+        "total_yards",
+        "yards_per_play",
+        "total_plays",
+        "num_drives",
+        "touchdowns",
+        "field_goals",
+        "interceptions",
+        "punts",
+        "turnovers_on_downs",
+        "fumbles",
+        "safeties",
+        "first_downs",
+    )
+    .mean()
+    .name.suffix("_avg"),
+    pl.col("touchdowns", "field_goals", "interceptions").min().name.suffix("_min"),
+    pl.col("touchdowns", "field_goals", "interceptions").max().name.suffix("_max"),
+    pl.len().alias("n_simulations"),
+]
+
+
+# =============================================================================
 # WEEK-LEVEL AGGREGATIONS
 # =============================================================================
 # These expressions aggregate game-level stats into week-level summaries.
@@ -102,11 +157,11 @@ GAME_LEVEL_EXPRS: list[pl.Expr] = [
 
 WEEK_LEVEL_EXPRS: list[pl.Expr] = [
     pl.col("home_win_pct").mean().alias("avg_home_win_pct"),
-    pl.col("home_score_mean").mean().alias("avg_home_score"),
-    pl.col("away_score_mean").mean().alias("avg_away_score"),
-    pl.col("margin_mean").mean().alias("avg_margin"),
-    pl.col("avg_total_yards").mean().alias("avg_yards"),
-    pl.col("avg_touchdowns").mean().alias("avg_touchdowns"),
+    pl.col("home_score_avg").mean().alias("avg_home_score"),
+    pl.col("away_score_avg").mean().alias("avg_away_score"),
+    pl.col("margin_avg").mean().alias("avg_margin"),
+    pl.col("total_yards_avg").mean().alias("avg_yards"),
+    pl.col("touchdowns_avg").mean().alias("avg_touchdowns"),
     pl.col("n_simulations").sum().alias("total_simulations"),
     pl.len().alias("n_games"),
 ]

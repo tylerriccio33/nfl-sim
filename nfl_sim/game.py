@@ -342,7 +342,7 @@ class SingleGame:
         )
         return self._game_data
 
-    # TODO: A lot of these properties can goooooo
+    # TODO: Get rid of all of these in favor of `understand`
     @property
     def num_drives(self) -> int:
         """Number of drives in the game (including current in-progress drive)."""
@@ -369,20 +369,21 @@ class SingleGame:
 
     @property
     def event_counts(self) -> dict[str, int]:
-        """Count occurrences of each event type from game data.
+        """Count occurrences of each event type from game data."""
+        from nfl_sim.EXPR import _PLAY_AGG_EXPRS
 
-        Returns lowercase event names for consistency.
-        """
-        # struct col -> 2 cols (event, count) -> dict of cols
-        counts: dict[str, list[int | str]] = (
-            self.game_data.select(pl.col("event").str.to_lowercase().value_counts())
-            .unnest("event")
-            .filter(pl.col("event").is_not_null())
-            .to_dict(as_series=False)
-        )
-        # TODO: Do i need to fill in all possible events?
-        # dict corresponding to count (dict[str, int])
-        return dict(zip(counts["event"], counts["count"]))
+        row = self.game_data.select(*_PLAY_AGG_EXPRS).row(0, named=True)
+        event_keys = {
+            "touchdowns",
+            "field_goals",
+            "interceptions",
+            "pick_sixes",
+            "punts",
+            "turnovers_on_downs",
+            "fumbles",
+            "safeties",
+        }
+        return {k: int(v) for k, v in row.items() if k in event_keys}
 
     @property
     def home_event_counts(self) -> dict[str, int]:

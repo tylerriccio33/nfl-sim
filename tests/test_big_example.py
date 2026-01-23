@@ -105,19 +105,26 @@ class TestUnderstandErrors:
         """by=None with multi-game dict should raise ValueError."""
         res = sim_games(2024, 1, n=5)
         with pytest.raises(ValueError, match="only valid for single-game"):
-            understand(res)  # type: ignore[arg-type]  # Intentionally testing error case
+            understand(res)
 
     def test_understand_invalid_game_id(self, mock_dates, mock_pbp):
         """Invalid game_id in by raises KeyError."""
         res = sim_games(2024, 1, n=5)
         with pytest.raises(KeyError, match="not found"):
-            understand(res, by="invalid_game_id")
+            understand(res, by="invalid_game_id")  # ty: ignore # INTENTIONAL
 
-    def test_understand_game_team_not_implemented(self, mock_dates, mock_pbp):
-        """by='game-team' raises NotImplementedError."""
-        res = sim_games(2024, 1, n=5)
-        with pytest.raises(NotImplementedError):
-            understand(res, by="game-team")
+    def test_understand_game_team(self, mock_dates, mock_pbp):
+        """by='game-team' returns per-team aggregates across simulations."""
+        res: GameSims = sim_games("2024_01_KC_BAL", n=5)
+        team_stats = understand(res, by="game-team")
+        assert isinstance(team_stats, pl.DataFrame)
+        # Should have 2 rows (one per team)
+        assert len(team_stats) == 2
+        assert "posteam" in team_stats.columns
+        assert "touchdowns_avg" in team_stats.columns
+        assert "field_goals_avg" in team_stats.columns
+        assert "interceptions_avg" in team_stats.columns
+        assert "n_simulations" in team_stats.columns
 
 
 class TestUnderstandExamples:

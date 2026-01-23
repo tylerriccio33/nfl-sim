@@ -160,33 +160,33 @@
             <!-- Touchdowns -->
             <div class="flex justify-between items-center">
                 <span class="text-gray-400">Avg TDs</span>
-                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_avg_tds) }}</span>
-                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_avg_tds) }}</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_touchdowns_avg) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_touchdowns_avg) }}</span>
             </div>
 
             <!-- Field Goals -->
             <div class="flex justify-between items-center">
                 <span class="text-gray-400">Avg FGs</span>
-                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_avg_fgs) }}</span>
-                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_avg_fgs) }}</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_field_goals_avg) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_field_goals_avg) }}</span>
             </div>
 
             <!-- Turnovers -->
             <div class="flex justify-between items-center">
                 <span class="text-gray-400">Avg INTs</span>
-                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_avg_turnovers) }}</span>
-                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_avg_turnovers) }}</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_interceptions_avg) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_interceptions_avg) }}</span>
             </div>
 
             <!-- Game totals -->
             <div class="border-t border-gray-600 pt-1 mt-1 space-y-1">
                 <div class="flex justify-between">
                     <span class="text-gray-500">Total Plays</span>
-                    <span class="font-mono text-gray-400" colspan="2">{{ "%.0f"|format(result.avg_plays) }}</span>
+                    <span class="font-mono text-gray-400" colspan="2">{{ "%.0f"|format(result.total_plays_avg) }}</span>
                 </div>
                 <div class="flex justify-between">
                     <span class="text-gray-500">Total Drives</span>
-                    <span class="font-mono text-gray-400">{{ "%.0f"|format(result.avg_drives) }}</span>
+                    <span class="font-mono text-gray-400">{{ "%.0f"|format(result.num_drives_avg) }}</span>
                 </div>
                 <div class="flex justify-between">
                     <span class="text-gray-500">Simulations</span>

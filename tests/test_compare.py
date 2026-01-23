@@ -31,30 +31,41 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 def _build_real_nfl_games_df(pbp_data: pl.DataFrame) -> pl.DataFrame:
     """Build game-level DataFrame from play-by-play data.
 
-    Returns a DataFrame with columns matching simulation output:
-    - home_score, away_score: Final scores
-    - margin: home_score - away_score
-    - ndrives: Number of unique drives
-    - nplays: Total plays (play == 1)
-    - Event counts for each event type (e.g., n_touchdown, n_interception)
+    Returns a DataFrame with columns matching EXPR.py SIM_LEVEL_EXPRS output:
+    - home_score, away_score, margin
+    - num_drives, total_plays
+    - touchdowns, field_goals, interceptions, pick_sixes, punts, fumbles
     """
-    # Build event count aggregations using __EVENT_KEY (avoids duplicating event expressions)
-    event_aggs = [
-        pl.col("__EVENT_KEY").eq(key).sum().alias(f"n_{event_cls.__name__.lower()}")
-        for event_cls, key in EVENT_EXPR_MAP.items()
-    ]
+    from nfl_sim._event import (
+        FieldGoalSuccess,
+        FumbleLost,
+        FumbleSix,
+        Interception,
+        PickSix,
+        PuntBlocked,
+        PuntEndzone,
+        PuntRegular,
+        Touchdown,
+    )
+
+    punt_keys = [EVENT_EXPR_MAP[c] for c in (PuntBlocked, PuntEndzone, PuntRegular)]
+    fumble_keys = [EVENT_EXPR_MAP[c] for c in (FumbleSix, FumbleLost)]
 
     return (
         pbp_data.lazy()
-        # Add __EVENT_KEY if not present
         .with_columns(build_event_expr())
         .group_by("game_id")
         .agg(
             pl.col("total_home_score").max().alias("home_score"),
             pl.col("total_away_score").max().alias("away_score"),
-            pl.col("drive").n_unique().alias("ndrives"),
-            pl.col("play").eq(1).sum().alias("nplays"),
-            *event_aggs,
+            pl.col("drive").n_unique().alias("num_drives"),
+            pl.col("play").eq(1).sum().alias("total_plays"),
+            pl.col("__EVENT_KEY").eq(EVENT_EXPR_MAP[Touchdown]).sum().alias("touchdowns"),
+            pl.col("__EVENT_KEY").eq(EVENT_EXPR_MAP[FieldGoalSuccess]).sum().alias("field_goals"),
+            pl.col("__EVENT_KEY").eq(EVENT_EXPR_MAP[Interception]).sum().alias("interceptions"),
+            pl.col("__EVENT_KEY").eq(EVENT_EXPR_MAP[PickSix]).sum().alias("pick_sixes"),
+            pl.col("__EVENT_KEY").is_in(punt_keys).sum().alias("punts"),
+            pl.col("__EVENT_KEY").is_in(fumble_keys).sum().alias("fumbles"),
         )
         .drop_nulls()
         .with_columns(margin=pl.col("home_score") - pl.col("away_score"))
@@ -73,58 +84,26 @@ def _build_simulation_games_df(
     available_teams: list[str],
     n_sims_per_matchup: int = 50,
 ) -> pl.DataFrame:
-    """Run simulations and build a DataFrame matching real NFL schema.
+    """Run simulations and build a DataFrame matching EXPR.py SIM_LEVEL_EXPRS output.
 
-    Simulates multiple matchups and returns a game-level DataFrame with columns:
-    - home_score, away_score, margin
-    - ndrives, nplays
-    - Event counts (n_touchdown, n_interception, etc.)
+    Simulates multiple matchups and returns a game-level DataFrame with columns
+    matching the standard aggregation schema from EXPR.py.
     """
-    all_rows: list[dict] = []
+    from nfl_sim.EXPR import SIM_LEVEL_EXPRS
 
-    # Use up to 8 teams to simulate 4 matchups
+    all_sims: list[pl.DataFrame] = []
     teams = available_teams[:8]
+    sim_counter = 0
 
     for i in range(0, len(teams) - 1, 2):
-        home_team = teams[i]
-        away_team = teams[i + 1]
-
-        # Run simulations using the functional API
-        sims = _simulate_game(home_team, away_team, n_sims_per_matchup, pbp_data, kickoff_data)
-
-        # Extract sim-level stats for each simulation
+        sims = _simulate_game(teams[i], teams[i + 1], n_sims_per_matchup, pbp_data, kickoff_data)
         for sim in sims:
-            if len(sim) == 0:
-                continue
+            if len(sim) > 0:
+                all_sims.append(sim.with_columns(_sim_id=pl.lit(sim_counter)))
+                sim_counter += 1
 
-            # Get final scores from last play
-            last_play = sim.row(-1, named=True)
-            home_score = last_play["home_score"]
-            away_score = last_play["away_score"]
-
-            # Count events in this simulation
-            event_counts = {}
-            for event_cls in EVENT_EXPR_MAP:
-                event_name = event_cls.__name__.lower()
-                # Count plays matching this event
-                count = sim.filter(pl.col("event").str.to_lowercase() == event_name).height
-                event_counts[f"n_{event_name}"] = count
-
-            # Count drives and plays
-            ndrives = sim["drive_id"].n_unique()
-            nplays = len(sim)
-
-            row = {
-                "home_score": home_score,
-                "away_score": away_score,
-                "margin": home_score - away_score,
-                "ndrives": ndrives,
-                "nplays": nplays,
-                **event_counts,
-            }
-            all_rows.append(row)
-
-    return pl.DataFrame(all_rows)
+    combined = pl.concat(all_sims, how="vertical")
+    return combined.group_by("_sim_id").agg(*SIM_LEVEL_EXPRS).drop("_sim_id")
 
 
 # ---------------------------------------------------------------------------
@@ -208,46 +187,48 @@ GAME_STAT_CHECKS: list[StatCheck] = [
     ),
     StatCheck(
         name="drives_per_game",
-        extractor=pl.col("ndrives").mean(),
+        extractor=pl.col("num_drives").mean(),
         abs_tolerance=4,  # Allow more variation between simulation and real data
     ),
     StatCheck(
         name="drives_std",
-        extractor=pl.col("ndrives").std(),
+        extractor=pl.col("num_drives").std(),
         tolerance_low=0.3,
         tolerance_high=2.0,
     ),
     StatCheck(
         name="plays_per_game",
-        extractor=pl.col("nplays").mean(),
+        extractor=pl.col("total_plays").mean(),
         abs_tolerance=10,  # Average should definitely not be more than 10
     ),
     StatCheck(
         name="plays_std",
-        extractor=pl.col("nplays").std(),
+        extractor=pl.col("total_plays").std(),
         tolerance_low=0.3,
         tolerance_high=2.0,
     ),
 ]
 
-# Event-based stat checks (dynamically built from EVENT_EXPR_MAP)
-# These check average occurrences per game for each event type
+# Event-based stat checks using EXPR.py column names
+# These check average occurrences and std per game for each event type
+_EVENT_COLUMNS = ["touchdowns", "field_goals", "interceptions", "pick_sixes", "punts", "fumbles"]
+
 EVENT_STAT_CHECKS: list[StatCheck] = [
     StatCheck(
-        name=f"{event_cls.__name__.lower()}_avg",
-        extractor=pl.col(f"n_{event_cls.__name__.lower()}").mean(),
+        name=f"{col}_avg",
+        extractor=pl.col(col).mean(),
         tolerance_low=0.3,  # Events are relatively rare, allow wide tolerance
         tolerance_high=2.0,
     )
-    for event_cls in EVENT_EXPR_MAP
+    for col in _EVENT_COLUMNS
 ] + [
     StatCheck(
-        name=f"{event_cls.__name__.lower()}_std",
-        extractor=pl.col(f"n_{event_cls.__name__.lower()}").std(),
+        name=f"{col}_std",
+        extractor=pl.col(col).std(),
         tolerance_low=0.2,
         tolerance_high=3.0,
     )
-    for event_cls in EVENT_EXPR_MAP
+    for col in _EVENT_COLUMNS
 ]
 
 # Combined list for parametrized tests
