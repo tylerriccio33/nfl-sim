@@ -43,24 +43,26 @@ def _extract_stats_from_sims(
     All column names come directly from EXPR.py definitions.
     """
     game_stats = understand(sims)
-    team_stats = understand(sims, by="game-team")
+    team_pair = understand(sims, by="game-team")
 
-    # Game-level row (single row from GAME_LEVEL_EXPRS)
-    game_row = game_stats.row(0, named=True)
+    # Team-level stats: tuple is sorted alphabetically by team name.
+    # Match elements to home/away based on sorted order.
+    sorted_teams = sorted([home, away])
+    if home == sorted_teams[0]:
+        home_team_aggs, away_team_aggs = team_pair
+    else:
+        away_team_aggs, home_team_aggs = team_pair
 
-    # Team-level stats: filter by posteam and prefix with home_/away_
-    home_team_row = team_stats.filter(pl.col("posteam") == home).row(0, named=True)
-    away_team_row = team_stats.filter(pl.col("posteam") == away).row(0, named=True)
+    # Build prefixed team stats (skip n_simulations)
+    skip_keys = {"n_simulations"}
+    home_prefixed = {
+        f"home_{k}": v for k, v in home_team_aggs._asdict().items() if k not in skip_keys
+    }
+    away_prefixed = {
+        f"away_{k}": v for k, v in away_team_aggs._asdict().items() if k not in skip_keys
+    }
 
-    # Build prefixed team stats (skip posteam and n_simulations keys)
-    team_keys = {"posteam", "n_simulations"}
-    home_prefixed = {f"home_{k}": v for k, v in home_team_row.items() if k not in team_keys}
-    away_prefixed = {f"away_{k}": v for k, v in away_team_row.items() if k not in team_keys}
-
-    # Derive individual results from the raw lists in game_row
-    home_scores = game_row["home_scores"]
-    away_scores = game_row["away_scores"]
-    margins = game_row["margins"]
+    # Derive individual results from the raw lists
     individual_results = [
         {
             "home_score": hs,
@@ -68,37 +70,36 @@ def _extract_stats_from_sims(
             "home_win": hs > aws,
             "margin": m,
         }
-        for hs, aws, m in zip(home_scores, away_scores, margins)
+        for hs, aws, m in zip(game_stats.home_scores, game_stats.away_scores, game_stats.margins)
     ]
 
-    # Ensure int for min/max and float for std (handles None from single-sim edge cases)
     return {
         "home_team": home,
         "away_team": away,
-        "n_simulations": game_row["n_simulations"],
-        "home_win_pct": game_row["home_win_pct"],
-        "away_win_pct": game_row["away_win_pct"],
-        "tie_pct": game_row["tie_pct"],
-        "home_score_avg": game_row["home_score_avg"],
-        "home_score_min": int(game_row["home_score_min"]),
-        "home_score_max": int(game_row["home_score_max"]),
-        "home_score_std": game_row["home_score_std"] or 0.0,
-        "away_score_avg": game_row["away_score_avg"],
-        "away_score_min": int(game_row["away_score_min"]),
-        "away_score_max": int(game_row["away_score_max"]),
-        "away_score_std": game_row["away_score_std"] or 0.0,
-        "margin_avg": game_row["margin_avg"],
-        "margin_min": int(game_row["margin_min"]),
-        "margin_max": int(game_row["margin_max"]),
-        "margin_std": game_row["margin_std"] or 0.0,
-        "num_drives_avg": game_row["num_drives_avg"],
-        "total_plays_avg": game_row["total_plays_avg"],
+        "n_simulations": game_stats.n_simulations,
+        "home_win_pct": game_stats.home_win_pct,
+        "away_win_pct": game_stats.away_win_pct,
+        "tie_pct": game_stats.tie_pct,
+        "home_score_avg": game_stats.home_score_avg,
+        "home_score_min": int(game_stats.home_score_min),
+        "home_score_max": int(game_stats.home_score_max),
+        "home_score_std": game_stats.home_score_std or 0.0,
+        "away_score_avg": game_stats.away_score_avg,
+        "away_score_min": int(game_stats.away_score_min),
+        "away_score_max": int(game_stats.away_score_max),
+        "away_score_std": game_stats.away_score_std or 0.0,
+        "margin_avg": game_stats.margin_avg,
+        "margin_min": int(game_stats.margin_min),
+        "margin_max": int(game_stats.margin_max),
+        "margin_std": game_stats.margin_std or 0.0,
+        "num_drives_avg": game_stats.num_drives_avg,
+        "total_plays_avg": game_stats.total_plays_avg,
         **home_prefixed,
         **away_prefixed,
         "individual_results": individual_results,
-        "margins": margins,
-        "home_scores": home_scores,
-        "away_scores": away_scores,
+        "margins": list(game_stats.margins),
+        "home_scores": list(game_stats.home_scores),
+        "away_scores": list(game_stats.away_scores),
     }
 
 

@@ -11,7 +11,7 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from nfl_sim import sim_games
+from nfl_sim import sim_games, understand
 from nfl_sim._sampling import PartitionedSampleData, build_sample_data
 from nfl_sim.game import SingleGame
 
@@ -54,7 +54,7 @@ NFL_TEAMS = [
 ]
 
 
-# TODO: Remove this so we can use the functional API
+# TODO: Remove this so we can use the functional API?
 def create_game(pbp_data: pl.DataFrame, home_team: str, away_team: str) -> SingleGame:
     """Create a game instance with given teams."""
     home_samples: PartitionedSampleData = build_sample_data(pbp_data, team=home_team)
@@ -93,12 +93,15 @@ def test_scores_are_reasonable(pbp_data: pl.DataFrame, home_idx: int, away_idx: 
     game = create_game(pbp_data, home_team, away_team)
     game.play_game()
 
-    total_score = game.home_score + game.away_score
+    res = understand(game.game_data)
+    home_score = res.home_score_avg
+    away_score = res.away_score_avg
+    total_score = home_score + away_score
 
-    assert game.home_score >= 0, f"Home score negative: {game.home_score}"
-    assert game.away_score >= 0, f"Away score negative: {game.away_score}"
-    assert game.home_score <= 80, f"Home score unrealistic: {game.home_score}"
-    assert game.away_score <= 80, f"Away score unrealistic: {game.away_score}"
+    assert home_score >= 0, f"Home score negative: {home_score}"
+    assert away_score >= 0, f"Away score negative: {away_score}"
+    assert home_score <= 80, f"Home score unrealistic: {home_score}"
+    assert away_score <= 80, f"Away score unrealistic: {away_score}"
     assert total_score <= 120, f"Combined score unrealistic: {total_score}"
 
 
@@ -137,7 +140,9 @@ def test_drive_count_is_reasonable(pbp_data: pl.DataFrame, home_idx: int, away_i
     game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
 
-    drive_count = game.num_drives
+    res = understand(game.game_data)
+    drive_count = res.num_drives_avg
+
     assert drive_count >= 8, f"Too few drives: {drive_count}"
     assert drive_count <= 30, f"Too many drives: {drive_count}"
 
@@ -497,4 +502,4 @@ def test_kickoff_return_never_in_opponent_redzone(kick_distance: int, return_yar
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-sv"])
+    pytest.main([__file__, "-sv", "-k", "test_drive_count_is_reasonable"])

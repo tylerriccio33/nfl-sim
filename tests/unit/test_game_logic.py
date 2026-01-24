@@ -343,67 +343,40 @@ def test_safety_receiving_team_starts_at_own_25(make_play_dict, game: SingleGame
     assert game._engine.yardline == 75
 
 
-# Drive tracking tests
+class TestNormalPlay:
+    """Test the normal plays make sense."""
 
+    def test_normal_play_no_possession_change(self, make_play_dict, game: SingleGame):
+        """Normal gain should not change possession."""
+        initial_posteam = game._posteam
+        play = make_play_dict(yards_gained=5)
 
-def test_drive_recorded_after_touchdown(make_play_dict, game: SingleGame):
-    """Drive should be recorded after touchdown."""
-    assert game.num_drives == 0
+        process_play(game, play)
 
-    play = make_play_dict(yards_gained=75, event_key=EVENT_EXPR_MAP[Touchdown])
-    process_play(game, play)
+        assert game._posteam == initial_posteam
 
-    # After TD: drive 0 completed, now on drive 1 = 2 total drives
-    assert game.num_drives == 2
+    def test_normal_play_advances_yardline(self, make_play_dict, game: SingleGame):
+        """Normal play should advance yardline (decrease yardline_100)."""
+        # Start at opponent's 25 (red zone) = yardline_100 of 25
+        game._engine.yardline = 25
+        play = make_play_dict(yards_gained=10)
 
+        process_play(game, play)
 
-def test_multiple_drives_recorded(make_play_dict, game: SingleGame):
-    """Multiple drives should be tracked."""
-    # TD - ends drive 0, starts drive 1
-    process_play(game, make_play_dict(yards_gained=75, event_key=EVENT_EXPR_MAP[Touchdown]))
-    # INT - ends drive 1, starts drive 2
-    process_play(game, make_play_dict(yards_gained=-5, event_key=EVENT_EXPR_MAP[Interception]))
+        # Gained 10 yards toward endzone: 25 - 10 = 15 yards from endzone
+        assert game._engine.yardline == 15
 
-    # 3 total drives: 0 (TD), 1 (INT), 2 (in progress)
-    assert game.num_drives == 3
+    def test_first_down_resets_distance(self, make_play_dict, game: SingleGame):
+        """Gaining enough yards should reset to 1st and 10."""
+        game._engine.down = 2
+        game._engine.dist = 5
+        play = make_play_dict(yards_gained=8)  # More than needed
 
+        process_play(game, play)
 
-# Normal play tests (no turnover)
-
-
-def test_normal_play_no_possession_change(make_play_dict, game: SingleGame):
-    """Normal gain should not change possession."""
-    initial_posteam = game._posteam
-    play = make_play_dict(yards_gained=5)
-
-    process_play(game, play)
-
-    assert game._posteam == initial_posteam
-
-
-def test_normal_play_advances_yardline(make_play_dict, game: SingleGame):
-    """Normal play should advance yardline (decrease yardline_100)."""
-    # Start at opponent's 25 (red zone) = yardline_100 of 25
-    game._engine.yardline = 25
-    play = make_play_dict(yards_gained=10)
-
-    process_play(game, play)
-
-    # Gained 10 yards toward endzone: 25 - 10 = 15 yards from endzone
-    assert game._engine.yardline == 15
-
-
-def test_first_down_resets_distance(make_play_dict, game: SingleGame):
-    """Gaining enough yards should reset to 1st and 10."""
-    game._engine.down = 2
-    game._engine.dist = 5
-    play = make_play_dict(yards_gained=8)  # More than needed
-
-    process_play(game, play)
-
-    assert game._engine.down == 1
-    assert game._engine.dist == 10
+        assert game._engine.down == 1
+        assert game._engine.dist == 10
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    pytest.main([__file__, "-k", "test_drive_recorded_after_touchdown"])

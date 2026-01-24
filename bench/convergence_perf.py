@@ -73,10 +73,9 @@ def run_convergence_benchmark() -> pl.DataFrame:
             home_team, away_team, n=n_sims, pbp_data=pbp_data, kickoff_data=kickoff_data
         )
         stats = understand(sims)
-        row = stats.row(0, named=True)
 
-        avg_margin = row["margin_avg"]
-        margin_std = row["margin_std"] or 0.0
+        avg_margin = stats.margin_avg
+        margin_std = stats.margin_std or 0.0
 
         # Calculate change from previous
         margin_change = abs(avg_margin - prev_margin) if prev_margin is not None else 0.0

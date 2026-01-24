@@ -94,10 +94,9 @@ def run_accuracy_benchmark(
         game_id: str = game["game_id"]
         sims = sim_games(game_id, n=n_sims_per_game)
         stats = understand(sims)
-        row = stats.row(0, named=True)
 
         # Model prediction (home margin)
-        pred_diff = row["home_score_avg"] - row["away_score_avg"]
+        pred_diff = stats.home_score_avg - stats.away_score_avg
         # Vegas prediction: spread_line negative = home favored
         vegas_diff = spread
 

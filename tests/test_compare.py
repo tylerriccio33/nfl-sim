@@ -415,12 +415,14 @@ def test_prediction_stability(
     sims1 = _simulate_game(home_team, away_team, 200, game_data, kickoff_data)
     sims2 = _simulate_game(home_team, away_team, 200, game_data, kickoff_data)
 
-    # Get game-level stats for each
+    # Get game-level stats for each (returns GameAggs namedtuple)
     stats1 = understand(sims1)
     stats2 = understand(sims2)
 
-    row1 = stats1.row(0, named=True)
-    row2 = stats2.row(0, named=True)
+    row1 = stats1._asdict()
+    row2 = stats2._asdict()
+
+    # TODO: This is a jacked up usage of understand return.
 
     # Compare key metrics - they should be within reasonable tolerance
     tol_map = {

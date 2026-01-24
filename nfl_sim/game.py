@@ -20,6 +20,7 @@ from nfl_sim._event import (
 )
 from nfl_sim._kickoff import KickoffSampleData, sample_kickoff
 from nfl_sim._sampling import PartitionedSampleData, PlayRowDict, fetch_like_play
+from nfl_sim.EXPR import _PLAY_AGG_EXPRS
 from nfl_sim.play import GameEngine, PlayRecord
 
 if TYPE_CHECKING:
@@ -53,13 +54,15 @@ class SingleGame:
         self._team_order: tuple[str, str] = (home_team, away_team)
         self._posteam, self._defteam = self._team_order
         self._posteam_score, self._defteam_score = 0, 0
+        # TODO: Do we need this? Isn't it traced by engine?
 
         # Flat list of all plays with full context
         self._plays: list[PlayRecord] = []
-        self._current_drive_id: int = 0
+        self._current_drive_id: int = 0  # TODO: Do we need this?
         self._game_data: pl.DataFrame | None = None  # initialize this because we use a cache later
 
         # Track per-team events (for team-level stats)
+        # TODO: Do we need this?
         self._home_events: dict[str, int] = {}
         self._away_events: dict[str, int] = {}
 
@@ -342,36 +345,9 @@ class SingleGame:
         )
         return self._game_data
 
-    # TODO: Get rid of all of these in favor of `understand`
-    @property
-    def num_drives(self) -> int:
-        """Number of drives in the game (including current in-progress drive)."""
-        if not self._plays:
-            return 0
-        # Drive IDs are 0-indexed, so add 1 to get the count
-        return self._current_drive_id + 1
-
-    @property
-    def home_score(self) -> int:
-        """Get home team's final score."""
-        home = self._team_order[0]
-        if self._posteam == home:
-            return self._posteam_score
-        return self._defteam_score
-
-    @property
-    def away_score(self) -> int:
-        """Get away team's final score."""
-        home = self._team_order[0]
-        if self._posteam == home:
-            return self._defteam_score
-        return self._posteam_score
-
     @property
     def event_counts(self) -> dict[str, int]:
         """Count occurrences of each event type from game data."""
-        from nfl_sim.EXPR import _PLAY_AGG_EXPRS
-
         row = self.game_data.select(*_PLAY_AGG_EXPRS).row(0, named=True)
         event_keys = {
             "touchdowns",
@@ -384,13 +360,3 @@ class SingleGame:
             "safeties",
         }
         return {k: int(v) for k, v in row.items() if k in event_keys}
-
-    @property
-    def home_event_counts(self) -> dict[str, int]:
-        """Get event counts for the home team."""
-        return self._home_events.copy()
-
-    @property
-    def away_event_counts(self) -> dict[str, int]:
-        """Get event counts for the away team."""
-        return self._away_events.copy()

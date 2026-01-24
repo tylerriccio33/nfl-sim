@@ -1,40 +1,41 @@
 
 server: ## Run the Web Server
-	@uv run nfl-sim server
+	@uv run --no-sync nfl-sim server
 
 lint: ## Run ruff and typer
-	@uv run ruff check --fix
-	@uv run ruff format
-	@uv run ty check
-	@uv run complexipy src --quiet
+	@uv run --no-sync ruff check --fix
+	@uv run --no-sync ruff format
+	@uv run --no-sync ty check
+	@uv run --no-sync complexipy src --quiet
 
 build: ## Run maturin develop
 	@uv run maturin develop --release
 
-run: ## Run the program
-	@uv run nfl-sim run-week
+types: ## Generate type stubs for aggregation types
+	@uv run --no-sync python scripts/gen_agg_stubs.py
 
 test: ## Run tests
-	@uv run pytest \
+	@uv run --no-sync pytest \
 		--cov nfl_sim \
-		--cov-report term-missing
+		--cov-report term-missing \
+		--durations 10
 
 load-dictionaries: ## Download data dictionaries
 	@curl -L -o dictionary/pbp.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_pbp.csv
 	@curl -L -o dictionary/dc.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_depth_charts.csv
 
 bench-time: ## Run performance benchmarks for time
-	@uv run bench/time_perf.py
+	@uv run --no-sync bench/time_perf.py
 
 bench-profile: ## Run line profiler on single game
 	@uv run python bench/profile_time.py > bench/profile_results.txt
 	@echo "Profile results written to bench/profile_results.txt"
 	
 bench-results: ## Run performance of results against real
-	@uv run bench/accuracy_perf.py
+	@uv run --no-sync bench/accuracy_perf.py
 
 bench-converge: ## Run convergence benchmark
-	@uv run bench/convergence_perf.py
+	@uv run --no-sync bench/convergence_perf.py
 
 train-wp-model: ## Run the model training script for WP model
 	@uv run model/wp_model_train.py

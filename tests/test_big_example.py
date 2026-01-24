@@ -86,16 +86,15 @@ class TestUnderstandSingleGame:
     """Tests for understand() with a single game (GameSims input)."""
 
     def test_understand_single_game_no_by(self, mock_dates, mock_pbp):
-        """understand() with GameSims and no by returns game-level aggregates."""
+        """understand() with GameSims and no by returns GameAggs namedtuple."""
+        from nfl_sim._agg_types import GameAggs
+
         res: GameSims = sim_games("2024_01_KC_BAL", n=5)
         stats = understand(res)
-        assert isinstance(stats, pl.DataFrame)
-        assert len(stats) == 1
-        # Should not have game_id column (dropped for single game)
-        assert "game_id" not in stats.columns
-        # Should have game-level aggregate columns
-        assert "home_win_pct" in stats.columns
-        assert "home_score_avg" in stats.columns
+        assert isinstance(stats, GameAggs)
+        # Should have game-level aggregate fields
+        assert hasattr(stats, "home_win_pct")
+        assert hasattr(stats, "home_score_avg")
 
 
 class TestUnderstandErrors:
@@ -111,20 +110,22 @@ class TestUnderstandErrors:
         """Invalid game_id in by raises KeyError."""
         res = sim_games(2024, 1, n=5)
         with pytest.raises(KeyError, match="not found"):
-            understand(res, by="invalid_game_id")  # ty: ignore # INTENTIONAL
+            understand(res, by="invalid_game_id")
 
     def test_understand_game_team(self, mock_dates, mock_pbp):
-        """by='game-team' returns per-team aggregates across simulations."""
+        """by='game-team' returns tuple of TeamAggs for single game."""
+        from nfl_sim._agg_types import TeamAggs
+
         res: GameSims = sim_games("2024_01_KC_BAL", n=5)
         team_stats = understand(res, by="game-team")
-        assert isinstance(team_stats, pl.DataFrame)
-        # Should have 2 rows (one per team)
+        assert isinstance(team_stats, tuple)
         assert len(team_stats) == 2
-        assert "posteam" in team_stats.columns
-        assert "touchdowns_avg" in team_stats.columns
-        assert "field_goals_avg" in team_stats.columns
-        assert "interceptions_avg" in team_stats.columns
-        assert "n_simulations" in team_stats.columns
+        assert isinstance(team_stats[0], TeamAggs)
+        assert isinstance(team_stats[1], TeamAggs)
+        assert hasattr(team_stats[0], "touchdowns_avg")
+        assert hasattr(team_stats[0], "field_goals_avg")
+        assert hasattr(team_stats[0], "interceptions_avg")
+        assert hasattr(team_stats[0], "n_simulations")
 
 
 class TestUnderstandExamples:
@@ -133,20 +134,15 @@ class TestUnderstandExamples:
     def test_single_game(self, rand_game: GameSims):
         game_stats = understand(rand_game)
 
-        # Get me ndrives average, ypp avg, max interceptions for each team
-        ndrives_avg = game_stats["num_drives_avg"].to_list()[0]
-        ypp_avg = game_stats["yards_per_play_avg"].to_list()[0]
-        int_max = game_stats["interceptions_max"].to_list()[0]
+        # Access fields directly via namedtuple attributes
+        assert game_stats.num_drives_avg > 10
+        assert game_stats.num_drives_avg < 30
 
-        # Use heuristics to check, we just need this to look normal
-        assert ndrives_avg > 10
-        assert ndrives_avg < 30
+        assert game_stats.yards_per_play_avg > 3
+        assert game_stats.yards_per_play_avg < 9
 
-        assert ypp_avg > 3
-        assert ypp_avg < 9
-
-        assert int_max > -1  # only 2 sims, it's reasonable for there to be 0
-        assert int_max < 5
+        assert game_stats.interceptions_max > -1  # only 2 sims, reasonable for 0
+        assert game_stats.interceptions_max < 5
 
 
 if __name__ == "__main__":

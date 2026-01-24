@@ -207,7 +207,6 @@ def test_game_init(game_with_samples: SingleGame):
     assert game_with_samples._defteam == "BUF"
     assert game_with_samples._posteam_score == 0
     assert game_with_samples._defteam_score == 0
-    assert game_with_samples.num_drives == 0
 
 
 def test_team_order_tuple(game_with_samples: SingleGame):
