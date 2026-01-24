@@ -20,7 +20,6 @@ from nfl_sim._event import (
 )
 from nfl_sim._kickoff import KickoffSampleData, sample_kickoff
 from nfl_sim._sampling import PartitionedSampleData, PlayRowDict, fetch_like_play
-from nfl_sim.EXPR import _PLAY_AGG_EXPRS
 from nfl_sim.play import GameEngine, PlayRecord
 
 if TYPE_CHECKING:
@@ -326,6 +325,7 @@ class SingleGame:
         """Convert plays to DataFrame with realistic PBP structure."""
         if self._game_data is not None:
             return self._game_data
+        # TODO: This should be more centrally defined and tracked
         self._game_data = pl.DataFrame(
             {
                 "down": [p.down for p in self._plays],
@@ -344,19 +344,3 @@ class SingleGame:
             }
         )
         return self._game_data
-
-    @property
-    def event_counts(self) -> dict[str, int]:
-        """Count occurrences of each event type from game data."""
-        row = self.game_data.select(*_PLAY_AGG_EXPRS).row(0, named=True)
-        event_keys = {
-            "touchdowns",
-            "field_goals",
-            "interceptions",
-            "pick_sixes",
-            "punts",
-            "turnovers_on_downs",
-            "fumbles",
-            "safeties",
-        }
-        return {k: int(v) for k, v in row.items() if k in event_keys}

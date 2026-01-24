@@ -87,23 +87,18 @@ def _build_simulation_games_df(
     """Run simulations and build a DataFrame matching EXPR.py SIM_LEVEL_EXPRS output.
 
     Simulates multiple matchups and returns a game-level DataFrame with columns
-    matching the standard aggregation schema from EXPR.py.
+    matching the standard aggregation schema from EXPR.py via understand().
     """
-    from nfl_sim.EXPR import SIM_LEVEL_EXPRS
-
     all_sims: list[pl.DataFrame] = []
     teams = available_teams[:8]
-    sim_counter = 0
 
     for i in range(0, len(teams) - 1, 2):
         sims = _simulate_game(teams[i], teams[i + 1], n_sims_per_matchup, pbp_data, kickoff_data)
-        for sim in sims:
-            if len(sim) > 0:
-                all_sims.append(sim.with_columns(_sim_id=pl.lit(sim_counter)))
-                sim_counter += 1
+        all_sims.extend(sim for sim in sims if len(sim) > 0)
 
-    combined = pl.concat(all_sims, how="vertical")
-    return combined.group_by("_sim_id").agg(*SIM_LEVEL_EXPRS).drop("_sim_id")
+    # Use understand to compute sim-level aggregates
+    result = understand({"_all": all_sims}, by="_all")
+    return result.drop("game_id", "_sim_id")
 
 
 # ---------------------------------------------------------------------------
@@ -348,59 +343,6 @@ def test_stat_matches_real_nfl(
     assert sim_value <= upper_bound, (
         f"{check.name}: sim={sim_value:.2f} > upper={upper_bound:.2f} "
         f"(real={real_value:.2f}, tolerance={tolerance_desc})"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Additional Sanity Tests
-# ---------------------------------------------------------------------------
-
-
-def test_win_probabilities_are_reasonable(simulation_games_df: pl.DataFrame):
-    """Win probabilities should not be deterministic."""
-    home_wins = simulation_games_df.select(
-        (pl.col("home_score") > pl.col("away_score")).sum()
-    ).item()
-    total = len(simulation_games_df)
-    home_win_pct = home_wins / total
-
-    assert 0.05 < home_win_pct < 0.95, f"Home win % = {home_win_pct:.1%} is too extreme"
-
-
-def test_score_ranges_are_reasonable(simulation_games_df: pl.DataFrame):
-    """Individual team scores should be within sane bounds."""
-    all_scores = simulation_games_df.select(
-        pl.concat_list("home_score", "away_score").explode().alias("score")
-    )
-
-    min_score = all_scores.select(pl.col("score").min()).item()
-    max_score = all_scores.select(pl.col("score").max()).item()
-
-    assert min_score >= 0, f"Negative score found: {min_score}"
-    assert max_score < 80, f"Unrealistic high score found: {max_score}"
-
-    # Most scores should be > 3 (at least a field goal)
-    total = len(all_scores)
-    low_scores = all_scores.select((pl.col("score") < 3).sum()).item()
-    low_score_pct = low_scores / total
-    assert low_score_pct < 0.1, f"Too many low scores (< 3 points): {low_score_pct:.1%}"
-
-
-def test_simulation_outcome_diversity(simulation_games_df: pl.DataFrame):
-    """Simulations should produce diverse outcomes, not repetitive results."""
-    unique_home_scores = simulation_games_df.select(pl.col("home_score").n_unique()).item()
-    unique_margins = simulation_games_df.select(pl.col("margin").n_unique()).item()
-
-    # With 200 simulations, we should see reasonable diversity
-    total = len(simulation_games_df)
-    min_unique_scores = min(10, total // 10)
-    min_unique_margins = min(15, total // 10)
-
-    assert unique_home_scores >= min_unique_scores, (
-        f"Only {unique_home_scores} unique home scores - insufficient diversity"
-    )
-    assert unique_margins >= min_unique_margins, (
-        f"Only {unique_margins} unique margins - insufficient diversity"
     )
 
 

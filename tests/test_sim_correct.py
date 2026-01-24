@@ -163,20 +163,18 @@ def test_yards_gained_stats_reasonable(
     game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
     game.play_game()
 
+    # Check individual play bounds
     play_games = game.game_data
-
     yards = play_games["yards_gained"].to_list()
-
     for yard in yards:
         if yard is not None:
             assert yard >= -40, f"Unrealistic loss: {yard}"
             assert yard <= 110, f"Unrealistic gain: {yard}"
 
-    valid_yards = [y for y in yards if y is not None]
-    if valid_yards:
-        avg_ypp = sum(valid_yards) / len(valid_yards)
-        assert avg_ypp >= -5, f"Average YPP too negative: {avg_ypp}"
-        assert avg_ypp <= 15, f"Average YPP unrealistic: {avg_ypp}"
+    # Check average via understand
+    res = understand(game.game_data)
+    assert res.yards_per_play_avg >= -5, f"Average YPP too negative: {res.yards_per_play_avg}"
+    assert res.yards_per_play_avg <= 15, f"Average YPP unrealistic: {res.yards_per_play_avg}"
 
 
 def test_pbp_data_has_required_columns(pbp_data: pl.DataFrame) -> None:
@@ -339,25 +337,6 @@ def test_no_excessive_play_repetition(pbp_data: pl.DataFrame, home_idx: int, awa
         f"Some plays selected too many times (max allowed: {max_repetitions}): "
         f"{[(desc[:60] + '...', count) for desc, count in list(violations.items())[:3]]}"
     )
-
-
-@given(
-    home_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
-    away_idx=st.integers(min_value=0, max_value=len(NFL_TEAMS) - 1),
-)
-@settings(
-    max_examples=5,
-    deadline=None,
-    suppress_health_check=[HealthCheck.too_slow],
-)
-def test_event_counter_no_error(pbp_data: pl.DataFrame, home_idx: int, away_idx: int):
-    game = create_game(pbp_data, NFL_TEAMS[home_idx], NFL_TEAMS[away_idx])
-    game.play_game()
-
-    counts = game.event_counts
-
-    # TODO: Check all the events are there
-    # TODO: Check there are no None, it's a 0 if anything
 
 
 def test_rand_game(pbp_data: pl.DataFrame) -> None:
