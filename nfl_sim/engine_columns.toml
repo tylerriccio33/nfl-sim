@@ -50,20 +50,3 @@ columns = [
     "__rusher_dc_pos",
     "__rusher_dc_rank",
 ]
-
-
-
-# # Columns for event detection (__EVENT_KEY computation)
-# # These feed into build_event_expr() in _event.py
-# [event_detection]
-# columns = [
-#     "touchdown",
-#     "interception",
-#     "return_touchdown",
-#     "fumble_lost",
-#     "field_goal_result",
-#     "punt_attempt",
-#     "punt_blocked",
-#     "punt_in_endzone",
-#     "kick_distance",  # Used by PuntRegular.get_new_yardline()
-# ]

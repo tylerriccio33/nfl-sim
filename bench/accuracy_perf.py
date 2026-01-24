@@ -32,7 +32,6 @@ def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> Sche
     schedule_df = ScheduleData.from_season(seasons).df
 
     # Filter to completed regular season games with results
-    # Use min_season to avoid old team codes (STL, SD, OAK) not in play-by-play data
     # Require spread_line for comparison against Vegas
     completed = schedule_df.filter(
         pl.col("result").is_not_null(),
@@ -46,6 +45,7 @@ def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> Sche
     if len(completed) > n_games:
         completed = completed.sample(n_games)
 
+    logger.info(f"Found {len(completed)} viable games to test against.")
     return ScheduleData(completed)
 
 
@@ -120,6 +120,7 @@ def run_accuracy_benchmark(
     n_games = len(results_df)
 
     # RMSE: model vs vegas prediction error
+    # TODO: Use polars for this this
     model_errors = results_df["actual_margin"] - results_df["pred_differential"]
     vegas_errors = results_df["actual_margin"] - results_df["vegas_differential"]
     model_mse = float((model_errors**2).mean())  # type: ignore[operator]
@@ -136,6 +137,8 @@ def run_accuracy_benchmark(
     vegas_wp = vegas_correct / n_non_ties if n_non_ties > 0 else 0.0
 
     # ATS: model picks vs spread (exclude pushes)
+    # TODO: Use polars for all of this
+    # TODO: Column for model resid, vegas resid and dist between model and vegas (in sample results)
     actual_vs_spread = results_df["actual_margin"] - results_df["vegas_differential"]
     non_pushes = results_df.filter(actual_vs_spread != 0)
     n_ats = len(non_pushes)
@@ -174,7 +177,8 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
     console.print(metrics_table)
 
     # Sample results
-    sample_size = min(20, len(results_df))
+    sample_size_min = 50
+    sample_size = min(sample_size_min, len(results_df))
     samples_table = Table(title=f"Sample Results (First {sample_size})")
     samples_table.add_column("Home", style="cyan")
     samples_table.add_column("Away", style="cyan")

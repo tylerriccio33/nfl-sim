@@ -250,5 +250,36 @@ class TestRoutes:
         assert "Avg INTs" in html
 
 
+class TestStorage:
+    """Tests for storage save/load round-trip."""
+
+    def test_save_and_load_stats(self, mock_storage):
+        stats = {"foo": "bar", "n": 10}
+        storage.save_simulation("TEST_BATCH", [], stats)
+        loaded = storage.load_stats("TEST_BATCH")
+        assert loaded == stats
+
+    def test_load_stats_missing(self, mock_storage):
+        assert storage.load_stats("NONEXISTENT") is None
+
+    def test_load_pbp_missing(self, mock_storage):
+        assert storage.load_pbp("NONEXISTENT", 0) is None
+
+    def test_sim_count_empty(self, mock_storage):
+        assert storage.get_sim_count("NONEXISTENT") == 0
+
+    def test_sim_count_after_save(self, mock_storage):
+        sims = [pl.DataFrame({"x": [i]}) for i in range(3)]
+        storage.save_simulation("BATCH_3", sims, {})
+        assert storage.get_sim_count("BATCH_3") == 3
+
+    def test_pbp_round_trip(self, mock_storage):
+        df = pl.DataFrame({"col_a": [1, 2, 3], "col_b": ["a", "b", "c"]})
+        storage.save_simulation("RT_BATCH", [df], {})
+        loaded = storage.load_pbp("RT_BATCH", 0)
+        assert loaded is not None
+        assert loaded.equals(df)
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
