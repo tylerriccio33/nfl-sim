@@ -42,6 +42,10 @@ def understand(target: GameSims | PBP, *, by: Literal["game"] | None = ...) -> G
 
 
 @overload
+def understand(target: GameSims | PBP, *, by: Literal["all"] | None = ...) -> GameAggs: ...
+
+
+@overload
 def understand(
     target: dict[GameId, GameSims],
     *,
@@ -52,7 +56,7 @@ def understand(
 def understand(
     target: dict[GameId, GameSims] | GameSims | PBP,
     *,
-    by: Literal["game-team", "game"] | GameId | None = None,
+    by: Literal["game-team", "game", "all"] | GameId | None = None,
 ) -> Aggs | GameAggs | tuple[TeamAggs, TeamAggs]:
     """Analyze simulation results at various aggregation levels.
 
@@ -87,7 +91,9 @@ def understand(
         sim_stats = understand(results, by=game_id)
 
     """
+    assert len(target) > 0, "No targets passed to `understand`."
     # Normalize input: wrap single-game GameSims in dict
+    # TODO: set a debug to determine the path of the target
     if isinstance(target, list):
         games = {"_single": target}
         target_code = _TARGET_CODE.SINGLE_GAME
@@ -95,6 +101,7 @@ def understand(
         games = target
         target_code = _TARGET_CODE.MULT_GAME
     elif isinstance(target, pl.DataFrame):
+        # TODO: If there is PBP for mult games, split them up
         games = {"_single": [target]}
         target_code = _TARGET_CODE.SINGLE_SIM
     else:
@@ -113,7 +120,17 @@ def understand(
 
     all_plays = pl.concat(combined, how="vertical")
 
-    # Handle different aggregation levels based on `by` parameter
+    # Reduce by sim, game and then all:
+    if by == "all":
+        result = (
+            all_plays.group_by("game_id", "_sim_id")
+            .agg(*SIM_LEVEL_EXPRS)
+            .select(GAME_LEVEL_EXPRS)
+            .row(0, named=True)
+        )
+        return GameAggs(**result)
+
+    # Group by all at the same time:
     if by == "game-team":
         result = (
             all_plays.group_by("game_id", "_sim_id", "posteam")

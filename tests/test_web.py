@@ -5,33 +5,9 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import polars as pl
-import pytest
 
-from nfl_sim.web import create_app, storage
+from nfl_sim.web import storage
 from nfl_sim.web.routes import _compute_histogram
-
-
-@pytest.fixture
-def app():
-    """Create test app instance."""
-    app = create_app()
-    app.config["TESTING"] = True
-    return app
-
-
-@pytest.fixture
-def client(app):
-    """Flask test client."""
-    return app.test_client()
-
-
-@pytest.fixture
-def mock_storage(tmp_path):
-    """Mock storage to use a temp directory."""
-    original_storage_dir = storage.STORAGE_DIR
-    storage.STORAGE_DIR = tmp_path
-    yield tmp_path
-    storage.STORAGE_DIR = original_storage_dir
 
 
 class TestComputeHistogram:
@@ -61,16 +37,13 @@ class TestComputeHistogram:
 
     def test_negative_values(self):
         result = _compute_histogram([-14, -7, 0, 7], bucket_size=7)
-        # Should have buckets for negative and positive
         negative_buckets = [r for r in result if r["is_negative"]]
         positive_buckets = [r for r in result if r["is_positive"]]
         assert len(negative_buckets) >= 1
         assert len(positive_buckets) >= 1
 
     def test_height_normalization(self):
-        # One bucket has 5, another has 1
         result = _compute_histogram([0, 0, 0, 0, 0, 14], bucket_size=7)
-        # Find the bucket with max count
         max_bucket = max(result, key=lambda x: x["count"])
         assert max_bucket["height_pct"] == 100.0
 
@@ -79,13 +52,16 @@ class TestCreateApp:
     """Tests for Flask app factory."""
 
     def test_create_app_returns_flask_instance(self):
+        from nfl_sim.web import create_app
+
         app = create_app()
         assert app is not None
         assert app.name == "nfl_sim.web"
 
     def test_create_app_registers_blueprint(self):
+        from nfl_sim.web import create_app
+
         app = create_app()
-        # Check that main blueprint is registered
         assert "main" in app.blueprints
 
 
@@ -93,15 +69,6 @@ class TestRoutes:
     """Tests for route handlers."""
 
     def test_index_returns_200(self, client):
-        """Index route should return 200 with mocked schedule."""
-        mock_df = pl.DataFrame(
-            {
-                "home_team": ["KC"],
-                "away_team": ["BUF"],
-                "gameday": ["2024-01-01"],
-            }
-        )
-
         with patch("nfl_sim.web.routes.get_schedule") as mock_schedule:
             mock_schedule.return_value.as_metadata.return_value = [
                 {"home_team": "KC", "away_team": "BUF"}
@@ -110,28 +77,23 @@ class TestRoutes:
             assert response.status_code == 200
 
     def test_index_returns_html(self, client):
-        """Index should return HTML content."""
         with patch("nfl_sim.web.routes.get_schedule") as mock_schedule:
             mock_schedule.return_value.as_metadata.return_value = []
             response = client.get("/")
             assert b"<!DOCTYPE html>" in response.data or b"<html" in response.data
 
     def test_refresh_games_returns_200(self, client):
-        """Refresh games route should return 200."""
         with patch("nfl_sim.web.routes.get_schedule") as mock_schedule:
             mock_schedule.return_value.as_metadata.return_value = []
             response = client.get("/games")
             assert response.status_code == 200
 
     def test_play_by_play_no_cache_returns_error(self, client, mock_storage):
-        """Play-by-play without cached data should return error."""
         response = client.get("/game/KC/BUF/0/plays")
         assert response.status_code == 200
         assert b"No cached simulation data" in response.data
 
     def test_play_by_play_with_cached_data(self, client, mock_storage):
-        """Play-by-play with cached data should return plays."""
-        # Create a DataFrame matching the expected structure
         mock_sim = pl.DataFrame(
             {
                 "posteam": ["KC"],
@@ -145,10 +107,8 @@ class TestRoutes:
                 "away_score": [0],
                 "quarter": [1],
                 "half_seconds_remaining": [1750],
-                "drive_id": [0],
             }
         )
-        # Save using storage
         storage.save_simulation("KC_BUF", [mock_sim], {})
         response = client.get("/game/KC/BUF/0/plays")
         assert response.status_code == 200
@@ -156,21 +116,17 @@ class TestRoutes:
         assert "Pass complete" in html
 
     def test_play_by_play_invalid_index(self, client, mock_storage):
-        """Play-by-play with invalid index should return error."""
         mock_sim = pl.DataFrame({"dummy": [1]})
-        # Save using storage - only one simulation
         storage.save_simulation("KC_BUF", [mock_sim], {})
-        response = client.get("/game/KC/BUF/5/plays")  # Index 5 doesn't exist
+        response = client.get("/game/KC/BUF/5/plays")
         assert response.status_code == 200
         assert b"Invalid simulation index" in response.data
 
     def test_stats_panel_no_cache_returns_200(self, client, mock_storage):
-        """Stats panel without cached data should return 200."""
         response = client.get("/game/KC/BUF/stats")
         assert response.status_code == 200
 
     def test_stats_panel_with_cached_data(self, client, app, mock_storage):
-        """Stats panel with cached data should render histograms."""
         stats_dict = {
             "home_team": "KC",
             "away_team": "BUF",
@@ -207,7 +163,6 @@ class TestRoutes:
         assert response.status_code == 200
 
     def test_stats_panel_contains_game_stats_section(self, client, app, mock_storage):
-        """Stats panel should contain the Game Stats section with team-level stats."""
         stats_dict = {
             "home_team": "KC",
             "away_team": "BUF",
@@ -242,9 +197,7 @@ class TestRoutes:
         storage.save_simulation("KC_BUF", [], stats_dict)
         response = client.get("/game/KC/BUF/stats")
         html = response.data.decode()
-        # Check for section header
         assert "Game Stats" in html
-        # Check for team-level stat labels
         assert "Avg TDs" in html
         assert "Avg FGs" in html
         assert "Avg INTs" in html
@@ -279,7 +232,3 @@ class TestStorage:
         loaded = storage.load_pbp("RT_BATCH", 0)
         assert loaded is not None
         assert loaded.equals(df)
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

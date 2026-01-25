@@ -1,7 +1,5 @@
 """Tests for data loading and game factory functions."""
 
-from pathlib import Path
-
 import polars as pl
 import pytest
 
@@ -9,70 +7,60 @@ from nfl_sim.data import (
     PBP_COLUMNS,
     ScheduleData,
     compute_window_bounds,
-    pull_game_data,
     pull_kickoff_data,
+    pull_pbp_data,
 )
-
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
-
-
-@pytest.fixture
-def mock_pbp_data() -> pl.DataFrame:
-    """Load cached play-by-play data from local parquet."""
-    return pl.read_parquet(DATA_DIR / "pbp.parquet")
-
-
-@pytest.fixture
-def mock_schedule_data() -> pl.DataFrame:
-    """Load cached schedule data from local parquet."""
-    return pl.read_parquet(DATA_DIR / "schedules.parquet")
 
 
 class TestPullGameData:
-    """Tests for pull_game_data function."""
+    """Tests for pull_pbp_data function."""
 
-    def test_returns_dataframe(self, mocker, mock_pbp_data: pl.DataFrame):
-        """Verify pull_game_data returns a polars DataFrame."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+    def test_returns_dataframe(self, mocker, raw_pbp: pl.DataFrame):
+        """Verify pull_pbp_data returns a polars DataFrame."""
+        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
         mocker.patch("nfl_sim.data.get_current_season", return_value=2025)
         mocker.patch("nfl_sim.data.get_current_week", return_value=18)
 
-        result = pull_game_data()
+        result = pull_pbp_data()
 
         assert isinstance(result, pl.DataFrame)
 
-    def test_filters_to_expected_columns(self, mocker, mock_pbp_data: pl.DataFrame):
+    def test_filters_to_expected_columns(self, mocker, raw_pbp: pl.DataFrame):
         """Verify only configured columns are returned (plus generated columns)."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
         mocker.patch("nfl_sim.data.get_current_season", return_value=2025)
         mocker.patch("nfl_sim.data.get_current_week", return_value=18)
 
-        result = pull_game_data()
+        result = pull_pbp_data()
 
-        # All columns should be from the PBP_COLUMNS config or generated columns
-        allowed_columns = set(PBP_COLUMNS) | {"__EVENT_KEY", "time_elapsed"}
+        generated_columns = {
+            "__EVENT_KEY", # The integer value caried down to the hot areas in the engine
+            "time_elapsed", # Time elapsed during the play which is unique to the engine
+            "event", # The name of the event (event class but lowercase)
+        }
+
+        allowed_columns = set(PBP_COLUMNS) | generated_columns
         for col in result.columns:
             assert col in allowed_columns, f"Unexpected column: {col}"
 
-    def test_excludes_penalty_plays(self, mocker, mock_pbp_data: pl.DataFrame):
+    def test_excludes_penalty_plays(self, mocker, raw_pbp: pl.DataFrame):
         """Verify penalty plays are filtered out."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
         mocker.patch("nfl_sim.data.get_current_season", return_value=2025)
         mocker.patch("nfl_sim.data.get_current_week", return_value=18)
 
-        result = pull_game_data()
+        result = pull_pbp_data()
 
-        # If penalty column exists, no rows should have penalty=1
         if "penalty" in result.columns:
             assert result.filter(pl.col("penalty") == 1).height == 0
 
-    def test_no_null_yards_gained(self, mocker, mock_pbp_data: pl.DataFrame):
+    def test_no_null_yards_gained(self, mocker, raw_pbp: pl.DataFrame):
         """Verify yards_gained is never null in results."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
         mocker.patch("nfl_sim.data.get_current_season", return_value=2025)
         mocker.patch("nfl_sim.data.get_current_week", return_value=18)
 
-        result = pull_game_data()
+        result = pull_pbp_data()
 
         assert result.filter(pl.col("yards_gained").is_null()).height == 0
 
@@ -104,7 +92,6 @@ class TestScheduleData:
 
         result = ScheduleData.from_season(2024, week=1)
 
-        # All games should be from week 1
         for row in result.df.iter_rows(named=True):
             assert row["week"] == 1
 
@@ -177,7 +164,6 @@ class TestFetchCurWeekMetadata:
 
         result = ScheduleData.from_cur_week()
 
-        # All returned games should be from the target week
         for row in result.df.iter_rows(named=True):
             assert row["week"] == target_week
 
@@ -189,7 +175,6 @@ class TestFetchCurWeekMetadata:
 
         result = ScheduleData.from_cur_week(rm_complete=True)
 
-        # All returned games should have null result (not yet played)
         for row in result.df.iter_rows(named=True):
             assert row["result"] is None
 
@@ -202,7 +187,6 @@ class TestFetchCurWeekMetadata:
         all_games = ScheduleData.from_cur_week(rm_complete=False)
         incomplete_only = ScheduleData.from_cur_week(rm_complete=True)
 
-        # With rm_complete=False, we should have at least as many games
         assert len(all_games) >= len(incomplete_only)
 
 
@@ -214,7 +198,6 @@ class TestComputeWindowBounds:
         seasons, expr = compute_window_bounds(anchor_season=2024, anchor_week=15, week_window=12)
 
         assert seasons == [2024]
-        # Window should be weeks 3-14 of 2024
         df = pl.DataFrame({"season": [2024] * 18, "week": list(range(1, 19))})
         result = df.filter(expr)
         assert result["week"].to_list() == list(range(3, 15))
@@ -225,7 +208,6 @@ class TestComputeWindowBounds:
 
         assert 2023 in seasons
         assert 2024 in seasons
-        # End is 2024 week 2, start is 2023 week 9
         df = pl.DataFrame(
             {
                 "season": [2023] * 18 + [2024] * 18,
@@ -243,12 +225,10 @@ class TestComputeWindowBounds:
         assert seasons == [2023]
         df = pl.DataFrame({"season": [2023] * 18, "week": list(range(1, 19))})
         result = df.filter(expr)
-        # End is 2023 week 18, start is 2023 week 14
         assert result["week"].to_list() == list(range(14, 19))
 
     def test_large_window_spanning_three_seasons(self):
         """Window large enough to span 3+ seasons."""
-        # 40 weeks back from 2024 week 5 -> crosses 2023 and into 2022
         seasons, expr = compute_window_bounds(anchor_season=2024, anchor_week=5, week_window=40)
 
         assert 2022 in seasons
@@ -283,45 +263,43 @@ class TestComputeWindowBounds:
 
 
 class TestPullGameDataWithAnchor:
-    """Tests for pull_game_data with anchor parameter."""
+    """Tests for pull_pbp_data with anchor parameter."""
 
-    def test_returns_dataframe_with_anchor(self, mocker, mock_pbp_data: pl.DataFrame):
-        """Verify pull_game_data returns a DataFrame when anchor is provided."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+    def test_returns_dataframe_with_anchor(self, mocker, raw_pbp: pl.DataFrame):
+        """Verify pull_pbp_data returns a DataFrame when anchor is provided."""
+        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
 
-        result = pull_game_data(week_window=12, anchor=(2025, 18))
+        result = pull_pbp_data(week_window=12, anchor=(2025, 18))
 
         assert isinstance(result, pl.DataFrame)
 
-    def test_excludes_data_at_anchor_week(self, mocker, mock_pbp_data: pl.DataFrame):
+    def test_excludes_data_at_anchor_week(self, mocker, raw_pbp: pl.DataFrame):
         """Data at or after the anchor week should not be included."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
 
         anchor = (2025, 10)
-        result = pull_game_data(week_window=8, anchor=anchor)
+        result = pull_pbp_data(week_window=8, anchor=anchor)
 
-        # No rows should have season=2025, week>=10
         violating = result.filter((pl.col("season") == 2025) & (pl.col("week") >= 10))
         assert len(violating) == 0
 
-    def test_anchor_none_matches_current_behavior(self, mocker, mock_pbp_data: pl.DataFrame):
+    def test_anchor_none_matches_current_behavior(self, mocker, raw_pbp: pl.DataFrame):
         """anchor=None should behave like the default (current season/week)."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
         mocker.patch("nfl_sim.data.get_current_season", return_value=2025)
         mocker.patch("nfl_sim.data.get_current_week", return_value=18)
 
-        result_default = pull_game_data(week_window=12)
-        result_explicit = pull_game_data(week_window=12, anchor=(2025, 18))
+        result_default = pull_pbp_data(week_window=12)
+        result_explicit = pull_pbp_data(week_window=12, anchor=(2025, 18))
 
         assert result_default.shape == result_explicit.shape
 
-    def test_cross_season_loads_correct_seasons(self, mocker, mock_pbp_data: pl.DataFrame):
+    def test_cross_season_loads_correct_seasons(self, mocker, raw_pbp: pl.DataFrame):
         """Cross-season anchor should load data from prior seasons."""
-        load_mock = mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+        load_mock = mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
 
-        pull_game_data(week_window=12, anchor=(2025, 3))
+        pull_pbp_data(week_window=12, anchor=(2025, 3))
 
-        # Should have called load_pbp with a list including 2024
         call_arg = load_mock.call_args[0][0]
         assert isinstance(call_arg, list)
         assert 2024 in call_arg
@@ -330,17 +308,17 @@ class TestPullGameDataWithAnchor:
 class TestPullKickoffDataWithAnchor:
     """Tests for pull_kickoff_data with anchor parameter."""
 
-    def test_returns_dataframe_with_anchor(self, mocker, mock_pbp_data: pl.DataFrame):
+    def test_returns_dataframe_with_anchor(self, mocker, raw_pbp: pl.DataFrame):
         """Verify pull_kickoff_data returns a DataFrame when anchor is provided."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
 
         result = pull_kickoff_data(week_window=12, anchor=(2025, 18))
 
         assert isinstance(result, pl.DataFrame)
 
-    def test_excludes_data_at_anchor_week(self, mocker, mock_pbp_data: pl.DataFrame):
+    def test_excludes_data_at_anchor_week(self, mocker, raw_pbp: pl.DataFrame):
         """Kickoff data at or after the anchor week should not be included."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
 
         anchor = (2025, 10)
         result = pull_kickoff_data(week_window=8, anchor=anchor)
@@ -349,9 +327,9 @@ class TestPullKickoffDataWithAnchor:
             violating = result.filter((pl.col("season") == 2025) & (pl.col("week") >= 10))
             assert len(violating) == 0
 
-    def test_anchor_none_matches_current_behavior(self, mocker, mock_pbp_data: pl.DataFrame):
+    def test_anchor_none_matches_current_behavior(self, mocker, raw_pbp: pl.DataFrame):
         """anchor=None should behave like the default."""
-        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+        mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
         mocker.patch("nfl_sim.data.get_current_season", return_value=2025)
         mocker.patch("nfl_sim.data.get_current_week", return_value=18)
 
@@ -360,16 +338,12 @@ class TestPullKickoffDataWithAnchor:
 
         assert result_default.shape == result_explicit.shape
 
-    def test_cross_season_loads_correct_seasons(self, mocker, mock_pbp_data: pl.DataFrame):
+    def test_cross_season_loads_correct_seasons(self, mocker, raw_pbp: pl.DataFrame):
         """Cross-season anchor should load prior seasons."""
-        load_mock = mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=mock_pbp_data)
+        load_mock = mocker.patch("nfl_sim.data.nfl.load_pbp", return_value=raw_pbp)
 
         pull_kickoff_data(week_window=12, anchor=(2025, 3))
 
         call_arg = load_mock.call_args[0][0]
         assert isinstance(call_arg, list)
         assert 2024 in call_arg
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

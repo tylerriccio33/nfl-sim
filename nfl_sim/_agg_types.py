@@ -19,7 +19,7 @@ from nfl_sim.EXPR import (
 # Minimal play-level schema covering columns referenced by SIM_LEVEL/SIM_TEAM expressions
 _PLAY_SCHEMA: dict[str, type[pl.DataType]] = {
     "yards_gained": pl.Int64,
-    "drive_id": pl.String,
+    "posteam": pl.String,  # For rle to calculate drive
     "event": pl.String,
     "down": pl.Int64,
     "home_score": pl.Int64,
@@ -47,6 +47,7 @@ _sim_schema = _resolve_schema(_PLAY_SCHEMA, SIM_LEVEL_EXPRS)
 # Derive GAME_LEVEL field names from SIM_LEVEL output
 _game_schema = _resolve_schema(_sim_schema, GAME_LEVEL_EXPRS)
 GameAggs = namedtuple("GameAggs", _game_schema.names())  # noqa: PYI024
+"""Aggregates at the game level; scalar attributes."""
 
 # Derive SIM_TEAM_LEVEL output schema (input to GAME_TEAM_LEVEL_EXPRS)
 _sim_team_schema = _resolve_schema(_PLAY_SCHEMA, SIM_TEAM_LEVEL_EXPRS)
@@ -54,3 +55,4 @@ _sim_team_schema = _resolve_schema(_PLAY_SCHEMA, SIM_TEAM_LEVEL_EXPRS)
 # Derive GAME_TEAM_LEVEL field names
 _team_schema = _resolve_schema(_sim_team_schema, GAME_TEAM_LEVEL_EXPRS)
 TeamAggs = namedtuple("TeamAggs", _team_schema.names())  # noqa: PYI024
+"""Aggregates at the team level; scalar attributes."""

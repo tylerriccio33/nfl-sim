@@ -74,6 +74,7 @@ def build_kickoff_data(all_data: pl.DataFrame, team: str) -> KickoffSampleData:
     # Filter to kickoff plays where this team was receiving (defteam)
     kickoffs = (
         all_data.lazy()
+        # TODO: Pretty sure this logic is built into the `pull_kickoff_data` function
         .filter(
             pl.col("play_type") == "kickoff",
             pl.col("defteam") == team,  # Receiving team
@@ -99,17 +100,6 @@ def sample_kickoff(samples: KickoffSampleData) -> KickoffResult:
         KickoffResult with the calculated starting yardline.
 
     """
-    if not samples.plays:
-        # Fallback: no kickoff data, default to touchback
-        return KickoffResult(
-            yardline=TOUCHBACK_YARDLINE,
-            is_touchback=True,
-            is_return_td=False,
-            return_yards=0,
-            kick_distance=65,
-            desc="(No kickoff data - touchback)",
-        )
-
     # Randomly sample a kickoff play
     play = random.choice(samples.plays)
 

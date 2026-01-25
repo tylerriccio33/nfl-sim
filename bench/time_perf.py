@@ -7,7 +7,7 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim.data import pull_game_data, pull_kickoff_data
+from nfl_sim.data import pull_kickoff_data, pull_pbp_data
 from nfl_sim.simulate import _simulate_game
 
 
@@ -30,7 +30,7 @@ def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
     configure_logging("WARNING")
 
     # Load data once (not included in timing)
-    pbp_data = pull_game_data(week_window=12)
+    pbp_data = pull_pbp_data(week_window=12)
     kickoff_data = pull_kickoff_data(week_window=12)
 
     # Run simulations (timing just the simulation, not data loading)

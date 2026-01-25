@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import functools
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
 import pytest
 
-from nfl_sim import sim_games
+from nfl_sim import sim_games, understand
 from nfl_sim._event import build_event_expr
-from nfl_sim._sampling import PlayRowDict
-from nfl_sim.data import pull_game_data, pull_kickoff_data
+from nfl_sim._kickoff import build_kickoff_data
+from nfl_sim._sampling import PlayRowDict, build_sample_data
+from nfl_sim.data import pull_kickoff_data, pull_pbp_data
+from nfl_sim.game import SingleGame
 from nfl_sim.play import GameEngine
 
 if TYPE_CHECKING:
-    from nfl_sim.typing import GameId, GameSims
+    from nfl_sim._agg_types import GameAggs
+    from nfl_sim.typing import Aggs, GameId, GameSims
 
 # =============================================================================
 # MOCKS: Mocking data pulling that requires the network.
@@ -23,6 +27,7 @@ if TYPE_CHECKING:
 
 CUR_WEEK = 18
 CUR_SEASON = 2025
+DATA_DIR = Path(__file__).parent.parent / "data"
 PBP_LOC = "data/pbp.parquet"
 
 
@@ -65,13 +70,29 @@ def rand_game(mock_dates, mock_pbp) -> GameSims:
 
 
 @pytest.fixture(scope="session")
-def rand_week(mock_dates, mock_pbp) -> dict[GameId, GameSims]:
-    return sim_games(n=2)
+def sims_n50(mock_dates, mock_pbp) -> dict[GameId, GameSims]:
+    """Simulation of the latest week with 50 per matchup."""
+    return sim_games(n=50)
+
+
+@pytest.fixture(scope="session")
+def sims_n50_by_game(sims_n50: dict[GameId, GameSims]) -> Aggs:
+    return understand(sims_n50, by="all")
 
 
 # =============================================================================
 # DATA FIXTURES: Shared across integration tests
 # =============================================================================
+
+
+@pytest.fixture(scope="session")
+def raw_pbp() -> pl.DataFrame:
+    """Load raw play-by-play data directly from parquet.
+
+    Use this for tests that need the raw data without any filtering/transformation.
+    This replaces local `mock_pbp_data` fixtures in test_compare, test_data, etc.
+    """
+    return pl.read_parquet(DATA_DIR / "pbp.parquet")
 
 
 @pytest.fixture(scope="session")
@@ -81,7 +102,7 @@ def pbp_data(mock_pbp, mock_dates) -> pl.DataFrame:
     Use this fixture for integration tests that need real NFL data.
     For unit tests that need controlled data, use mock_play_data instead.
     """
-    return pull_game_data()
+    return pull_pbp_data()
 
 
 @pytest.fixture(scope="session")
@@ -91,6 +112,150 @@ def kickoff_data(mock_pbp, mock_dates) -> pl.DataFrame:
     Use this fixture for integration tests that need real kickoff data.
     """
     return pull_kickoff_data()
+
+
+@pytest.fixture(scope="module")
+def available_teams(pbp_data: pl.DataFrame) -> list[str]:
+    """Get list of teams available in the mock data."""
+    return pbp_data["posteam"].drop_nulls().unique().to_list()
+
+
+@pytest.fixture(scope="module")
+def real_aggs(pbp_data: pl.DataFrame) -> GameAggs:
+    """Game aggregates for the real pbp data."""
+    listified = pbp_data.partition_by("game_id")
+    return understand(listified)
+
+
+# =============================================================================
+# GAME CREATION FIXTURES
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+def create_game(pbp_data: pl.DataFrame):
+    """Factory fixture for creating SingleGame instances from pbp_data."""
+
+    def _create(home_team: str, away_team: str) -> SingleGame:
+        home_samples = build_sample_data(pbp_data, team=home_team)
+        away_samples = build_sample_data(pbp_data, team=away_team)
+        home_kickoffs = build_kickoff_data(pbp_data, team=home_team)
+        away_kickoffs = build_kickoff_data(pbp_data, team=away_team)
+        return SingleGame(
+            home_samples=home_samples,
+            away_samples=away_samples,
+            home_team=home_team,
+            away_team=away_team,
+            home_kickoff_samples=home_kickoffs,
+            away_kickoff_samples=away_kickoffs,
+        )
+
+    return _create
+
+
+# =============================================================================
+# WEB FIXTURES
+# =============================================================================
+
+
+@pytest.fixture
+def app():
+    """Create test app instance."""
+    from nfl_sim.web import create_app
+
+    app = create_app()
+    app.config["TESTING"] = True
+    return app
+
+
+@pytest.fixture
+def client(app):
+    """Flask test client."""
+    return app.test_client()
+
+
+@pytest.fixture
+def mock_storage(tmp_path):
+    """Mock storage to use a temp directory."""
+    from nfl_sim.web import storage
+
+    original_storage_dir = storage.STORAGE_DIR
+    storage.STORAGE_DIR = tmp_path
+    yield tmp_path
+    storage.STORAGE_DIR = original_storage_dir
+
+
+# =============================================================================
+# DATA INTEGRITY FIXTURES
+# =============================================================================
+
+
+@pytest.fixture
+def mock_schedule_data() -> pl.DataFrame:
+    """Load cached schedule data from local parquet."""
+    return pl.read_parquet(DATA_DIR / "schedules.parquet")
+
+
+@pytest.fixture
+def minimal_dc_df() -> pl.DataFrame:
+    """Minimal valid depth chart DataFrame with required columns."""
+    return pl.DataFrame(
+        {
+            "gsis_id": ["player1", "player2", "player3"],
+            "club_code": ["KC", "KC", "KC"],
+            "position": ["WR", "WR", "RB"],
+            "depth_team": ["1", "2", "1"],
+            "season": [2024, 2024, 2024],
+            "week": [1, 1, 1],
+            "full_name": ["Player One", "Player Two", "Player Three"],
+        }
+    )
+
+
+@pytest.fixture
+def multi_team_dc_df() -> pl.DataFrame:
+    """Depth chart with multiple teams for swap testing."""
+    return pl.DataFrame(
+        {
+            "gsis_id": [
+                "kc_wr1",
+                "kc_wr2",
+                "kc_rb1",
+                "sf_wr1",
+                "sf_wr2",
+                "sf_rb1",
+            ],
+            "club_code": ["KC", "KC", "KC", "SF", "SF", "SF"],
+            "position": ["WR", "WR", "RB", "WR", "WR", "RB"],
+            "depth_team": ["1", "2", "1", "1", "2", "1"],
+            "season": [2024, 2024, 2024, 2024, 2024, 2024],
+            "week": [1, 1, 1, 1, 1, 1],
+            "full_name": [
+                "KC WR1",
+                "KC WR2",
+                "KC RB1",
+                "SF WR1",
+                "SF WR2",
+                "SF RB1",
+            ],
+        }
+    )
+
+
+@pytest.fixture
+def sample_pbp_df() -> pl.DataFrame:
+    """Sample play-by-play data for join testing."""
+    return pl.DataFrame(
+        {
+            "play_id": [1, 2, 3],
+            "game_id": ["game1", "game1", "game1"],
+            "season": [2024, 2024, 2024],
+            "week": [1, 1, 1],
+            "receiver_player_id": ["player1", "player2", None],
+            "rusher_player_id": [None, None, "player3"],
+            "yards_gained": [15, 8, 5],
+        }
+    )
 
 
 # =============================================================================
@@ -138,6 +303,7 @@ DEFAULT_PLAY_COLUMNS: dict[str, Any] = {
 }
 
 
+# TODO: WTF is the point of this
 def _build_test_play_data(
     rows: list[dict[str, Any]] | None = None,
     n_rows: int = 1,
@@ -192,24 +358,6 @@ def _make_play_dict(
     This is the preferred way to create test play data after the DataFrame
     slicing refactor. Use this instead of _build_test_play_data when testing
     game engine behavior directly.
-
-    Args:
-        yards_gained: Yards gained on the play.
-        desc: Play description.
-        time_elapsed: Seconds elapsed during the play.
-        event_key: Event key from EVENT_KEY_MAP (None for regular plays).
-        kick_distance: Kick distance for punts (None for non-punt plays).
-        return_yards: Return yards from the sampled play (for proportional return).
-        air_yards: Air yards for interceptions (for recovery point estimation).
-        yardline_100: Original yardline from sampled play (for proportion calc).
-        receiver_dc_pos: Depth chart position of receiver (WR, TE, RB, etc.).
-        receiver_dc_rank: Depth chart rank of receiver (1, 2, 3).
-        rusher_dc_pos: Depth chart position of rusher (RB, QB, etc.).
-        rusher_dc_rank: Depth chart rank of rusher (1, 2, 3).
-
-    Returns:
-        PlayRowDict ready for ingest_new_play().
-
     """
     return PlayRowDict(
         yards_gained=yards_gained,
@@ -239,47 +387,6 @@ def build_test_play_data(*args, **kwargs):
 def make_play_dict():
     """Fixture for creating PlayRowDict for GameEngine tests."""
     return _make_play_dict
-
-
-@pytest.fixture
-def make_play_row(
-    yards_gained: int = 5,
-    touchdown: int = 0,
-    interception: int = 0,
-    return_touchdown: int = 0,
-    field_goal_result: str | None = None,
-    punt_attempt: int = 0,
-    punt_blocked: int = 0,
-    punt_in_endzone: int = 0,
-    punt_fair_catch: int = 0,
-    punt_out_of_bounds: int = 0,
-    kick_distance: int | None = None,
-    fumble_lost: int = 0,
-    desc: str = "Test play",
-    time_elapsed: int = 25,
-):
-    """Helper to create a single play row for GameEngine.ingest_new_play().
-
-    Convenience wrapper around build_test_play_data for single-row creation
-    with explicit parameters (better IDE autocomplete).
-    """
-    return functools.partial(
-        _build_test_play_data,
-        yards_gained=yards_gained,
-        touchdown=touchdown,
-        interception=interception,
-        return_touchdown=return_touchdown,
-        field_goal_result=field_goal_result,
-        punt_attempt=punt_attempt,
-        punt_blocked=punt_blocked,
-        punt_in_endzone=punt_in_endzone,
-        punt_fair_catch=punt_fair_catch,
-        punt_out_of_bounds=punt_out_of_bounds,
-        kick_distance=kick_distance,
-        fumble_lost=fumble_lost,
-        desc=desc,
-        time_elapsed=time_elapsed,
-    )
 
 
 @pytest.fixture

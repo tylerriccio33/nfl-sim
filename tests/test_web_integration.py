@@ -11,23 +11,12 @@ from unittest.mock import patch
 
 import pytest
 
-from nfl_sim.web import create_app, storage
-
-
-@pytest.fixture
-def app():
-    app = create_app()
-    app.config["TESTING"] = True
-    return app
-
-
-@pytest.fixture
-def client(app):
-    return app.test_client()
+from nfl_sim.web import storage
 
 
 @pytest.fixture(autouse=True)
 def isolated_storage(tmp_path):
+    """Autouse fixture to isolate storage for integration tests."""
     original = storage.STORAGE_DIR
     storage.STORAGE_DIR = tmp_path
     yield

@@ -6,73 +6,6 @@ import pytest
 from nfl_sim.data import DepthChartData, PlayerDatabase
 
 # -----------------------------------------------------------------------------
-# Fixtures
-# -----------------------------------------------------------------------------
-
-
-@pytest.fixture
-def minimal_dc_df() -> pl.DataFrame:
-    """Minimal valid depth chart DataFrame with required columns."""
-    return pl.DataFrame(
-        {
-            "gsis_id": ["player1", "player2", "player3"],
-            "club_code": ["KC", "KC", "KC"],
-            "position": ["WR", "WR", "RB"],
-            "depth_team": ["1", "2", "1"],
-            "season": [2024, 2024, 2024],
-            "week": [1, 1, 1],
-            "full_name": ["Player One", "Player Two", "Player Three"],
-        }
-    )
-
-
-@pytest.fixture
-def multi_team_dc_df() -> pl.DataFrame:
-    """Depth chart with multiple teams for swap testing."""
-    return pl.DataFrame(
-        {
-            "gsis_id": [
-                "kc_wr1",
-                "kc_wr2",
-                "kc_rb1",
-                "sf_wr1",
-                "sf_wr2",
-                "sf_rb1",
-            ],
-            "club_code": ["KC", "KC", "KC", "SF", "SF", "SF"],
-            "position": ["WR", "WR", "RB", "WR", "WR", "RB"],
-            "depth_team": ["1", "2", "1", "1", "2", "1"],
-            "season": [2024, 2024, 2024, 2024, 2024, 2024],
-            "week": [1, 1, 1, 1, 1, 1],
-            "full_name": [
-                "KC WR1",
-                "KC WR2",
-                "KC RB1",
-                "SF WR1",
-                "SF WR2",
-                "SF RB1",
-            ],
-        }
-    )
-
-
-@pytest.fixture
-def sample_pbp_df() -> pl.DataFrame:
-    """Sample play-by-play data for join testing."""
-    return pl.DataFrame(
-        {
-            "play_id": [1, 2, 3],
-            "game_id": ["game1", "game1", "game1"],
-            "season": [2024, 2024, 2024],
-            "week": [1, 1, 1],
-            "receiver_player_id": ["player1", "player2", None],
-            "rusher_player_id": [None, None, "player3"],
-            "yards_gained": [15, 8, 5],
-        }
-    )
-
-
-# -----------------------------------------------------------------------------
 # Initialization Tests
 # -----------------------------------------------------------------------------
 
@@ -90,7 +23,6 @@ def test_dc_init_missing_columns():
         {
             "gsis_id": ["player1"],
             "club_code": ["KC"],
-            # Missing 'position' and 'depth_team'
         }
     )
     with pytest.raises(ValueError, match="Missing required columns"):
@@ -137,7 +69,6 @@ def test_add_cols_to_pbp_correct_receiver_values(
     dc = DepthChartData(minimal_dc_df)
     result = dc.add_cols_to_pbp(sample_pbp_df)
 
-    # player1 is WR1, player2 is WR2
     row1 = result.filter(pl.col("play_id") == 1).to_dicts()[0]
     assert row1["__receiver_dc_pos"] == "WR"
     assert row1["__receiver_dc_rank"] == 1
@@ -154,7 +85,6 @@ def test_add_cols_to_pbp_correct_rusher_values(
     dc = DepthChartData(minimal_dc_df)
     result = dc.add_cols_to_pbp(sample_pbp_df)
 
-    # player3 is RB1
     row3 = result.filter(pl.col("play_id") == 3).to_dicts()[0]
     assert row3["__rusher_dc_pos"] == "RB"
     assert row3["__rusher_dc_rank"] == 1
@@ -199,7 +129,6 @@ def test_swap_dc_to_with_player_replaces_receiver(multi_team_dc_df: pl.DataFrame
     """swap_dc_to_with_player replaces receiver_player_id with target team's player."""
     dc = DepthChartData(multi_team_dc_df)
 
-    # PBP data tagged with KC's depth chart positions
     pbp_with_dc = pl.DataFrame(
         {
             "play_id": [1],
@@ -212,7 +141,6 @@ def test_swap_dc_to_with_player_replaces_receiver(multi_team_dc_df: pl.DataFrame
         }
     )
 
-    # Swap to SF's roster
     result = dc.swap_dc_to_with_player(pbp_with_dc, team="SF", season=2024, week=1)
 
     row = result.to_dicts()[0]
@@ -247,14 +175,13 @@ def test_swap_dc_to_with_player_keeps_original_when_no_match(
     """swap_dc_to_with_player keeps original ID when no matching player in target team."""
     dc = DepthChartData(multi_team_dc_df)
 
-    # Position that doesn't exist in target team (e.g., WR3)
     pbp_with_dc = pl.DataFrame(
         {
             "play_id": [1],
             "receiver_player_id": ["original_player"],
             "rusher_player_id": pl.Series([None], dtype=pl.String),
             "__receiver_dc_pos": ["WR"],
-            "__receiver_dc_rank": [3],  # No WR3 in depth chart
+            "__receiver_dc_rank": [3],
             "__rusher_dc_pos": pl.Series([None], dtype=pl.String),
             "__rusher_dc_rank": [99],
         }
@@ -291,7 +218,6 @@ def test_to_playerdb_extracts_unique_players(minimal_dc_df: pl.DataFrame):
 
 def test_to_playerdb_deduplicates():
     """to_playerdb removes duplicate gsis_ids."""
-    # Same player appearing in multiple weeks
     df = pl.DataFrame(
         {
             "gsis_id": ["player1", "player1", "player2"],
@@ -328,12 +254,3 @@ def test_dc_iter(minimal_dc_df: pl.DataFrame):
     assert len(rows) == 3
     assert all(isinstance(row, dict) for row in rows)
     assert rows[0]["gsis_id"] == "player1"
-
-
-# TODO: Check a backup running back from 2 weeks ago who's now the 3rd string, gets correctly logged
-# as the backup. i.e. the sample calls for the backup getting a rush, and we should map that to the
-# current backup
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-sv"])

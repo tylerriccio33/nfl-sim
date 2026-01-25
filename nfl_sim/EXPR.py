@@ -24,7 +24,7 @@ _PLAY_AGG_EXPRS: list[pl.Expr] = [
     pl.col("yards_gained").mean().alias("yards_per_play"),
     # Play counts
     pl.len().alias("total_plays"),
-    pl.col("drive_id").n_unique().alias("num_drives"),
+    pl.col("posteam").rle_id().n_unique().alias("num_drives"),
     # Event counts (lowercase for consistency)
     (pl.col("event").str.to_lowercase() == "touchdown").sum().alias("touchdowns"),
     (pl.col("event").str.to_lowercase() == "fieldgoalsuccess").sum().alias("field_goals"),

@@ -19,6 +19,8 @@ columns = [
     "season",
     "week",
     "game_date",
+    "home_score",
+    "away_score",
 ]
 
 # Game situation columns (used for play matching/sampling)

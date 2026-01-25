@@ -1,4 +1,9 @@
-"""Tests for GameEngine state machine."""
+"""Tests for GameEngine state machine boundaries.
+
+These test edge conditions of the GameEngine: TD at yardline <= 0,
+safety at yardline >= 100, turnover on downs, event key detection,
+down increment, and series reset.
+"""
 
 import pytest
 
@@ -15,8 +20,6 @@ from nfl_sim._event import (
 )
 from nfl_sim.play import GameEngine
 
-# Init tests
-
 
 def test_default_state(game: GameEngine):
     # Default is own 25 yard line = yardline_100 of 75 (75 yards from opponent's endzone)
@@ -25,15 +28,9 @@ def test_default_state(game: GameEngine):
     assert game.yardline == 75
 
 
-# Down property tests
-
-
 def test_increment_down(game: GameEngine):
     game.down = 2
     assert game.down == 2
-
-
-# Reset offense tests
 
 
 def test_reset_default(game: GameEngine):
@@ -51,9 +48,6 @@ def test_reset_custom_yardline(game: GameEngine):
     assert game.yardline == 50
     assert game.down == 1
     assert game.dist == 10
-
-
-# Ingest new play tests
 
 
 def test_basic_gain_advances_yardline(make_play_dict, game: GameEngine):
@@ -98,13 +92,7 @@ def test_pick_six_raises(make_play_dict, game: GameEngine):
         game.ingest_new_play(play)
 
 
-def test_punt_fair_catch_raises(make_play_dict, game: GameEngine):
-    play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntRegular])
-    with pytest.raises(PuntRegular):
-        game.ingest_new_play(play)
-
-
-def test_punt_out_of_bounds_raises(make_play_dict, game: GameEngine):
+def test_punt_regular_raises(make_play_dict, game: GameEngine):
     play = make_play_dict(yards_gained=0, event_key=EVENT_EXPR_MAP[PuntRegular])
     with pytest.raises(PuntRegular):
         game.ingest_new_play(play)

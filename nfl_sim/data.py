@@ -11,7 +11,7 @@ from loguru import logger
 from nflreadpy.utils_date import get_current_season, get_current_week
 
 from nfl_sim._columns import PBP_COLUMNS
-from nfl_sim._event import build_event_expr
+from nfl_sim._event import EVENT_EXPR_MAP, build_event_expr
 
 if TYPE_CHECKING:
     from typing import ClassVar, NotRequired, Self, TypeIs
@@ -109,7 +109,7 @@ def compute_window_bounds(
 
 
 # TODO: Increase the week window to 16!
-def pull_game_data(week_window: int = 12, anchor: Anchor | None = None) -> pl.DataFrame:
+def pull_pbp_data(week_window: int = 12, anchor: Anchor | None = None) -> pl.DataFrame:
     """Pull play-by-play data from nflverse.
 
     Downloads and caches nflverse play-by-play parquet files, selecting only the
@@ -154,6 +154,12 @@ def pull_game_data(week_window: int = 12, anchor: Anchor | None = None) -> pl.Da
         .select(PBP_COLUMNS)
         # This builds `__EVENT_KEY`
         .with_columns(pl.col("game_date").cast(pl.Date), build_event_expr())
+        # Add `event` column built off the event key
+        .with_columns(
+            event=pl.col("__EVENT_KEY").replace_strict(
+                old=list(EVENT_EXPR_MAP.values()), new=[k.__name__.lower() for k in EVENT_EXPR_MAP]
+            )
+        )
         # Compute time_elapsed: seconds consumed by each play
         # = current half_seconds_remaining - next play's half_seconds_remaining
         .sort("game_id", "play_id")

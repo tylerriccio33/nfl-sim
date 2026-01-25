@@ -35,8 +35,8 @@ class SingleGame:
         away_samples: PartitionedSampleData,
         home_team: str,
         away_team: str,
-        home_kickoff_samples: KickoffSampleData | None = None,
-        away_kickoff_samples: KickoffSampleData | None = None,
+        home_kickoff_samples: KickoffSampleData,
+        away_kickoff_samples: KickoffSampleData,
         **extra_metadata: Any,  # TODO: type or enum or somthing
     ) -> None:
         self.metadata: GameMetadata = {  # TODO: Do we really need this?
@@ -57,7 +57,6 @@ class SingleGame:
 
         # Flat list of all plays with full context
         self._plays: list[PlayRecord] = []
-        self._current_drive_id: int = 0  # TODO: Do we need this?
         self._game_data: pl.DataFrame | None = None  # initialize this because we use a cache later
 
         # Track per-team events (for team-level stats)
@@ -73,7 +72,7 @@ class SingleGame:
         return self.away_samples
 
     @property
-    def cur_kickoff_samples(self) -> KickoffSampleData | None:
+    def cur_kickoff_samples(self) -> KickoffSampleData:
         """Get current possession team's kickoff samples."""
         if self._posteam == self.metadata["home_team"]:
             return self.home_kickoff_samples
@@ -131,11 +130,6 @@ class SingleGame:
         # Mark the last play with the event type
         if self._plays:
             self._plays[-1].event = event_name
-
-        logger.debug("Drive {} ended, reason: {}", self._current_drive_id, event_name)
-
-        # Increment drive counter for next drive
-        self._current_drive_id += 1
 
         # Track per-team events
         home = self._team_order[0]
@@ -257,7 +251,6 @@ class SingleGame:
                 desc=desc,
                 event=None,  # Will be set by _handle_meta_event if needed
                 posteam=self._posteam,
-                drive_id=self._current_drive_id,
                 home_score=home_score,
                 away_score=away_score,
                 quarter=quarter,
@@ -335,7 +328,6 @@ class SingleGame:
                 "desc": [p.desc for p in self._plays],
                 "event": [p.event for p in self._plays],
                 "posteam": [p.posteam for p in self._plays],
-                "drive_id": [p.drive_id for p in self._plays],
                 "home_score": [p.home_score for p in self._plays],
                 "away_score": [p.away_score for p in self._plays],
                 "quarter": [p.quarter for p in self._plays],

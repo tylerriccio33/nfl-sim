@@ -28,7 +28,7 @@ from nflreadpy.utils_date import get_current_season, get_current_week
 
 from nfl_sim._kickoff import build_kickoff_data
 from nfl_sim._sampling import NoSampleFoundError, build_sample_data
-from nfl_sim.data import GameMetadata, ScheduleData, pull_game_data, pull_kickoff_data
+from nfl_sim.data import GameMetadata, ScheduleData, pull_kickoff_data, pull_pbp_data
 from nfl_sim.game import SingleGame
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 def _resolve_current_week() -> list[GameMetadata]:
     """Get games for the current incomplete week."""
-    schedule = ScheduleData.from_cur_week(rm_complete=True)
+    schedule = ScheduleData.from_cur_week(rm_complete=False)
     return schedule.as_metadata()
 
 
@@ -325,8 +325,10 @@ def sim_games(
         msg = f"Invalid selector type: {type(__selector)}"
         raise TypeError(msg)
 
+    assert len(games) > 0, "No games to simulate."
+
     # Load data once at top level
-    pbp_data = pull_game_data(week_window=week_window, anchor=anchor)
+    pbp_data = pull_pbp_data(week_window=week_window, anchor=anchor)
     kickoff_data = pull_kickoff_data(week_window=week_window, anchor=anchor)
 
     # Run simulations for each game

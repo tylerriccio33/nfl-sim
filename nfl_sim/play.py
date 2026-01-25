@@ -26,7 +26,6 @@ class PlayRecord:
     desc: str | None
     event: str | None
     posteam: str
-    drive_id: int
     home_score: int
     away_score: int
     quarter: int

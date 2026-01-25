@@ -7,7 +7,7 @@ from loguru import logger
 from rich.console import Console
 
 from nfl_sim import understand
-from nfl_sim.data import pull_game_data, pull_kickoff_data
+from nfl_sim.data import pull_kickoff_data, pull_pbp_data
 from nfl_sim.simulate import _simulate_game
 
 start_at = 100
@@ -61,7 +61,7 @@ def run_convergence_benchmark() -> pl.DataFrame:
     console.print(f"[bold green]Running simulations from {SIM_COUNTS[0]} to {SIM_COUNTS[-1]}...")
 
     # Load data once for all iterations
-    pbp_data = pull_game_data(week_window=12)
+    pbp_data = pull_pbp_data(week_window=12)
     kickoff_data = pull_kickoff_data(week_window=12)
 
     results: list[dict[str, float]] = []

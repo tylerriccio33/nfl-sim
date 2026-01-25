@@ -1,9 +1,9 @@
 """Tests for Samples play selection."""
 
-import nfl_sim._rust_core as _rust_core
 import polars as pl
 import pytest
 
+import nfl_sim._rust_core as _rust_core
 from nfl_sim._sampling import NoSampleFoundError, build_sample_data, fetch_like_play
 
 # Filter window tests (via Rust nfl_sim_core.filter_window)

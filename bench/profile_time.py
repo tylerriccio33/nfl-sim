@@ -11,7 +11,7 @@ from line_profiler import LineProfiler
 from loguru import logger
 
 from nfl_sim._sampling import build_sample_data, fetch_like_play
-from nfl_sim.data import ScheduleData, pull_game_data
+from nfl_sim.data import ScheduleData, pull_pbp_data
 
 ## == Profile These ==============================================
 from nfl_sim.game import SingleGame
@@ -45,7 +45,7 @@ def main() -> None:
     # Load data
     print("Loading data...")
     schedule = ScheduleData.from_cur_week(rm_complete=True)
-    _ = pull_game_data()  # Pre-load data to warm cache
+    _ = pull_pbp_data()  # Pre-load data to warm cache
 
     # Get first game metadata
     meta = schedule[0]

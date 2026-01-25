@@ -22,9 +22,8 @@ test: ## Run tests
 
 cov-api: ## Run web API integration tests with coverage
 	@uv run --no-sync pytest tests/test_web_integration.py \
-		--cov nfl_sim/web \
-		--cov-report term-missing \
-		--durations 10
+		--cov nfl_sim \
+		--cov-report term-missing
 
 load-dictionaries: ## Download data dictionaries
 	@curl -L -o dictionary/pbp.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_pbp.csv

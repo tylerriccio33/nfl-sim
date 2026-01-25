@@ -12,7 +12,7 @@ type PBP = pl.DataFrame
 """Play-by-play DataFrame from a single game simulation.
 
 Columns include: down, dist, yardline, yards_gained, desc, event, posteam,
-drive_id, home_score, away_score, quarter, half_seconds_remaining, player_name
+home_score, away_score, quarter, half_seconds_remaining, player_name
 """
 
 type GameId = str
