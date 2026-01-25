@@ -9,7 +9,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from nfl_sim import GameId, GameSims, get_sim_weeks, sim_games, understand
+from nfl_sim import GameId, GameSims, sim_games, understand
 
 # =============================================================================
 # sim_games() API
@@ -107,12 +107,6 @@ class TestSimGamesKeywordArgs:
         assert isinstance(result, dict)
         assert len(result) > 0
 
-    def test_get_sim_weeks_with_sim_games(self, mock_dates, mock_pbp):
-        """Build week lists with get_sim_weeks()."""
-        weeks = get_sim_weeks(since=2024, rm_weeks=[17, 18])
-        res = sim_games(weeks=weeks, n=1)
-        assert isinstance(res, dict)
-
 
 class TestSimGamesInvalidInput:
     """Error handling for sim_games()."""
@@ -137,86 +131,14 @@ class TestSimGamesIntegration:
         except Exception:
             pytest.skip("No games in current week to simulate")
 
-    def test_sim_games_with_get_sim_weeks(self, mock_dates, mock_pbp):
-        """get_sim_weeks() output should work with sim_games(weeks=...)."""
-        weeks = get_sim_weeks(window=2, rm_weeks=[17, 18])
-        result = sim_games(weeks=weeks, n=1)
-        assert isinstance(result, dict)
-        assert len(result) > 0
-
     def test_sim_no_error_all_sigs(self, mock_dates, mock_pbp) -> None:
         """Games should complete without raising exceptions."""
         sim_games()
 
 
 # =============================================================================
-# get_sim_weeks() API
-# =============================================================================
-
-
-class TestGetSimWeeks:
-    """Tests for get_sim_weeks() helper function."""
-
-    def test_since(self, mock_dates, mock_pbp):
-        weeks = get_sim_weeks(since=2024)
-        assert isinstance(weeks, list)
-        assert len(weeks) > 0
-        for season, week in weeks:
-            assert isinstance(season, int)
-            assert isinstance(week, int)
-            assert season >= 2024
-            assert 1 <= week <= 22
-
-    def test_window(self, mock_dates, mock_pbp):
-        weeks = get_sim_weeks(window=5)
-        assert len(weeks) == 5
-        assert weeks == sorted(weeks)
-
-    def test_rm_weeks(self, mock_dates, mock_pbp):
-        weeks_with_17 = get_sim_weeks(since=2024)
-        weeks_without_17 = get_sim_weeks(since=2024, rm_weeks=[17])
-        removed = [w for w in weeks_without_17 if w[1] == 17]
-        assert len(removed) == 0
-        assert len(weeks_without_17) < len(weeks_with_17)
-
-    def test_requires_since_or_window(self, mock_dates, mock_pbp):
-        with pytest.raises(ValueError, match="Must provide either"):
-            get_sim_weeks()
-
-    def test_window_with_rm_weeks(self, mock_dates, mock_pbp):
-        weeks = get_sim_weeks(window=5, rm_weeks=[17])
-        assert len(weeks) == 5
-        for _, week in weeks:
-            assert week != 17
-
-
-# =============================================================================
 # understand() API
 # =============================================================================
-
-
-class TestUnderstandMultipleGames:
-    """Tests for understand() with multiple games (dict input)."""
-
-    def test_by_game(self, mock_dates, mock_pbp):
-        """understand(by='game') computes aggregates by game."""
-        res = sim_games(2024, 1, n=5)
-        game_aggs = understand(res, by="game")
-        assert isinstance(game_aggs, pl.DataFrame)
-        assert len(game_aggs) == len(res)
-        assert "home_win_pct" in game_aggs.columns
-        assert "home_score_avg" in game_aggs.columns
-
-    def test_by_game_id(self, mock_dates, mock_pbp):
-        """understand(by=game_id) returns sim-level stats for that game."""
-        res = sim_games(2024, 1, n=10)
-        game_id = next(iter(res))
-        sim_stats = understand(res, by=game_id)
-        assert isinstance(sim_stats, pl.DataFrame)
-        assert len(sim_stats) == 10
-        assert "home_score" in sim_stats.columns
-        assert "away_score" in sim_stats.columns
-        assert "margin" in sim_stats.columns
 
 
 class TestUnderstandSingleGame:
@@ -246,22 +168,6 @@ class TestUnderstandSingleGame:
         assert hasattr(team_stats[0], "field_goals_avg")
         assert hasattr(team_stats[0], "interceptions_avg")
         assert hasattr(team_stats[0], "n_simulations")
-
-
-class TestUnderstandErrors:
-    """Error handling tests for understand()."""
-
-    def test_no_by_with_multi_game_raises(self, mock_dates, mock_pbp):
-        """by=None with multi-game dict should raise ValueError."""
-        res = sim_games(2024, 1, n=5)
-        with pytest.raises(ValueError, match="only valid for single-game"):
-            understand(res)
-
-    def test_invalid_game_id(self, mock_dates, mock_pbp):
-        """Invalid game_id in by raises KeyError."""
-        res = sim_games(2024, 1, n=5)
-        with pytest.raises(KeyError, match="not found"):
-            understand(res, by="invalid_game_id")
 
 
 class TestUnderstandExamples:

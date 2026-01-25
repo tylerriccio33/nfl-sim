@@ -2,35 +2,26 @@
 
 Main entry points:
 
-    from nfl_sim import sim_games, understand, get_sim_weeks
+    from nfl_sim import sim_games, understand
 
-    # Simulate current week
-    results = sim_games()
-
-    # Simulate specific games
-    results = sim_games(2024, 14)  # 2024 week 14
-    results = sim_games("2024_01_KC_BUF")  # single game
-
-    # Build week lists with filtering
-    weeks = get_sim_weeks(since=2021, rm_weeks=[17])
-    results = sim_games(weeks=weeks)
+    # Simulate a single game
+    sims = sim_games("2024_01_KC_BUF", n=100)
 
     # Analyze results
-    game_stats = understand(results, by="game")  # one row per game
-    single_game_stats = understand(sim_games("2024_01_KC_BUF"))  # single game
+    stats = understand(sims)  # GameAggs namedtuple
+    team1, team2 = understand(sims, by="game-team")  # per-team stats
 """
 
 import sys
 
 from loguru import logger
 
-from nfl_sim.simulate import get_sim_weeks, sim_games
+from nfl_sim.simulate import sim_games
 from nfl_sim.typing import PBP, GameId, GameSims
 from nfl_sim.understand import understand
 
 __all__ = [
     "sim_games",
-    "get_sim_weeks",
     "understand",
     "PBP",
     "GameId",

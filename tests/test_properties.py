@@ -79,7 +79,7 @@ def test_game_invariants(create_game, home_idx: int, away_idx: int) -> None:
     game.play_game()
 
     plays = game.game_data
-    res = understand(game.game_data)
+    res = understand([game.game_data])
 
     # -- Score bounds --
     home_score = res.home_score_avg

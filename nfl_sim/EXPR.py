@@ -146,22 +146,3 @@ GAME_TEAM_LEVEL_EXPRS: list[pl.Expr] = [
     pl.col("touchdowns", "field_goals", "interceptions").max().name.suffix("_max"),
     pl.len().alias("n_simulations"),
 ]
-
-
-# =============================================================================
-# WEEK-LEVEL AGGREGATIONS
-# =============================================================================
-# These expressions aggregate game-level stats into week-level summaries.
-# Input: One row per game with game-level stats
-# Output: One row per week
-
-WEEK_LEVEL_EXPRS: list[pl.Expr] = [
-    pl.col("home_win_pct").mean().alias("avg_home_win_pct"),
-    pl.col("home_score_avg").mean().alias("avg_home_score"),
-    pl.col("away_score_avg").mean().alias("avg_away_score"),
-    pl.col("margin_avg").mean().alias("avg_margin"),
-    pl.col("total_yards_avg").mean().alias("avg_yards"),
-    pl.col("touchdowns_avg").mean().alias("avg_touchdowns"),
-    pl.col("n_simulations").sum().alias("total_simulations"),
-    pl.len().alias("n_games"),
-]

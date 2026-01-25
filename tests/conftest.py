@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 import polars as pl
 import pytest
 
-from nfl_sim import sim_games, understand
+from nfl_sim import sim_games
 from nfl_sim._event import build_event_expr
 from nfl_sim._kickoff import build_kickoff_data
 from nfl_sim._sampling import PlayRowDict, build_sample_data
@@ -18,8 +18,7 @@ from nfl_sim.game import SingleGame
 from nfl_sim.play import GameEngine
 
 if TYPE_CHECKING:
-    from nfl_sim._agg_types import GameAggs
-    from nfl_sim.typing import Aggs, GameId, GameSims
+    from nfl_sim.typing import GameSims
 
 # =============================================================================
 # MOCKS: Mocking data pulling that requires the network.
@@ -36,15 +35,10 @@ def cur_week(session_mocker):
     mocked_function = session_mocker.patch("nfl_sim.data.get_current_week")
     mocked_function.return_value = CUR_WEEK
 
-    mocked_function = session_mocker.patch("nfl_sim.simulate.get_current_week")
-    mocked_function.return_value = CUR_WEEK
-
 
 @pytest.fixture(scope="session")
 def cur_season(session_mocker):
     mocked_function = session_mocker.patch("nfl_sim.data.get_current_season")
-    mocked_function.return_value = CUR_SEASON
-    mocked_function = session_mocker.patch("nfl_sim.simulate.get_current_season")
     mocked_function.return_value = CUR_SEASON
 
 
@@ -67,17 +61,6 @@ def mock_pbp(session_mocker):
 @pytest.fixture(scope="session")
 def rand_game(mock_dates, mock_pbp) -> GameSims:
     return sim_games("2024_01_KC_BAL", n=2)
-
-
-@pytest.fixture(scope="session")
-def sims_n50(mock_dates, mock_pbp) -> dict[GameId, GameSims]:
-    """Simulation of the latest week with 50 per matchup."""
-    return sim_games(n=50)
-
-
-@pytest.fixture(scope="session")
-def sims_n50_by_game(sims_n50: dict[GameId, GameSims]) -> Aggs:
-    return understand(sims_n50, by="all")
 
 
 # =============================================================================
@@ -120,11 +103,10 @@ def available_teams(pbp_data: pl.DataFrame) -> list[str]:
     return pbp_data["posteam"].drop_nulls().unique().to_list()
 
 
-@pytest.fixture(scope="module")
-def real_aggs(pbp_data: pl.DataFrame) -> GameAggs:
-    """Game aggregates for the real pbp data."""
-    listified = pbp_data.partition_by("game_id")
-    return understand(listified)
+@pytest.fixture(scope="session")
+def sim_single_game_n50(mock_dates, mock_pbp) -> GameSims:
+    """50 simulations of a single game for accuracy testing."""
+    return sim_games("2024_01_KC_BAL", n=50)
 
 
 # =============================================================================

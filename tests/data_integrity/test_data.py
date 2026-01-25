@@ -34,9 +34,9 @@ class TestPullGameData:
         result = pull_pbp_data()
 
         generated_columns = {
-            "__EVENT_KEY", # The integer value caried down to the hot areas in the engine
-            "time_elapsed", # Time elapsed during the play which is unique to the engine
-            "event", # The name of the event (event class but lowercase)
+            "__EVENT_KEY",  # The integer value caried down to the hot areas in the engine
+            "time_elapsed",  # Time elapsed during the play which is unique to the engine
+            "event",  # The name of the event (event class but lowercase)
         }
 
         allowed_columns = set(PBP_COLUMNS) | generated_columns

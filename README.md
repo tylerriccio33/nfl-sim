@@ -10,59 +10,26 @@ The simulator works by sampling real NFL plays from historical data and replayin
 
 ```python
 import polars as pl
-from nfl_sim import sim_games, understand, get_sim_weeks
-from typing import Literal
+from nfl_sim import sim_games, understand
+from nfl_sim._agg_types import GameAggs, TeamAggs
 
 type PBP = pl.DataFrame
-type Agg = pl.DataFrame
 type GameId = str
 type GameSims = list[PBP]
 
-## Sim Weeks/Games:
-res: dict[GameId, [PBP]] = sim_games()          # sims games in current week
-res: dict[GameId, [PBP]] = sim_games(2020, 14)  # sims games in 2020 week 14
-res: dict[GameId, [PBP]] = sim_games(2020)      # sims all of 2020
-game_id = ...
-res: dict[GameId, [PBP]] = sim_games([game_id, ...])     # sims selected GameIds
-res: GameSims = sim_games(game_id)                   # sim single GameId
+## Simulate a Game:
+game_id = "2024_01_KC_BAL"
+sims: GameSims = sim_games(game_id, n=100)  # 100 simulations
 
-# More complicated requests
-res: dict[GameId, [PBP]] = sim_games(since = 2023)
-res: dict[GameId, [PBP]] = sim_games(weeks = [(2020, 14), (2021, 15)])
+## Understand Results:
+# Game-level aggregates (win %, scores, margins, etc.)
+stats: GameAggs = understand(sims)
+print(stats.home_win_pct, stats.margin_avg)
 
-# Use logic to get weeks we'd like
-slicer: list[tuple[int, int]] = get_sim_weeks(since = 2021, rm_weeks= [17])
-res: dict[GameId, [PBP]] = sim_games(weeks = slicer)
-
-slicer: list[tuple[int, int]] = get_sim_weeks(window = 16, rm_weeks = [17, 18, 19])
-res: dict[GameId, [PBP]] = sim_games(weeks = slicer)
-
-
-## Understand Result Set:
-# Aggregates are declared in `EXPR.py` aggregate section
-week_of_sims: dict[GameId, [PBP]] = sim_games()
-
-# Primary Key -> Game, Posteam
-analysis: Agg = understand(week_of_sims, by = 'game-team')
-
-# Primary Key -> Week
-analysis: Agg = understand(week_of_sims, by = 'game')
-
-# Primary Key -> _sim_id
-game_id = ... # pass a game ID to break it down by simulation.
-analysis: Agg = understand(week_of_sims, by = game_id)
-# OR only a single game
-res: GameSims = sim_games(game_id)
-analysis: Agg = understand(res)
-
-# In the future...
-player_id = ... # pass a play ID to understand their performance.
-analysis: Agg = understand(week_of_sims, by = player_id)
-
-# In the future...
-pos_group = 'QB' # pass a position group to understand their performance.
-analysis: Agg = understand(week_of_sims, by ='pos_grou')
-
+# Per-team aggregates (touchdowns, yards, turnovers, etc.)
+# Returns tuple sorted alphabetically by team name
+team1, team2 = understand(sims, by="game-team")
+print(team1.touchdowns_avg, team2.interceptions_avg)
 ```
 
 **Play Selection:**
@@ -111,6 +78,7 @@ uv sync
 - Duplication is the devil, avoid it at all costs. If you find yourself copy/pasting code, stop and rethink your approach, look to centralize it.
 - Everything feeds the web UI, we don't need to test (or write) functionality that does not have the web API in mind.
 - We will almost never care about backward compatability.
+- Over-engineering is the devil!
 
 ## Project Structure
 

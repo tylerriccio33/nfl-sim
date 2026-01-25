@@ -1,12 +1,10 @@
 """Understand function for analyzing simulation results.
 
-Provides a functional interface for aggregating and analyzing simulation data
-at different levels: individual simulations, games, and weeks.
+Aggregates GameSims (list of PBP DataFrames) into summary statistics.
 """
 
 from __future__ import annotations
 
-from enum import Enum, auto
 from typing import TYPE_CHECKING, overload
 
 import polars as pl
@@ -22,153 +20,74 @@ from nfl_sim.EXPR import (
 if TYPE_CHECKING:
     from typing import Literal
 
-    from nfl_sim.typing import PBP, Aggs, GameId, GameSims
-
-
-class _TARGET_CODE(Enum):
-    SINGLE_GAME = auto()
-    MULT_GAME = auto()
-    SINGLE_SIM = auto()
+    from nfl_sim.typing import GameSims
 
 
 @overload
+def understand(sims: GameSims, *, by: Literal["game-team"]) -> tuple[TeamAggs, TeamAggs]: ...
+
+
+@overload
+def understand(sims: GameSims, *, by: None = ...) -> GameAggs: ...
+
+
 def understand(
-    target: GameSims | PBP, *, by: Literal["game-team"]
-) -> tuple[TeamAggs, TeamAggs]: ...
-
-
-@overload
-def understand(target: GameSims | PBP, *, by: Literal["game"] | None = ...) -> GameAggs: ...
-
-
-@overload
-def understand(target: GameSims | PBP, *, by: Literal["all"] | None = ...) -> GameAggs: ...
-
-
-@overload
-def understand(
-    target: dict[GameId, GameSims],
+    sims: GameSims,
     *,
-    by: Literal["game-team", "game"] | GameId | None = ...,
-) -> Aggs: ...
-
-
-def understand(
-    target: dict[GameId, GameSims] | GameSims | PBP,
-    *,
-    by: Literal["game-team", "game", "all"] | GameId | None = None,
-) -> Aggs | GameAggs | tuple[TeamAggs, TeamAggs]:
-    """Analyze simulation results at various aggregation levels.
-
-    This is the primary interface for extracting statistics from simulation results.
-    The return format depends on the input type and `by` parameter.
+    by: Literal["game-team"] | None = None,
+) -> GameAggs | tuple[TeamAggs, TeamAggs]:
+    """Analyze simulation results for a single game.
 
     Args:
-        target: Simulation results - either:
-            - GameSims (list of PBP DataFrames) for a single game
-            - dict[GameId, GameSims] for multiple games
+        sims: List of PBP DataFrames from N simulations of one game.
         by: Aggregation level:
-            - None: For single-game input, returns game-level aggregates
-            - "game": Returns one row per game with aggregated stats
-            - "game-team": Returns one row per (game, team) with team-level stats
-            - str (game_id): Returns sim-level aggregates for that game only
+            - None: Returns game-level aggregates (GameAggs namedtuple)
+            - "game-team": Returns per-team aggregates (tuple of TeamAggs)
 
     Returns:
-        DataFrame with aggregated statistics.
+        GameAggs namedtuple when by=None, or tuple of TeamAggs when by="game-team".
 
     Examples:
-        # Single game analysis
         sims = sim_games("2024_01_KC_BAL", n=100)
-        stats = understand(sims)  # Game-level aggregates
 
-        # Multiple games, one row per game
-        results = sim_games(2024, 14)
-        game_stats = understand(results, by="game")
+        # Game-level stats
+        stats = understand(sims)
+        print(stats.home_win_pct, stats.margin_avg)
 
-        # Get sim-level detail for a specific game
-        results = sim_games(2024, 14)
-        game_id = "2024_14_KC_BAL"
-        sim_stats = understand(results, by=game_id)
+        # Per-team stats (sorted alphabetically by team name)
+        team1, team2 = understand(sims, by="game-team")
+        print(team1.touchdowns_avg, team2.touchdowns_avg)
 
     """
-    assert len(target) > 0, "No targets passed to `understand`."
-    # Normalize input: wrap single-game GameSims in dict
-    # TODO: set a debug to determine the path of the target
-    if isinstance(target, list):
-        games = {"_single": target}
-        target_code = _TARGET_CODE.SINGLE_GAME
-    elif isinstance(target, dict):
-        games = target
-        target_code = _TARGET_CODE.MULT_GAME
-    elif isinstance(target, pl.DataFrame):
-        # TODO: If there is PBP for mult games, split them up
-        games = {"_single": [target]}
-        target_code = _TARGET_CODE.SINGLE_SIM
-    else:
-        msg = f"Expected dict[GameId, GameSims] or GameSims, got {type(target)}"
-        raise TypeError(msg)
+    if not sims:
+        msg = "No simulations passed to understand()."
+        raise ValueError(msg)
 
-    # Combine all games into a single DataFrame with game_id and _sim_id columns
-    combined: list[pl.DataFrame] = []
-    for game_id, sims in games.items():
-        sims_list: list[pl.DataFrame] = sims  # type: ignore[assignment]
-        # Add simulation index to each simulation's plays
-        sims_with_idx = [sim.with_columns(_sim_id=pl.lit(i)) for i, sim in enumerate(sims_list)]
-        # Concatenate all sims for this game and add game_id
-        game_df = pl.concat(sims_with_idx, how="vertical").with_columns(game_id=pl.lit(game_id))
-        combined.append(game_df)
+    # Add simulation index to each sim's plays and concatenate
+    sims_with_idx = [sim.with_columns(_sim_id=pl.lit(i)) for i, sim in enumerate(sims)]
+    all_plays = pl.concat(sims_with_idx, how="vertical")
 
-    all_plays = pl.concat(combined, how="vertical")
-
-    # Reduce by sim, game and then all:
-    if by == "all":
-        result = (
-            all_plays.group_by("game_id", "_sim_id")
-            .agg(*SIM_LEVEL_EXPRS)
-            .select(GAME_LEVEL_EXPRS)
-            .row(0, named=True)
-        )
-        return GameAggs(**result)
-
-    # Group by all at the same time:
     if by == "game-team":
         result = (
-            all_plays.group_by("game_id", "_sim_id", "posteam")
+            all_plays.group_by("_sim_id", "posteam")
             .agg(*SIM_TEAM_LEVEL_EXPRS)
-            .group_by("game_id", "posteam")
+            .group_by("posteam")
             .agg(*GAME_TEAM_LEVEL_EXPRS)
+            .sort("posteam")
         )
-        if target_code != _TARGET_CODE.MULT_GAME:
-            result = result.sort("posteam")
-            rows = result.drop("game_id", "posteam").rows(named=True)
-            return (TeamAggs(**rows[0]), TeamAggs(**rows[1]))
-        return result
+        rows = result.drop("posteam").rows(named=True)
+        return (TeamAggs(**rows[0]), TeamAggs(**rows[1]))
 
-    # Aggregate play-level → sim-level
-    sim_level = all_plays.group_by("game_id", "_sim_id").agg(*SIM_LEVEL_EXPRS)
-
-    if by == "game":
-        result = sim_level.group_by("game_id").agg(*GAME_LEVEL_EXPRS)
-        if target_code != _TARGET_CODE.MULT_GAME:
-            row = result.drop("game_id").row(0, named=True)
-            return GameAggs(**row)
-        return result
-
-    if by is None:
-        if target_code == _TARGET_CODE.SINGLE_GAME:
-            result = sim_level.group_by("game_id").agg(*GAME_LEVEL_EXPRS)
-            row = result.drop("game_id").row(0, named=True)
-            return GameAggs(**row)
-        if target_code == _TARGET_CODE.SINGLE_SIM:
-            result = sim_level.select(*GAME_LEVEL_EXPRS)
-            row = result.row(0, named=True)
-            return GameAggs(**row)
-
-        raise ValueError("by=None only valid for single-game input (GameSims)")
-
-    # by is a game_id string: return sim-level aggregates for that game
-    if by not in games:
-        available = list(games.keys())
-        raise KeyError(f"Game '{by}' not found. Available: {available}")
-
-    return sim_level.filter(pl.col("game_id") == by)
+    # Default: game-level aggregates
+    # First aggregate play-level to sim-level, then aggregate across all sims
+    sim_level = all_plays.group_by("_sim_id").agg(*SIM_LEVEL_EXPRS)
+    # Use a dummy key to aggregate all sim rows into a single output row
+    # This ensures list-collecting expressions work correctly
+    result = (
+        sim_level.with_columns(_key=pl.lit(1))
+        .group_by("_key")
+        .agg(*GAME_LEVEL_EXPRS)
+        .drop("_key")
+        .row(0, named=True)
+    )
+    return GameAggs(**result)

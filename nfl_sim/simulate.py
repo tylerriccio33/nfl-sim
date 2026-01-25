@@ -2,7 +2,7 @@
 
 This module provides the main entry point for running NFL game simulations:
 
-    from nfl_sim import sim_games, get_sim_weeks
+    from nfl_sim import sim_games
 
     # Simulate current week
     results = sim_games()
@@ -16,15 +16,13 @@ This module provides the main entry point for running NFL game simulations:
     results = sim_games(since=2023)
     results = sim_games(weeks=[(2024, 1), (2024, 2)])
 
-    # Build week lists
-    weeks = get_sim_weeks(since=2021, rm_weeks=[17, 18])
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, overload
 
-from nflreadpy.utils_date import get_current_season, get_current_week
+from nflreadpy.utils_date import get_current_season
 
 from nfl_sim._kickoff import build_kickoff_data
 from nfl_sim._sampling import NoSampleFoundError, build_sample_data
@@ -151,9 +149,11 @@ def _simulate_game(
         if capture_plays:
             results.append(game.game_data)
 
-    if len(results) == 0:
-        msg = f"No games could be simulated for {away} @ {home} due to sampling issues."
-        raise RuntimeError(msg)
+    # TODO: This really should be a fraction of N
+    if len(results) == 0:  # pragma: no cover
+        raise RuntimeError(
+            f"No games could be simulated for {away} @ {home} due to sampling issues."
+        )
 
     return results
 
@@ -349,78 +349,3 @@ def sim_games(
         return next(iter(results.values()))
 
     return results
-
-
-# =============================================================================
-# PUBLIC API: get_sim_weeks()
-# =============================================================================
-
-
-def get_sim_weeks(
-    *,
-    since: int | None = None,
-    window: int | None = None,
-    rm_weeks: list[int] | None = None,
-) -> list[tuple[int, int]]:
-    """Build a list of (season, week) tuples for sim_games(weeks=...).
-
-    Use this to construct week selections with filtering logic.
-
-    Examples:
-        # All weeks from 2021 to current, excluding week 17
-        weeks = get_sim_weeks(since=2021, rm_weeks=[17])
-        results = sim_games(weeks=weeks)
-
-        # Last 16 weeks, excluding playoff weeks
-        weeks = get_sim_weeks(window=16, rm_weeks=[17, 18, 19])
-        results = sim_games(weeks=weeks)
-
-    Args:
-        since: Include all weeks from this season to current.
-        window: Include the last N weeks from current.
-        rm_weeks: Week numbers to exclude (e.g., [17, 18] for playoffs).
-
-    Returns:
-        List of (season, week) tuples suitable for sim_games(weeks=...).
-
-    Raises:
-        ValueError: If neither since nor window is provided.
-
-    """
-    if since is None and window is None:
-        msg = "Must provide either 'since' or 'window' argument"
-        raise ValueError(msg)
-
-    cur_season = get_current_season()
-    cur_week = get_current_week()
-    rm_weeks = rm_weeks or []
-
-    result: list[tuple[int, int]] = []
-
-    if since is not None:
-        # All weeks from 'since' season to current
-        for season in range(since, cur_season + 1):
-            # NFL regular season is typically 17-18 weeks
-            max_week = cur_week if season == cur_season else 18
-            result.extend((season, week) for week in range(1, max_week + 1) if week not in rm_weeks)
-
-    elif window is not None:
-        # Last N weeks, working backwards from current
-        remaining = window
-        season = cur_season
-        week = cur_week
-
-        while remaining > 0 and season >= 2000:
-            if week not in rm_weeks:
-                result.append((season, week))
-                remaining -= 1
-
-            week -= 1
-            if week < 1:
-                season -= 1
-                week = 18  # Move to end of previous season
-
-        # Sort chronologically
-        result.sort()
-
-    return result

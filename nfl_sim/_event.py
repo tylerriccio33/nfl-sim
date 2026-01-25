@@ -65,9 +65,6 @@ class _ScorePlay(Protocol):
         raise NotImplementedError  # pragma: no cover
 
 
-class MoveChains(_Event): ...
-
-
 class _MetaEvent(_Event):
     """Events that supersede regular game engine flow.
 
