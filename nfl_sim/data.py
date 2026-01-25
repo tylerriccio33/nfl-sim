@@ -27,8 +27,6 @@ class GameMetadata(TypedDict):
     game_id: NotRequired[str]
     season: NotRequired[int]
     week: NotRequired[int]
-    gameday: NotRequired[str]
-    game_type: NotRequired[str]
 
 
 def _is_game_metadata(obj: object) -> TypeIs[GameMetadata]:
@@ -109,7 +107,11 @@ def compute_window_bounds(
 
 
 # TODO: Increase the week window to 16!
-def pull_pbp_data(week_window: int = 12, anchor: Anchor | None = None) -> pl.DataFrame:
+def pull_pbp_data(
+    week_window: int = 12,
+    anchor: Anchor | None = None,
+    include_depth_chart: bool = True,
+) -> pl.DataFrame:
     """Pull play-by-play data from nflverse.
 
     Downloads and caches nflverse play-by-play parquet files, selecting only the
@@ -121,6 +123,9 @@ def pull_pbp_data(week_window: int = 12, anchor: Anchor | None = None) -> pl.Dat
             historical sample.
         anchor: (season, week) exclusive upper bound for the data window. If None,
             defaults to (current_season, current_week).
+        include_depth_chart: If True (default), joins depth chart data to add
+            __receiver_dc_pos, __receiver_dc_rank, __rusher_dc_pos, __rusher_dc_rank
+            columns for position-based player abstraction.
 
     Returns:
         pl.DataFrame: Filtered play-by-play data with columns from pbp_columns.toml.
@@ -185,6 +190,11 @@ def pull_pbp_data(week_window: int = 12, anchor: Anchor | None = None) -> pl.Dat
     )
 
     assert len(data) > 0, "No game data found!"
+
+    # Optionally join depth chart data to add position columns
+    if include_depth_chart:
+        dc = DepthChartData.from_season(seasons)
+        data = dc.add_cols_to_pbp(data)
 
     return data
 
@@ -395,7 +405,7 @@ class DepthChartData(Data):
         "position",
         "depth_team",
     )
-    _cache = "data/depth-charts.parquet"
+    _cache = "data/depth-chart.parquet"
 
     def __init__(self, df: pl.DataFrame) -> None:
         """Initialize DepthChartData with a DataFrame."""
@@ -403,6 +413,41 @@ class DepthChartData(Data):
         if missing:
             raise ValueError(f"Missing required columns: {missing}")
         self.df = df
+
+    @classmethod
+    def _normalize_depth_chart(cls, df: pl.DataFrame, seasons: int | list[int]) -> pl.DataFrame:
+        """Normalize depth chart column names and add missing columns.
+
+        Handles column name differences between nflverse seasons:
+        - 2024 and earlier: club_code, position, depth_team, season, week
+        - 2025 and later: team, pos_abb, pos_rank, dt (timestamp)
+        """
+        # Normalize column names for different nflverse formats
+        column_renames: dict[str, str] = {}
+        if "team" in df.columns and "club_code" not in df.columns:
+            column_renames["team"] = "club_code"
+        if "pos_abb" in df.columns and "position" not in df.columns:
+            column_renames["pos_abb"] = "position"
+        if "pos_rank" in df.columns and "depth_team" not in df.columns:
+            df = df.with_columns(pl.col("pos_rank").cast(pl.String).alias("depth_team"))
+        if "player_name" in df.columns and "full_name" not in df.columns:
+            column_renames["player_name"] = "full_name"
+
+        if column_renames:
+            df = df.rename(column_renames)
+
+        # Add season/week columns if missing (2025+ format uses dt timestamp)
+        if "season" not in df.columns:
+            if isinstance(seasons, int):
+                df = df.with_columns(pl.lit(seasons).alias("season"))
+            else:
+                # Derive from dt timestamp - year of dt is the season
+                df = df.with_columns(pl.col("dt").str.slice(0, 4).cast(pl.Int32).alias("season"))
+
+        if "week" not in df.columns:
+            df = df.with_columns(pl.lit(None).cast(pl.Int32).alias("week"))
+
+        return df
 
     @classmethod
     def _loader(cls, seasons: int | list[int]) -> pl.DataFrame:
@@ -413,45 +458,16 @@ class DepthChartData(Data):
         - 2025 and later: team, pos_abb, pos_rank, dt (timestamp)
 
         """
+        if isinstance(seasons, int):
+            seasons = [seasons]
+
         if Path(cls._cache).exists():
-            if isinstance(seasons, int):
-                seasons = [seasons]
-            return pl.read_parquet(cls._cache).filter(pl.col("season").is_in(seasons))
+            df = pl.read_parquet(cls._cache)
+            df = cls._normalize_depth_chart(df, seasons)
+            return df.filter(pl.col("season").is_in(seasons))
 
         df = nfl.load_depth_charts(seasons=seasons)
-
-        # Normalize column names for different nflverse formats
-        # 2025+ format uses different column names
-        # TODO: You apparently need these?? check yourself
-        column_renames: dict[str, str] = {}
-        if "team" in df.columns and "club_code" not in df.columns:
-            column_renames["team"] = "club_code"
-        if "pos_abb" in df.columns and "position" not in df.columns:
-            column_renames["pos_abb"] = "position"
-        if "pos_rank" in df.columns and "depth_team" not in df.columns:
-            # pos_rank is an int, depth_team expects string for consistency
-            df = df.with_columns(pl.col("pos_rank").cast(pl.String).alias("depth_team"))
-        if "player_name" in df.columns and "full_name" not in df.columns:
-            column_renames["player_name"] = "full_name"
-
-        if column_renames:
-            df = df.rename(column_renames)
-
-        # Add season/week columns if missing (2025+ format uses dt timestamp)
-        # Parse dt to derive season and week based on NFL schedule
-        if "season" not in df.columns:
-            if isinstance(seasons, int):
-                # Single season requested
-                df = df.with_columns(pl.lit(seasons).alias("season"))
-            else:
-                # Multiple seasons - derive from dt timestamp
-                # NFL season starts in September, so year of Sept = season
-                df = df.with_columns(pl.col("dt").str.slice(0, 4).cast(pl.Int32).alias("season"))
-
-        if "week" not in df.columns:
-            # Depth chart data without explicit week - use None for now
-            # The add_cols_to_pbp will need to handle null weeks appropriately
-            df = df.with_columns(pl.lit(None).cast(pl.Int32).alias("week"))
+        df = cls._normalize_depth_chart(df, seasons)
 
         return df
 

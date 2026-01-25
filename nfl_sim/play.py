@@ -31,6 +31,9 @@ class PlayRecord:
     quarter: int
     half_seconds_remaining: int
     player_name: str | None
+    # Depth chart position abstraction (e.g., WR1, RB2)
+    dc_pos: str | None = None
+    dc_rank: int | None = None
 
 
 @dataclass

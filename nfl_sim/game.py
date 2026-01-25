@@ -23,7 +23,7 @@ from nfl_sim._sampling import PartitionedSampleData, PlayRowDict, fetch_like_pla
 from nfl_sim.play import GameEngine, PlayRecord
 
 if TYPE_CHECKING:
-    from nfl_sim.data import GameMetadata
+    from nfl_sim.data import DepthChartData, GameMetadata
 
 
 class SingleGame:
@@ -37,6 +37,9 @@ class SingleGame:
         away_team: str,
         home_kickoff_samples: KickoffSampleData,
         away_kickoff_samples: KickoffSampleData,
+        depth_chart: DepthChartData | None = None,
+        sim_season: int | None = None,
+        sim_week: int | None = None,
         **extra_metadata: Any,  # TODO: type or enum or somthing
     ) -> None:
         self.metadata: GameMetadata = {  # TODO: Do we really need this?
@@ -48,6 +51,9 @@ class SingleGame:
         self.away_samples = away_samples
         self.home_kickoff_samples = home_kickoff_samples
         self.away_kickoff_samples = away_kickoff_samples
+        self._depth_chart = depth_chart
+        self._sim_season = sim_season
+        self._sim_week = sim_week
         self._engine = GameEngine()
 
         self._team_order: tuple[str, str] = (home_team, away_team)
@@ -238,9 +244,17 @@ class SingleGame:
             desc = play_data["desc"]
 
             # Extract player name (receiver for passes, rusher for rushes)
-            player_name = play_data.get("receiver_player_name") or play_data.get(
-                "rusher_player_name"
-            )
+            receiver_name = play_data.get("receiver_player_name")
+            rusher_name = play_data.get("rusher_player_name")
+            player_name = receiver_name or rusher_name
+
+            # Extract depth chart position (receiver takes precedence for pass plays)
+            if receiver_name:
+                dc_pos = play_data.get("__receiver_dc_pos")
+                dc_rank = play_data.get("__receiver_dc_rank")
+            else:
+                dc_pos = play_data.get("__rusher_dc_pos")
+                dc_rank = play_data.get("__rusher_dc_rank")
 
             # Record the play with full context
             play = PlayRecord(
@@ -256,6 +270,8 @@ class SingleGame:
                 quarter=quarter,
                 half_seconds_remaining=self._engine.half_seconds_remaining,
                 player_name=player_name,
+                dc_pos=dc_pos,
+                dc_rank=dc_rank,
             )
             self._plays.append(play)
 
@@ -313,6 +329,55 @@ class SingleGame:
             self._defteam_score if self._posteam == self._team_order[0] else self._posteam_score,
         )
 
+    def _map_players_to_dc(self) -> pl.DataFrame:
+        """Map abstract DC positions to actual player names for each team.
+
+        Uses the simulation-time depth chart to look up which player is at each
+        position/rank for each team. Falls back to the original player name (from
+        the sampled play) if no match is found.
+        """
+        assert self._game_data is not None
+        assert self._depth_chart is not None
+        assert self._sim_season is not None
+        assert self._sim_week is not None
+
+        home = self.metadata["home_team"]
+        away = self.metadata["away_team"]
+
+        # Build lookup: (team, dc_pos, dc_rank) -> player_name
+        # We need depth chart entries for both teams at simulation time
+        team_dc = (
+            self._depth_chart.df.lazy()
+            .filter(
+                (pl.col("club_code").is_in([home, away]))
+                & (pl.col("season") == self._sim_season)
+                & (pl.col("week") == self._sim_week)
+            )
+            .with_columns(pl.col("depth_team").cast(pl.Int64).alias("dc_rank"))
+            .select(
+                pl.col("club_code").alias("posteam"),
+                pl.col("position").alias("dc_pos"),
+                pl.col("dc_rank"),
+                pl.col("full_name").alias("mapped_player_name"),
+            )
+            .unique(subset=["posteam", "dc_pos", "dc_rank"])
+            .collect()
+        )
+
+        # Join to map abstract positions to actual player names
+        result = self._game_data.join(
+            team_dc,
+            on=["posteam", "dc_pos", "dc_rank"],
+            how="left",
+        )
+
+        # Use mapped name if available, otherwise keep original (fallback)
+        result = result.with_columns(
+            pl.coalesce("mapped_player_name", "player_name").alias("player_name")
+        ).drop("mapped_player_name")
+
+        return result
+
     @property
     def game_data(self) -> pl.DataFrame:
         """Convert plays to DataFrame with realistic PBP structure."""
@@ -333,6 +398,13 @@ class SingleGame:
                 "quarter": [p.quarter for p in self._plays],
                 "half_seconds_remaining": [p.half_seconds_remaining for p in self._plays],
                 "player_name": [p.player_name for p in self._plays],
+                "dc_pos": [p.dc_pos for p in self._plays],
+                "dc_rank": [p.dc_rank for p in self._plays],
             }
         )
+
+        # Map abstract positions to actual players if depth chart available
+        if self._depth_chart and self._sim_season and self._sim_week:
+            self._game_data = self._map_players_to_dc()
+
         return self._game_data

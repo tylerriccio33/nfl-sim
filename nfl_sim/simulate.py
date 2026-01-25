@@ -26,7 +26,13 @@ from nflreadpy.utils_date import get_current_season
 
 from nfl_sim._kickoff import build_kickoff_data
 from nfl_sim._sampling import NoSampleFoundError, build_sample_data
-from nfl_sim.data import GameMetadata, ScheduleData, pull_kickoff_data, pull_pbp_data
+from nfl_sim.data import (
+    DepthChartData,
+    GameMetadata,
+    ScheduleData,
+    pull_kickoff_data,
+    pull_pbp_data,
+)
 from nfl_sim.game import SingleGame
 
 if TYPE_CHECKING:
@@ -110,6 +116,9 @@ def _simulate_game(
     n: int,
     pbp_data: pl.DataFrame,
     kickoff_data: pl.DataFrame,
+    depth_chart: DepthChartData | None = None,
+    sim_season: int | None = None,
+    sim_week: int | None = None,
     capture_plays: bool = True,
 ) -> GameSims:
     """Run N simulations of a single game, returning list of PBP DataFrames.
@@ -120,6 +129,9 @@ def _simulate_game(
         n: Number of simulations to run.
         pbp_data: Play-by-play data for sampling.
         kickoff_data: Kickoff data for sampling.
+        depth_chart: Depth chart data for player position mapping.
+        sim_season: Season of the simulated game (for depth chart lookup).
+        sim_week: Week of the simulated game (for depth chart lookup).
         capture_plays: Whether to capture play-by-play data. Default True.
 
     Returns:
@@ -140,6 +152,9 @@ def _simulate_game(
             away_team=away,
             home_kickoff_samples=home_kickoff,
             away_kickoff_samples=away_kickoff,
+            depth_chart=depth_chart,
+            sim_season=sim_season,
+            sim_week=sim_week,
         )
         try:
             game.play_game()
@@ -331,17 +346,38 @@ def sim_games(
     pbp_data = pull_pbp_data(week_window=week_window, anchor=anchor)
     kickoff_data = pull_kickoff_data(week_window=week_window, anchor=anchor)
 
+    # Load depth chart for all seasons we might need
+    # (games may span multiple seasons, so we load all unique seasons)
+    # Gracefully handle when depth chart data is unavailable (e.g., future seasons)
+    unique_seasons: list[int] = [s for meta in games if (s := meta.get("season")) is not None]
+    try:
+        depth_chart = DepthChartData.from_season(unique_seasons) if unique_seasons else None
+    except ValueError:
+        # Depth chart data not available for these seasons (e.g., future seasons)
+        depth_chart = None
+
     # Run simulations for each game
     results: dict[GameId, GameSims] = {}
     for meta in games:
         home = meta["home_team"]
         away = meta["away_team"]
+        sim_season = meta.get("season")
+        sim_week = meta.get("week")
         game_id = (
             meta.get("game_id")
             or f"{meta.get('season', 0)}_{meta.get('week', 0):02d}_{away}_{home}"
         )
 
-        sims = _simulate_game(home, away, n, pbp_data, kickoff_data)
+        sims = _simulate_game(
+            home,
+            away,
+            n,
+            pbp_data,
+            kickoff_data,
+            depth_chart=depth_chart,
+            sim_season=sim_season,
+            sim_week=sim_week,
+        )
         results[game_id] = sims
 
     # For single game_id input, return just the GameSims list

@@ -37,6 +37,11 @@ class TestPullGameData:
             "__EVENT_KEY",  # The integer value caried down to the hot areas in the engine
             "time_elapsed",  # Time elapsed during the play which is unique to the engine
             "event",  # The name of the event (event class but lowercase)
+            # Depth chart position columns (added by DepthChartData.add_cols_to_pbp)
+            "__receiver_dc_pos",
+            "__receiver_dc_rank",
+            "__rusher_dc_pos",
+            "__rusher_dc_rank",
         }
 
         allowed_columns = set(PBP_COLUMNS) | generated_columns

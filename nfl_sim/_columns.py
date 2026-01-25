@@ -34,5 +34,5 @@ PBP_COLUMNS: list[str] = _load_columns(
 )
 ENGINE_COLUMNS: list[str] = _load_columns(
     "engine_columns.toml",
-    ["filter", "play_result", "meta"],
+    ["filter", "play_result", "meta", "depth_chart"],
 )
