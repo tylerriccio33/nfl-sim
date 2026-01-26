@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import datetime
-from typing import TYPE_CHECKING
 
 import polars as pl
 from flask import Blueprint, render_template
 
-from nfl_sim import sim_games, understand
 from nfl_sim.data import ScheduleData
-from nfl_sim.web.storage import get_sim_count, load_pbp, load_stats, save_simulation
-
-if TYPE_CHECKING:
-    from nfl_sim.typing import GameSims
+from nfl_sim.utils import home_away_from_gameid
+from nfl_sim.web.storage import (
+    get_sim_count,
+    load_pbp,
+    load_stats,
+    pull_simulation_results,
+    save_simulation,
+)
 
 bp = Blueprint("main", __name__)
 
@@ -21,93 +23,12 @@ bp = Blueprint("main", __name__)
 _schedule: ScheduleData | None = None
 
 
-def _build_game_id(home: str, away: str) -> str:
-    """Build a game ID for sim_games() from home/away teams.
-
-    Uses current season and week 1 as placeholder since we're simulating
-    a hypothetical matchup, not a scheduled game.
-    """
-    # For web simulations, we use current year and week 01 as placeholder
-    year = datetime.datetime.now().year
-    return f"{year}_01_{away}_{home}"
-
-
-def _extract_stats_from_sims(
-    sims: GameSims,
-    home: str,
-    away: str,
-) -> dict:
-    """Extract all stats from GameSims for template rendering.
-
-    Uses understand() for both game-level and team-level aggregates.
-    All column names come directly from EXPR.py definitions.
-    """
-    game_stats = understand(sims)
-    team_pair = understand(sims, by="game-team")
-
-    # Team-level stats: tuple is sorted alphabetically by team name.
-    # Match elements to home/away based on sorted order.
-    sorted_teams = sorted([home, away])
-    if home == sorted_teams[0]:
-        home_team_aggs, away_team_aggs = team_pair
-    else:
-        away_team_aggs, home_team_aggs = team_pair
-
-    # Build prefixed team stats (skip n_simulations)
-    skip_keys = {"n_simulations"}
-    home_prefixed = {
-        f"home_{k}": v for k, v in home_team_aggs._asdict().items() if k not in skip_keys
-    }
-    away_prefixed = {
-        f"away_{k}": v for k, v in away_team_aggs._asdict().items() if k not in skip_keys
-    }
-
-    # Derive individual results from the raw lists
-    individual_results = [
-        {
-            "home_score": hs,
-            "away_score": aws,
-            "home_win": hs > aws,
-            "margin": m,
-        }
-        for hs, aws, m in zip(game_stats.home_scores, game_stats.away_scores, game_stats.margins)
-    ]
-
-    return {
-        "home_team": home,
-        "away_team": away,
-        "n_simulations": game_stats.n_simulations,
-        "home_win_pct": game_stats.home_win_pct,
-        "away_win_pct": game_stats.away_win_pct,
-        "tie_pct": game_stats.tie_pct,
-        "home_score_avg": game_stats.home_score_avg,
-        "home_score_min": int(game_stats.home_score_min),
-        "home_score_max": int(game_stats.home_score_max),
-        "home_score_std": game_stats.home_score_std or 0.0,
-        "away_score_avg": game_stats.away_score_avg,
-        "away_score_min": int(game_stats.away_score_min),
-        "away_score_max": int(game_stats.away_score_max),
-        "away_score_std": game_stats.away_score_std or 0.0,
-        "margin_avg": game_stats.margin_avg,
-        "margin_min": int(game_stats.margin_min),
-        "margin_max": int(game_stats.margin_max),
-        "margin_std": game_stats.margin_std or 0.0,
-        "num_drives_avg": game_stats.num_drives_avg,
-        "total_plays_avg": game_stats.total_plays_avg,
-        **home_prefixed,
-        **away_prefixed,
-        "individual_results": individual_results,
-        "margins": list(game_stats.margins),
-        "home_scores": list(game_stats.home_scores),
-        "away_scores": list(game_stats.away_scores),
-    }
-
-
 def get_schedule() -> ScheduleData:
     """Lazy-load and cache current week schedule, sorted by game date.
 
     Falls back to most recent week with games if current week is empty.
     """
+    # TODO: This is obviously a comedy show
     global _schedule
     if _schedule is None:
         # Try to get incomplete games first
@@ -154,29 +75,31 @@ def refresh_games():
     return render_template("partials/game_list.html", games=games_list)
 
 
-@bp.route("/simulate/<home>/<away>", methods=["POST"])
-def simulate(home: str, away: str):
-    """Run simulation for a matchup using sim_games()."""
-    n_sims = 100
-    game_id = _build_game_id(home, away)
+@bp.route("/simulate/<game_id>", methods=["POST"])
+def simulate(game_id: str):
+    """Load pre-computed simulation results for a matchup.
 
-    # Use the new sim_games() API - returns GameSims (list of PBP DataFrames)
-    sims: GameSims = sim_games(game_id, n=n_sims)
+    In production, results are pulled from S3 parquet files.
+    The web app does not run simulations - it only displays pre-computed results.
+    """
+    home, away = home_away_from_gameid(game_id)
 
-    # Extract stats using Understand
-    stats_dict = _extract_stats_from_sims(sims, home, away)
+    # Pull pre-computed results (mocked in tests, S3 in prod)
+    sims, stats_dict = pull_simulation_results(game_id)
 
-    # Save to temp storage
-    batch_id = f"{home}_{away}"
-    save_simulation(batch_id, sims, stats_dict)
+    # Cache locally for subsequent requests
+    save_simulation(game_id, sims, stats_dict)
 
-    return render_template("partials/sim_results.html", result=stats_dict, home=home, away=away)
+    return render_template(
+        "partials/sim_results.html", result=stats_dict, game_id=game_id, home=home, away=away
+    )
 
 
-@bp.route("/game/<home>/<away>/<int:sim_idx>/plays")
-def play_by_play(home: str, away: str, sim_idx: int):
+@bp.route("/game/<game_id>/<int:sim_idx>/plays")
+def play_by_play(game_id: str, sim_idx: int):
     """Get play-by-play for a specific simulation from storage."""
-    batch_id = f"{home}_{away}"
+    home, away = home_away_from_gameid(game_id)
+    batch_id = game_id
 
     # Check if simulation exists
     sim_count = get_sim_count(batch_id)
@@ -258,10 +181,11 @@ def _compute_aligned_histograms(
     return hist1, hist2
 
 
-@bp.route("/game/<home>/<away>/stats")
-def stats_panel(home: str, away: str):
+@bp.route("/game/<game_id>/stats")
+def stats_panel(game_id: str):
     """Get statistics panel for current simulation."""
-    batch_id = f"{home}_{away}"
+    home, away = home_away_from_gameid(game_id)
+    batch_id = game_id
     stats_dict = load_stats(batch_id)
 
     if stats_dict is None:

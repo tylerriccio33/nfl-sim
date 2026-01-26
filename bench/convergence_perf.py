@@ -4,11 +4,11 @@ import sys
 
 import polars as pl
 from loguru import logger
+from nfl_sim.simulate import _simulate_game
 from rich.console import Console
 
 from nfl_sim import understand
 from nfl_sim.data import pull_kickoff_data, pull_pbp_data
-from nfl_sim.simulate import _simulate_game
 
 start_at = 100
 max_sims = 3_000

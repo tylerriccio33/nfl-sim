@@ -2,23 +2,19 @@
 
 from __future__ import annotations
 
-import functools
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import polars as pl
 import pytest
 
-from nfl_sim import sim_games
-from nfl_sim._event import build_event_expr
-from nfl_sim._kickoff import build_kickoff_data
-from nfl_sim._sampling import PlayRowDict, build_sample_data
-from nfl_sim.data import pull_kickoff_data, pull_pbp_data
-from nfl_sim.game import SingleGame
-from nfl_sim.play import GameEngine
+from nfl_sim import GameContext, sim_games, understand
+from nfl_sim.data.context import ctx_from_latest_week
+from nfl_sim.sim.api import traces_to_dataframe
 
 if TYPE_CHECKING:
-    from nfl_sim.typing import GameSims
+    from nfl_sim.sim.state import GameTrace
 
 # =============================================================================
 # MOCKS: Mocking data pulling that requires the network.
@@ -32,13 +28,13 @@ PBP_LOC = "data/pbp.parquet"
 
 @pytest.fixture(scope="session")
 def cur_week(session_mocker):
-    mocked_function = session_mocker.patch("nfl_sim.data.get_current_week")
+    mocked_function = session_mocker.patch("nfl_sim.data.data.get_current_week")
     mocked_function.return_value = CUR_WEEK
 
 
 @pytest.fixture(scope="session")
 def cur_season(session_mocker):
-    mocked_function = session_mocker.patch("nfl_sim.data.get_current_season")
+    mocked_function = session_mocker.patch("nfl_sim.data.data.get_current_season")
     mocked_function.return_value = CUR_SEASON
 
 
@@ -55,13 +51,17 @@ def mock_pbp(session_mocker):
             seasons = [seasons]
         return pl.scan_parquet(PBP_LOC).filter(pl.col("season").is_in(seasons)).collect()
 
-    session_mocker.patch("nfl_sim.data.nfl.load_pbp", side_effect=_)
+    session_mocker.patch("nfl_sim.data.data.nfl.load_pbp", side_effect=_)
 
 
 @pytest.fixture(scope="session")
-def rand_game(mock_dates, mock_pbp) -> GameSims:
-    return sim_games("2024_01_KC_BAL", n=2)
+def rand_game() -> dict[str, list[GameTrace]]:
+    """Simulate a random game using the new sim engine."""
+    context = GameContext(game_id="KC_BAL", home="KC", away="BAL", spread=0.0)
+    return sim_games({context.game_id: context}, n=2)
 
+
+# TODO: All of these examples are wrong.
 
 # =============================================================================
 # DATA FIXTURES: Shared across integration tests
@@ -78,61 +78,31 @@ def raw_pbp() -> pl.DataFrame:
     return pl.read_parquet(DATA_DIR / "pbp.parquet")
 
 
-@pytest.fixture(scope="session")
-def pbp_data(mock_pbp, mock_dates) -> pl.DataFrame:
-    """Load play-by-play data once for all tests in this module.
-
-    Use this fixture for integration tests that need real NFL data.
-    For unit tests that need controlled data, use mock_play_data instead.
-    """
-    return pull_pbp_data()
+# NOTE: pbp_data and kickoff_data fixtures removed - old data system no longer exists.
+# The new sim/ module uses its own outcome models and doesn't need historical PBP data.
 
 
 @pytest.fixture(scope="session")
-def kickoff_data(mock_pbp, mock_dates) -> pl.DataFrame:
-    """Load kickoff data once for all tests in this module.
-
-    Use this fixture for integration tests that need real kickoff data.
-    """
-    return pull_kickoff_data()
-
-
-@pytest.fixture(scope="module")
-def available_teams(pbp_data: pl.DataFrame) -> list[str]:
-    """Get list of teams available in the mock data."""
-    return pbp_data["posteam"].drop_nulls().unique().to_list()
-
-
-@pytest.fixture(scope="session")
-def sim_single_game_n50(mock_dates, mock_pbp) -> GameSims:
+def sim_single_game_n50() -> dict[str, list[GameTrace]]:
     """50 simulations of a single game for accuracy testing."""
-    return sim_games("2024_01_KC_BAL", n=50)
+    context = GameContext(game_id="KC_BAL", home="KC", away="BAL", spread=0.0)
+    return sim_games({context.game_id: context}, n=50)
 
 
 # =============================================================================
-# GAME CREATION FIXTURES
+# CONTEXT FIXTURES: Creating contexts to reuse.
 # =============================================================================
 
 
 @pytest.fixture(scope="session")
-def create_game(pbp_data: pl.DataFrame):
-    """Factory fixture for creating SingleGame instances from pbp_data."""
+def latest_ctx(raw_pbp) -> dict[str, GameContext]:
+    return ctx_from_latest_week(raw_pbp)
 
-    def _create(home_team: str, away_team: str) -> SingleGame:
-        home_samples = build_sample_data(pbp_data, team=home_team)
-        away_samples = build_sample_data(pbp_data, team=away_team)
-        home_kickoffs = build_kickoff_data(pbp_data, team=home_team)
-        away_kickoffs = build_kickoff_data(pbp_data, team=away_team)
-        return SingleGame(
-            home_samples=home_samples,
-            away_samples=away_samples,
-            home_team=home_team,
-            away_team=away_team,
-            home_kickoff_samples=home_kickoffs,
-            away_kickoff_samples=away_kickoffs,
-        )
 
-    return _create
+@pytest.fixture(scope="session")
+def rand_ctx(latest_ctx) -> GameContext:
+    """Create a single context."""
+    return next(iter(ctx_from_latest_week(latest_ctx)))
 
 
 # =============================================================================
@@ -165,6 +135,116 @@ def mock_storage(tmp_path):
     storage.STORAGE_DIR = tmp_path
     yield tmp_path
     storage.STORAGE_DIR = original_storage_dir
+
+
+def _build_stats_dict(sims: list[pl.DataFrame], home: str, away: str) -> dict[str, Any]:
+    """Build stats dictionary from simulation DataFrames using understand().
+
+    This converts GameAggs and TeamAggs into the dict format expected by the web app.
+    """
+    game_stats = understand(sims)
+    team_pair = understand(sims, by="game-team")
+
+    # Team-level stats: tuple is sorted alphabetically by team name.
+    sorted_teams = sorted([home, away])
+    if home == sorted_teams[0]:
+        home_team_aggs, away_team_aggs = team_pair
+    else:
+        away_team_aggs, home_team_aggs = team_pair
+
+    # Build prefixed team stats (skip n_simulations)
+    skip_keys = {"n_simulations"}
+    home_prefixed = {
+        f"home_{k}": v for k, v in home_team_aggs._asdict().items() if k not in skip_keys
+    }
+    away_prefixed = {
+        f"away_{k}": v for k, v in away_team_aggs._asdict().items() if k not in skip_keys
+    }
+
+    return {
+        "home_team": home,
+        "away_team": away,
+        "n_simulations": game_stats.n_simulations,
+        "home_win_pct": game_stats.home_win_pct,
+        "away_win_pct": game_stats.away_win_pct,
+        "tie_pct": game_stats.tie_pct,
+        "home_score_avg": game_stats.home_score_avg,
+        "home_score_min": int(game_stats.home_score_min),
+        "home_score_max": int(game_stats.home_score_max),
+        "home_score_std": game_stats.home_score_std or 0.0,
+        "away_score_avg": game_stats.away_score_avg,
+        "away_score_min": int(game_stats.away_score_min),
+        "away_score_max": int(game_stats.away_score_max),
+        "away_score_std": game_stats.away_score_std or 0.0,
+        "margin_avg": game_stats.margin_avg,
+        "margin_min": int(game_stats.margin_min),
+        "margin_max": int(game_stats.margin_max),
+        "margin_std": game_stats.margin_std or 0.0,
+        "num_drives_avg": game_stats.num_drives_avg,
+        "total_plays_avg": game_stats.total_plays_avg,
+        **home_prefixed,
+        **away_prefixed,
+        "margins": list(game_stats.margins),
+        "home_scores": list(game_stats.home_scores),
+        "away_scores": list(game_stats.away_scores),
+        "individual_results": [
+            {
+                "home_score": h,
+                "away_score": a,
+                "home_win": h > a,
+            }
+            for h, a in zip(game_stats.home_scores, game_stats.away_scores)
+        ],
+    }
+
+
+# Game IDs used in web integration tests
+WEB_TEST_GAME_IDS = ["2025_08_BUF_CAR", "2025_09_DEN_HOU"]
+
+
+@pytest.fixture(scope="session")
+def _precomputed_sims() -> dict[str, tuple[list[pl.DataFrame], dict[str, Any]]]:
+    """Pre-compute simulations for web test game IDs (session-scoped for speed)."""
+    results = {}
+    n_sims = 100
+
+    for game_id in WEB_TEST_GAME_IDS:
+        # Parse home/away from game_id (format: YYYY_WW_HOME_AWAY)
+        _, _, home, away = game_id.split("_")
+
+        # Run simulations
+        ctx = GameContext(game_id=game_id, home=home, away=away, spread=0.0)
+        traces = sim_games({game_id: ctx}, n=n_sims)
+
+        # Convert to DataFrames
+        combined_df = traces_to_dataframe(traces)
+        sims = [
+            combined_df.filter(pl.col("sim_id") == i).drop("sim_id", "game_id")
+            for i in range(n_sims)
+        ]
+
+        # Build stats dict
+        stats_dict = _build_stats_dict(sims, home, away)
+        results[game_id] = (sims, stats_dict)
+
+    return results
+
+
+@pytest.fixture
+def mock_pull_simulation_results(_precomputed_sims, mock_storage):
+    """Mock pull_simulation_results to return pre-computed simulation data.
+
+    Use this fixture in web tests that call the /simulate/ endpoint.
+    """
+
+    def _mock_pull(game_id: str) -> tuple[list[pl.DataFrame], dict[str, Any]]:
+        if game_id not in _precomputed_sims:
+            raise FileNotFoundError(f"No pre-computed results for {game_id}")
+        return _precomputed_sims[game_id]
+
+    with patch("nfl_sim.web.storage.pull_simulation_results", side_effect=_mock_pull):  # noqa: SIM117
+        with patch("nfl_sim.web.routes.pull_simulation_results", side_effect=_mock_pull):
+            yield
 
 
 # =============================================================================
@@ -237,234 +317,4 @@ def sample_pbp_df() -> pl.DataFrame:
             "rusher_player_id": [None, None, "player3"],
             "yards_gained": [15, 8, 5],
         }
-    )
-
-
-# =============================================================================
-# SINGLE SOURCE OF TRUTH: Default columns for test play data
-# =============================================================================
-# When adding new columns to the engine, update this dict and all tests will
-# automatically have access to the new column with a sensible default.
-
-DEFAULT_PLAY_COLUMNS: dict[str, Any] = {
-    # Team info
-    "posteam": "KC",
-    "defteam": "BUF",
-    # Game state (for filtering/sampling)
-    "down": 1,
-    "ydstogo": 10,
-    "yardline_100": 75,
-    "wp": 0.5,
-    # Play result
-    "yards_gained": 5,
-    "desc": "Test play",
-    "time_elapsed": 25,
-    # Event detection columns
-    "touchdown": 0,
-    "interception": 0,
-    "return_touchdown": 0,
-    "fumble_lost": 0,
-    "field_goal_result": None,
-    "punt_attempt": 0,
-    "punt_blocked": 0,
-    "punt_in_endzone": 0,
-    "punt_fair_catch": 0,
-    "punt_out_of_bounds": 0,
-    "kick_distance": None,
-    # Return yards (for proportional return calculation)
-    "return_yards": None,
-    "air_yards": None,
-    # Player name columns (for display in PBP)
-    "receiver_player_name": None,
-    "rusher_player_name": None,
-    # Depth chart columns (added by DepthChartData.add_cols_to_pbp)
-    "__receiver_dc_pos": None,
-    "__receiver_dc_rank": None,
-    "__rusher_dc_pos": None,
-    "__rusher_dc_rank": None,
-}
-
-
-# TODO: WTF is the point of this
-def _build_test_play_data(
-    rows: list[dict[str, Any]] | None = None,
-    n_rows: int = 1,
-    **column_overrides: Any,
-) -> pl.DataFrame:
-    """Build test play DataFrame with sensible defaults.
-
-    Single source of truth for test data creation. Automatically applies
-    build_event_expr() to generate __EVENT_KEY.
-
-    Args:
-        rows: List of row dicts with column overrides per row. If provided,
-              n_rows is ignored.
-        n_rows: Number of rows to generate (all with same values).
-        **column_overrides: Override default values for all rows.
-
-    Returns:
-        DataFrame with all required columns and __EVENT_KEY computed.
-
-
-    """
-    if rows is not None:
-        # Build from explicit row list
-        data: dict[str, list[Any]] = {col: [] for col in DEFAULT_PLAY_COLUMNS}
-        for row in rows:
-            for col, default in DEFAULT_PLAY_COLUMNS.items():
-                data[col].append(row.get(col, default))
-    else:
-        # Build n_rows with same values
-        merged = {**DEFAULT_PLAY_COLUMNS, **column_overrides}
-        data = {col: [val] * n_rows for col, val in merged.items()}
-
-    return pl.DataFrame(data).with_columns(build_event_expr())
-
-
-def _make_play_dict(
-    yards_gained: int = 5,
-    desc: str = "Test play",
-    time_elapsed: int = 25,
-    event_key: int | None = None,
-    kick_distance: int | None = None,
-    return_yards: int | None = None,
-    air_yards: int | None = None,
-    yardline_100: int = 75,
-    receiver_dc_pos: str | None = None,
-    receiver_dc_rank: int | None = None,
-    rusher_dc_pos: str | None = None,
-    rusher_dc_rank: int | None = None,
-) -> PlayRowDict:
-    """Create a PlayRowDict for direct use with GameEngine.ingest_new_play().
-
-    This is the preferred way to create test play data after the DataFrame
-    slicing refactor. Use this instead of _build_test_play_data when testing
-    game engine behavior directly.
-    """
-    return PlayRowDict(
-        yards_gained=yards_gained,
-        desc=desc,
-        time_elapsed=time_elapsed,
-        __EVENT_KEY=event_key,
-        kick_distance=kick_distance,
-        return_yards=return_yards,
-        air_yards=air_yards,
-        yardline_100=yardline_100,
-        receiver_player_name=None,
-        rusher_player_name=None,
-        __receiver_dc_pos=receiver_dc_pos,
-        __receiver_dc_rank=receiver_dc_rank,
-        __rusher_dc_pos=rusher_dc_pos,
-        __rusher_dc_rank=rusher_dc_rank,
-    )
-
-
-# We occasionally need to call this as a fixture
-@pytest.fixture
-def build_test_play_data(*args, **kwargs):
-    return functools.partial(_build_test_play_data, *args, **kwargs)
-
-
-@pytest.fixture
-def make_play_dict():
-    """Fixture for creating PlayRowDict for GameEngine tests."""
-    return _make_play_dict
-
-
-@pytest.fixture
-def game() -> GameEngine:
-    """Fresh game state at default position (1st and 10 at own 25)."""
-    return GameEngine()
-
-
-@pytest.fixture
-def mock_play_data() -> pl.DataFrame:
-    """Sample play data for Samples class testing.
-
-    Mimics nflverse play-by-play structure with required columns.
-    """
-    return _build_test_play_data(
-        rows=[
-            {
-                "posteam": "KC",
-                "defteam": "BUF",
-                "down": 1,
-                "ydstogo": 10,
-                "yardline_100": 75,
-                "wp": 0.50,
-                "yards_gained": 5,
-                "desc": "KC rush for 5 yards",
-            },
-            {
-                "posteam": "KC",
-                "defteam": "BUF",
-                "down": 2,
-                "ydstogo": 5,
-                "yardline_100": 70,
-                "wp": 0.52,
-                "yards_gained": 2,
-                "desc": "KC pass incomplete",
-            },
-            {
-                "posteam": "KC",
-                "defteam": "BUF",
-                "down": 3,
-                "ydstogo": 3,
-                "yardline_100": 68,
-                "wp": 0.48,
-                "yards_gained": 8,
-                "desc": "KC pass for 8 yards",
-            },
-            {
-                "posteam": "KC",
-                "defteam": "BUF",
-                "down": 1,
-                "ydstogo": 10,
-                "yardline_100": 45,
-                "wp": 0.55,
-                "yards_gained": 5,
-                "desc": "KC rush for 5 yards",
-            },
-            {
-                "posteam": "KC",
-                "defteam": "BUF",
-                "down": 2,
-                "ydstogo": 8,
-                "yardline_100": 40,
-                "wp": 0.53,
-                "yards_gained": 12,
-                "desc": "KC pass for 12 yards TD",
-                "touchdown": 1,
-            },
-            {
-                "posteam": "BUF",
-                "defteam": "KC",
-                "down": 1,
-                "ydstogo": 10,
-                "yardline_100": 80,
-                "wp": 0.45,
-                "yards_gained": 7,
-                "desc": "BUF rush for 7 yards",
-            },
-            {
-                "posteam": "BUF",
-                "defteam": "KC",
-                "down": 2,
-                "ydstogo": 7,
-                "yardline_100": 73,
-                "wp": 0.47,
-                "yards_gained": 4,
-                "desc": "BUF pass for 4 yards",
-            },
-            {
-                "posteam": "BUF",
-                "defteam": "KC",
-                "down": 3,
-                "ydstogo": 4,
-                "yardline_100": 69,
-                "wp": 0.44,
-                "yards_gained": 15,
-                "desc": "BUF pass for 15 yards",
-            },
-        ]
     )

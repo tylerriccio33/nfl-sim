@@ -7,7 +7,7 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim import sim_games, understand
+from nfl_sim import GameContext, sim_games, understand
 from nfl_sim.data import ScheduleData
 
 NGAMES = 500
@@ -91,9 +91,10 @@ def run_accuracy_benchmark(
         spread = actual["spread_line"]  # Negative = home favored
 
         # Run N simulations for the game in question
-        game_id: str = game["game_id"]
-        sims = sim_games(game_id, n=n_sims_per_game)
-        stats = understand(sims)
+        context = GameContext.from_schedule_row(game)
+        game_id = context.game_id
+        sims = sim_games({game_id: context}, n=n_sims_per_game)
+        stats = understand(sims[game_id])
 
         # Model prediction (home margin)
         pred_diff = stats.home_score_avg - stats.away_score_avg

@@ -4,11 +4,11 @@ import sys
 import time
 
 from loguru import logger
+from nfl_sim.simulate import _simulate_game
 from rich.console import Console
 from rich.table import Table
 
 from nfl_sim.data import pull_kickoff_data, pull_pbp_data
-from nfl_sim.simulate import _simulate_game
 
 
 def configure_logging(level: str = "WARNING") -> None:

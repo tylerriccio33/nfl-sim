@@ -10,13 +10,13 @@ from pathlib import Path
 from line_profiler import LineProfiler
 from loguru import logger
 
-from nfl_sim._sampling import build_sample_data, fetch_like_play
-from nfl_sim.data import ScheduleData, pull_pbp_data
-
 ## == Profile These ==============================================
 from nfl_sim.game import SingleGame
 from nfl_sim.play import GameEngine
 from nfl_sim.simulate import _simulate_game
+
+from nfl_sim._sampling import build_sample_data, fetch_like_play
+from nfl_sim.data import ScheduleData, pull_pbp_data
 
 FUNCTIONS = (
     ## Game Orchestration:

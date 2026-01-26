@@ -7,9 +7,11 @@ from pathlib import Path
 
 import polars as pl
 
-from nfl_sim._agg_types import _game_schema, _team_schema
+from nfl_sim.summarize._agg_types import _game_schema, _team_schema
 
-STUB_PATH = Path(__file__).resolve().parent.parent / "nfl_sim" / "_agg_types.pyi"
+STUB_PATH = Path(__file__).resolve().parent.parent / "nfl_sim" / "summarize" / "_agg_types.pyi"
+
+assert STUB_PATH.exists()
 
 
 def _map_dtype(dtype: pl.DataType) -> str:

@@ -1,5 +1,5 @@
 {% if result %}
-<div hx-get="/game/{{ home }}/{{ away }}/stats"
+<div hx-get="/game/{{ game_id }}/stats"
      hx-target="#stats-panel"
      hx-trigger="load"
      hx-swap="innerHTML">
@@ -67,7 +67,7 @@
         <div
             class="bg-gray-800 rounded p-2 text-center cursor-pointer hover:bg-gray-700 transition-colors text-sm
                    {% if sim.home_win %}border border-green-600{% else %}border border-blue-600{% endif %}"
-            hx-get="/game/{{ home }}/{{ away }}/{{ loop.index0 }}/plays"
+            hx-get="/game/{{ game_id }}/{{ loop.index0 }}/plays"
             hx-target="#play-by-play-container"
             hx-swap="innerHTML"
             hx-indicator="#pbp-loading">

@@ -1,6 +1,6 @@
 
-server: ## Run the Web Server
-	@uv run --no-sync nfl-sim server
+server: ## Run the Web Server (live debugging with latest week data)
+	@uv run --no-sync python tests/test_live_server.py
 
 lint: ## Run ruff and typer
 	@uv run --no-sync ruff check --fix

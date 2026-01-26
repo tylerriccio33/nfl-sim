@@ -9,7 +9,7 @@ from collections import namedtuple
 
 import polars as pl
 
-from nfl_sim.EXPR import (
+from nfl_sim.summarize.EXPR import (
     GAME_LEVEL_EXPRS,
     GAME_TEAM_LEVEL_EXPRS,
     SIM_LEVEL_EXPRS,

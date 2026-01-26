@@ -21,6 +21,7 @@ columns = [
     "game_date",
     "home_score",
     "away_score",
+    "spread_line",
 ]
 
 # Game situation columns (used for play matching/sampling)

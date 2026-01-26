@@ -89,7 +89,7 @@ class TestRoutes:
             assert response.status_code == 200
 
     def test_play_by_play_no_cache_returns_error(self, client, mock_storage):
-        response = client.get("/game/KC/BUF/0/plays")
+        response = client.get("/game/2024_01_KC_BUF/0/plays")
         assert response.status_code == 200
         assert b"No cached simulation data" in response.data
 
@@ -98,32 +98,32 @@ class TestRoutes:
             {
                 "posteam": ["KC"],
                 "down": [1],
-                "dist": [10],
+                "distance": [10],
                 "yardline": [75],
                 "yards_gained": [5],
-                "desc": ["Pass complete"],
-                "event": [None],
+                "event": ["Play"],
                 "home_score": [0],
                 "away_score": [0],
                 "quarter": [1],
-                "half_seconds_remaining": [1750],
+                "clock": [750],
             }
         )
-        storage.save_simulation("KC_BUF", [mock_sim], {})
-        response = client.get("/game/KC/BUF/0/plays")
+        storage.save_simulation("2024_01_KC_BUF", [mock_sim], {})
+        response = client.get("/game/2024_01_KC_BUF/0/plays")
         assert response.status_code == 200
         html = response.data.decode()
-        assert "Pass complete" in html
+        assert "KC" in html
+        assert "1 plays" in html
 
     def test_play_by_play_invalid_index(self, client, mock_storage):
         mock_sim = pl.DataFrame({"dummy": [1]})
-        storage.save_simulation("KC_BUF", [mock_sim], {})
-        response = client.get("/game/KC/BUF/5/plays")
+        storage.save_simulation("2024_01_KC_BUF", [mock_sim], {})
+        response = client.get("/game/2024_01_KC_BUF/5/plays")
         assert response.status_code == 200
         assert b"Invalid simulation index" in response.data
 
     def test_stats_panel_no_cache_returns_200(self, client, mock_storage):
-        response = client.get("/game/KC/BUF/stats")
+        response = client.get("/game/2024_01_KC_BUF/stats")
         assert response.status_code == 200
 
     def test_stats_panel_with_cached_data(self, client, app, mock_storage):
@@ -158,8 +158,8 @@ class TestRoutes:
             "away_scores": [14, 21, 28, 24],
             "margins": [7, 7, -4, -7],
         }
-        storage.save_simulation("KC_BUF", [], stats_dict)
-        response = client.get("/game/KC/BUF/stats")
+        storage.save_simulation("2024_01_KC_BUF", [], stats_dict)
+        response = client.get("/game/2024_01_KC_BUF/stats")
         assert response.status_code == 200
 
     def test_stats_panel_contains_game_stats_section(self, client, app, mock_storage):
@@ -194,8 +194,8 @@ class TestRoutes:
             "away_scores": [14, 21, 28, 24],
             "margins": [7, 7, -4, -7],
         }
-        storage.save_simulation("KC_BUF", [], stats_dict)
-        response = client.get("/game/KC/BUF/stats")
+        storage.save_simulation("2024_01_KC_BUF", [], stats_dict)
+        response = client.get("/game/2024_01_KC_BUF/stats")
         html = response.data.decode()
         assert "Game Stats" in html
         assert "Avg TDs" in html
