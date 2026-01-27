@@ -8,9 +8,8 @@ detect dead code or broken template rendering.
 from __future__ import annotations
 
 import pytest
-from pathlib import Path
+
 from nfl_sim.utils import home_away_from_gameid
-from nfl_sim import place_sim_results_at_db
 
 DATA_DIR = "data"
 PBP_LOC = f"{DATA_DIR}/pbp.parquet"

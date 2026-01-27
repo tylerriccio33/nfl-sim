@@ -9,7 +9,7 @@ from unittest.mock import patch
 import polars as pl
 import pytest
 
-from nfl_sim import GameContext, sim_games, place_sim_results_at_db
+from nfl_sim import GameContext, place_sim_results_at_db, sim_games
 from nfl_sim.utils import get_latest_season_week
 
 if TYPE_CHECKING:
@@ -187,6 +187,7 @@ def result_paths(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     game_team_summary_target = tmp_path / "game-team-summary-target.parquet"
     future_games_target = tmp_path / "future-games-target.parquet"
     return pbp_target, game_summary_target, game_team_summary_target, future_games_target
+
 
 # TODO: Would love if this wasn't re-computed ever time
 @pytest.fixture
