@@ -11,10 +11,6 @@ import pytest
 
 from nfl_sim.utils import home_away_from_gameid
 
-DATA_DIR = "data"
-PBP_LOC = f"{DATA_DIR}/pbp.parquet"
-SCHEDULES_LOC = f"{DATA_DIR}/schedules.parquet"
-
 # TODO: Also do a test where we pull the latest data? or maybe that's what this test does?
 
 

@@ -15,12 +15,6 @@ from loguru import logger
 
 from nfl_sim.web import create_app
 
-DATA_DIR = "data"
-PBP_LOC = f"{DATA_DIR}/pbp.parquet"
-SCHEDULES_LOC = f"{DATA_DIR}/schedules.parquet"
-
-TARGET = "/tmp/sim-db.parquet"
-
 
 @pytest.mark.skipif(
     os.getenv("NFL_SIM_LIVE", "0") != "1",

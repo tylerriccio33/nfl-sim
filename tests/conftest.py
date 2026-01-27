@@ -2,44 +2,24 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import polars as pl
 import pytest
 
-from nfl_sim import GameContext, place_sim_results_at_db, sim_games
+from nfl_sim import GameContext, place_sim_results_at_db
 from nfl_sim.utils import get_latest_season_week
+from nfl_sim.web import create_app
 
 if TYPE_CHECKING:
-    from nfl_sim.engine.state import GameTrace
+    from pathlib import Path
 
 # =============================================================================
 # Constants
 # =============================================================================
 
-DATA_DIR = Path(__file__).parent.parent / "data"
 SCHEDULES_LOC = "data/schedules.parquet"
-
-
-# =============================================================================
-# Simulation Fixtures
-# =============================================================================
-
-
-@pytest.fixture(scope="session")
-def rand_game() -> dict[str, list[GameTrace]]:
-    """Simulate a random game using the new sim engine."""
-    context = GameContext(game_id="KC_BAL", home="KC", away="BAL", spread=0.0)
-    return sim_games({context.game_id: context}, n=2)
-
-
-@pytest.fixture(scope="session")
-def sim_single_game_n50() -> dict[str, list[GameTrace]]:
-    """50 simulations of a single game for accuracy testing."""
-    context = GameContext(game_id="KC_BAL", home="KC", away="BAL", spread=0.0)
-    return sim_games({context.game_id: context}, n=50)
-
+PBP_LOC = "data/pbp.parquet"
 
 # =============================================================================
 # Data Fixtures (for tests that need real data files)
@@ -52,7 +32,7 @@ def raw_pbp() -> pl.DataFrame:
 
     Use this for tests that need the raw data without any filtering/transformation.
     """
-    return pl.read_parquet(DATA_DIR / "pbp.parquet")
+    return pl.read_parquet(PBP_LOC)
 
 
 @pytest.fixture(scope="session")
@@ -61,30 +41,16 @@ def raw_schedules() -> pl.DataFrame:
     return pl.read_parquet(SCHEDULES_LOC)
 
 
-@pytest.fixture
-def mock_schedule_data() -> pl.DataFrame:
-    """Load cached schedule data from local parquet."""
-    return pl.read_parquet(DATA_DIR / "schedules.parquet")
-
-
 # =============================================================================
 # Web Fixtures
 # =============================================================================
 
 
 @pytest.fixture
-def app():
-    """Create test app instance."""
-    from nfl_sim.web import create_app
-
+def client():
+    """Flask test client."""
     app = create_app()
     app.config["TESTING"] = True
-    return app
-
-
-@pytest.fixture
-def client(app):
-    """Flask test client."""
     return app.test_client()
 
 
@@ -93,8 +59,7 @@ def latest_rand_game_id(raw_schedules: pl.DataFrame) -> tuple[str, str] | str:
     """Two game IDs from the latest week, 1 if superbowl."""
     season, week = get_latest_season_week(raw_schedules)
     game_ids = (
-        pl.read_parquet(SCHEDULES_LOC)
-        .filter(pl.col("season") == season, pl.col("week") == week)
+        raw_schedules.filter(pl.col("season") == season, pl.col("week") == week)
         .select("game_id")
         .unique()
         .slice(0, 2)
@@ -123,3 +88,21 @@ def result_paths(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
 def build_results(result_paths) -> None:
     """Run simulations and place results at the result paths."""
     place_sim_results_at_db(*result_paths)
+
+
+# =============================================================================
+#
+# =============================================================================
+
+
+@pytest.fixture
+def ctx() -> dict[str, GameContext]:
+    """Multiple game contexts for testing."""
+    # These games don't even matter, just matters we pass data down
+    # TODO: eventaully, when the contexts get more advanced we'll have to auto-generate
+    # the stats (spread, epa, etc.)
+    games = [
+        GameContext(game_id="2025_02_KC_BUF", home="KC", away="BUF", spread=-3.0),
+        GameContext(game_id="2025_03_BUF_MIA", home="BUF", away="MIA", spread=-7.0),
+    ]
+    return {g.game_id: g for g in games}
