@@ -25,24 +25,31 @@ class GameContext:
     # home_season_epa, home_12_week_epa, away_*, etc.
     # features that require schedule/meta and pbp
 
+    @classmethod
+    def from_row(cls, row: dict) -> GameContext:
+        """Construct a game context from a row in a dataframe."""
+        # TODO: Probably a way to do this automatically
+        return cls(
+            game_id=row["game_id"],
+            home=row["home_team"],
+            away=row["away_team"],
+            spread=row["spread_line"] or 0.0,
+        )
+
 
 def _rows_to_contexts(data: pl.DataFrame) -> dict[str, GameContext]:
     """Convert a DataFrame with game info rows to a dict of GameContext."""
     result: dict[str, GameContext] = {}
     for row in data.iter_rows(named=True):
         game_id = row["game_id"]
-        result[game_id] = GameContext(
-            game_id=game_id,
-            home=row["home_team"],
-            away=row["away_team"],
-            spread=row["spread_line"] or 0.0,
-        )
+        result[game_id] = GameContext.from_row(row)
+
     return result
 
 
 # TODO: Probably rename to like context engineering or something
 def ctx_from_game_id(
-    pbp: pl.DataFrame, schedule_data: pl.DataFrame, game_ids: list[str] | None = None
+    pbp: pl.DataFrame, schedule_data: pl.DataFrame, game_ids: list[str]
 ) -> dict[str, GameContext]:
     """Build contexts for specific game IDs.
 
@@ -56,16 +63,9 @@ def ctx_from_game_id(
             If None, ALL are used in the schedule data.
 
     """
-    # TODO: The `None` arguably shouldn't be in prod code since it's JUST for benchmarking
-    # - all game id filtering should be handled by the caller (prod or benchmark or test)
-    if isinstance(game_ids, list):
-        filter_expr = pl.col("game_id").is_in(game_ids)
-    else:
-        filter_expr = pl.lit(True)
-
     ## Schedule Features:
     sched_features = (
-        schedule_data.filter(filter_expr)
+        schedule_data.filter(pl.col("game_id").is_in(game_ids))
         .select("game_id", "spread_line", "home_team", "away_team")
         .unique()
     )

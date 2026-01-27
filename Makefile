@@ -20,7 +20,7 @@ test: ## Run tests
 		--durations 10
 
 cov-api: ## Run web API integration tests with coverage
-	@uv run --no-sync pytest tests/test_web_integration.py \
+	@uv run --no-sync pytest tests/web/test_web_integration.py \
 		--cov nfl_sim \
 		--cov-report term-missing
 
