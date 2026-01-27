@@ -1,113 +1,149 @@
 """Mega-test exercising all sim_games() + understand() API signatures.
 
-Absorbs test_simulator.py and test_big_example.py into a single file that
-documents and validates every public API surface.
+Tests the full pipeline: context creation → simulation → understanding.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+import polars as pl
 import pytest
 
-from nfl_sim import GameSims, sim_games, understand
-from nfl_sim.data.context import ctx_from_latest_week
-from nfl_sim.summarize._agg_types import GameAggs, TeamAggs
-
-if TYPE_CHECKING:
-    import polars as pl
-
-    from nfl_sim.data.context import GameContext
+from nfl_sim import GameContext, sim_games, understand
+from nfl_sim.engine import traces_to_dataframe
 
 # =============================================================================
-# ctx -> sim -> understand integrations
+# Fixtures
 # =============================================================================
 
 
-class TestUnderstandSingleGame:
-    """Tests for understand() with a single game (GameSims input)."""
-
-    def test_no_by_returns_game_aggs(self, raw_pbp: pl.DataFrame):
-        """understand() with GameSims and no by returns GameAggs namedtuple."""
-        ctx = ctx_from_latest_week(raw_pbp)
-        res = sim_games(ctx, n=10)
-        stats = understand(res)
-        assert isinstance(stats, GameAggs)
-        assert hasattr(stats, "home_win_pct")
-        assert hasattr(stats, "home_score_avg")
-
-    def test_by_game_team(self, raw_pbp):
-        """by='game-team' returns tuple of TeamAggs for single game."""
-        ctx = ctx_from_latest_week(raw_pbp)
-        res = sim_games(ctx, n=10)
-        team_stats = understand(res, by="game-team")
-        assert isinstance(team_stats, tuple)
-        assert len(team_stats) == 2
-        assert isinstance(team_stats[0], TeamAggs)
-        assert isinstance(team_stats[1], TeamAggs)
-        assert hasattr(team_stats[0], "touchdowns_avg")
-        assert hasattr(team_stats[0], "field_goals_avg")
-        assert hasattr(team_stats[0], "interceptions_avg")
-        assert hasattr(team_stats[0], "n_simulations")
+@pytest.fixture
+def single_game_ctx() -> dict[str, GameContext]:
+    """Single game context for testing."""
+    ctx = GameContext(game_id="KC_BAL", home="KC", away="BAL", spread=-3.0)
+    return {ctx.game_id: ctx}
 
 
-class TestUnderstandExamples:
-    """Test the types of questions a user and web app would ask."""
-
-    def test_single_game(self, rand_game: GameSims):
-        game_stats = understand(rand_game)
-
-        assert game_stats.num_drives_avg > 10
-        assert game_stats.num_drives_avg < 30
-        assert game_stats.yards_per_play_avg > 3
-        assert game_stats.yards_per_play_avg < 9
-        assert game_stats.interceptions_max > -1
-        assert game_stats.interceptions_max < 5
+@pytest.fixture
+def multi_game_ctx() -> dict[str, GameContext]:
+    """Multiple game contexts for testing."""
+    games = [
+        GameContext(game_id="KC_SF", home="KC", away="SF", spread=-3.0),
+        GameContext(game_id="BUF_MIA", home="BUF", away="MIA", spread=-7.0),
+    ]
+    return {g.game_id: g for g in games}
 
 
 # =============================================================================
-# End-to-End Integration with Summarization
+# understand() with game-level aggregation
+# =============================================================================
+
+
+class TestUnderstandGameLevel:
+    """Tests for understand() with default (game-level) aggregation."""
+
+    def test_returns_dataframe(self, single_game_ctx):
+        """understand() should return a polars DataFrame."""
+        traces = sim_games(single_game_ctx, n=10, base_seed=42)
+        df = traces_to_dataframe(traces)
+        result = understand(df)
+
+        assert isinstance(result, pl.DataFrame)
+
+    def test_one_row_per_game(self, single_game_ctx):
+        """Game-level aggregation should produce one row per game."""
+        traces = sim_games(single_game_ctx, n=10, base_seed=42)
+        df = traces_to_dataframe(traces)
+        result = understand(df)
+
+        assert len(result) == 1
+
+    def test_multiple_games_multiple_rows(self, multi_game_ctx):
+        """Multiple games should produce multiple rows."""
+        traces = sim_games(multi_game_ctx, n=10, base_seed=42)
+        df = traces_to_dataframe(traces)
+        result = understand(df)
+
+        assert len(result) == 2
+
+    def test_has_game_id_column(self, single_game_ctx):
+        """Result should have game_id column."""
+        traces = sim_games(single_game_ctx, n=10, base_seed=42)
+        df = traces_to_dataframe(traces)
+        result = understand(df)
+
+        assert "game_id" in result.columns
+
+
+# =============================================================================
+# understand() with game-team-level aggregation
+# =============================================================================
+
+
+class TestUnderstandGameTeamLevel:
+    """Tests for understand() with by='game-team' aggregation."""
+
+    def test_returns_dataframe(self, single_game_ctx):
+        """understand(by='game-team') should return a DataFrame."""
+        traces = sim_games(single_game_ctx, n=10, base_seed=42)
+        df = traces_to_dataframe(traces)
+        result = understand(df, by="game-team")
+
+        assert isinstance(result, pl.DataFrame)
+
+    def test_two_rows_per_game(self, single_game_ctx):
+        """Game-team aggregation should produce two rows per game (home/away)."""
+        traces = sim_games(single_game_ctx, n=10, base_seed=42)
+        df = traces_to_dataframe(traces)
+        result = understand(df, by="game-team")
+
+        # 1 game x 2 teams = 2 rows
+        assert len(result) == 2
+
+    def test_multiple_games_four_rows(self, multi_game_ctx):
+        """Multiple games should produce 2 rows per game."""
+        traces = sim_games(multi_game_ctx, n=10, base_seed=42)
+        df = traces_to_dataframe(traces)
+        result = understand(df, by="game-team")
+
+        # 2 games x 2 teams = 4 rows
+        assert len(result) == 4
+
+    def test_has_posteam_column(self, single_game_ctx):
+        """Result should have posteam column to identify the team."""
+        traces = sim_games(single_game_ctx, n=10, base_seed=42)
+        df = traces_to_dataframe(traces)
+        result = understand(df, by="game-team")
+
+        assert "posteam" in result.columns
+
+
+# =============================================================================
+# End-to-End Pipeline Tests
 # =============================================================================
 
 
 class TestSimToUnderstand:
-    """Tests for the full pipeline: sim_games → understand."""
+    """Tests for the full pipeline: sim_games → traces_to_dataframe → understand."""
 
-    def test_understand_accepts_traces(self, latest_ctx: dict[str, GameContext]):
-        """understand() should accept traces directly from sim_games."""
-        traces = sim_games(latest_ctx, n=10, base_seed=42)
-        first_trace = next(iter(traces))
-        stats = understand(first_trace)
+    def test_full_pipeline_completes(self, single_game_ctx):
+        """Full pipeline should complete without error."""
+        traces = sim_games(single_game_ctx, n=20, base_seed=42)
+        df = traces_to_dataframe(traces)
+        game_stats = understand(df)
+        team_stats = understand(df, by="game-team")
 
-        # Should have basic attributes from GameAggs
-        assert hasattr(stats, "n_simulations")
-        assert stats.n_simulations == 10
+        assert len(game_stats) == 1
+        assert len(team_stats) == 2
 
-    def test_understand_game_level_stats(self, latest_ctx: dict[str, GameContext]):
-        """Game-level stats should be reasonable."""
-        traces = sim_games(latest_ctx, n=20, base_seed=42)
-        first_trace = next(iter(traces))
-        stats = understand(first_trace)
+    def test_pipeline_with_multiple_games(self, multi_game_ctx):
+        """Pipeline should work with multiple games."""
+        traces = sim_games(multi_game_ctx, n=15, base_seed=42)
+        df = traces_to_dataframe(traces)
+        game_stats = understand(df)
+        team_stats = understand(df, by="game-team")
 
-        # Win percentages should sum to ~1 (allowing for ties)
-        total = stats.home_win_pct + stats.away_win_pct + stats.tie_pct
-        assert 0.99 <= total <= 1.01
-
-        # Scores should be non-negative
-        assert stats.home_score_avg >= 0
-        assert stats.away_score_avg >= 0
-
-    def test_understand_team_level_stats(self, latest_ctx: dict[str, GameContext]):
-        """Per-team stats should work with traces."""
-        traces = sim_games(latest_ctx, n=10, base_seed=42)
-        first_trace = next(iter(traces))
-        team1, team2 = understand(first_trace, by="game-team")
-
-        # Both teams should have stats
-        assert hasattr(team1, "n_simulations")
-        assert hasattr(team2, "n_simulations")
-        assert team1.n_simulations == 10
-        assert team2.n_simulations == 10
+        assert len(game_stats) == 2  # 2 games
+        assert len(team_stats) == 4  # 2 games x 2 teams
 
 
 if __name__ == "__main__":

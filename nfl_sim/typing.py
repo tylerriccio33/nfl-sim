@@ -20,4 +20,3 @@ type GameId = str
 
 type GameSims = list[PBP]
 """List of N play-by-play DataFrames from N simulations of one game."""
-

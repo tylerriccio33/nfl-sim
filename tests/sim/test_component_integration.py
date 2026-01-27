@@ -13,15 +13,39 @@ from random import Random
 import polars as pl
 import pytest
 
-from nfl_sim.sim.api import (
+from nfl_sim import GameContext
+from nfl_sim.engine.api import (
     GameResult,
     sim_games,
     simulate_game,
     traces_to_dataframe,
 )
-from nfl_sim.sim.model import SimpleOutcomeModel
-from nfl_sim.sim.policy import RandomPolicy
-from nfl_sim.sim.state import Action
+from nfl_sim.engine.state import Action
+from nfl_sim.models.outcomes import SimpleOutcomeModel
+from nfl_sim.models.policy import RandomPolicy
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def single_game_ctx() -> dict[str, GameContext]:
+    """Single game context for testing."""
+    ctx = GameContext(game_id="KC_SF", home="KC", away="SF", spread=-3.0)
+    return {ctx.game_id: ctx}
+
+
+@pytest.fixture
+def multi_game_ctx() -> dict[str, GameContext]:
+    """Multiple game contexts for testing."""
+    games = [
+        GameContext(game_id="KC_SF", home="KC", away="SF", spread=-3.0),
+        GameContext(game_id="BUF_MIA", home="BUF", away="MIA", spread=-7.0),
+        GameContext(game_id="DAL_PHI", home="DAL", away="PHI", spread=2.5),
+    ]
+    return {g.game_id: g for g in games}
+
 
 # =============================================================================
 # Single Game Simulation Tests
@@ -156,38 +180,35 @@ class TestTraceValidity:
 class TestSimGames:
     """Tests for sim_games function (running multiple sims)."""
 
-    def test_sim_game_latest_week(self, latest_ctx):
-        """Simulate games from the latest week in the data."""
-        traces = sim_games(latest_ctx, n=1, base_seed=42)
+    def test_sim_games_single_game(self, single_game_ctx):
+        """Simulate a single game multiple times."""
+        traces = sim_games(single_game_ctx, n=5, base_seed=42)
 
-        # Should have traces for each game in the week
-        assert len(traces) == len(latest_ctx)
-        for game_id in latest_ctx:
-            assert game_id in traces
-            assert len(traces[game_id]) == 1
+        assert len(traces) == 1
+        assert "KC_SF" in traces
+        assert len(traces["KC_SF"]) == 5
 
-    def test_returns_correct_number_of_traces(self, latest_ctx):
+    def test_returns_correct_number_of_traces(self, single_game_ctx):
         """Should return exactly n traces per game."""
-        traces = sim_games(latest_ctx, n=10, base_seed=42)
+        traces = sim_games(single_game_ctx, n=10, base_seed=42)
 
-        assert "ARI_SF" in traces
-        assert len(traces["ARI_SF"]) == 10
+        assert len(traces["KC_SF"]) == 10
 
-    def test_each_trace_is_valid(self, latest_ctx):
+    def test_each_trace_is_valid(self, single_game_ctx):
         """Each trace should be a valid GameTrace."""
-        traces = sim_games(latest_ctx, n=5, base_seed=42)
+        traces = sim_games(single_game_ctx, n=5, base_seed=42)
 
-        for trace in traces["JAX_HOU"]:
+        for trace in traces["KC_SF"]:
             assert isinstance(trace, list)
             assert len(trace) > 0  # At least some plays
 
-    def test_results_vary_with_different_seeds(self, latest_ctx):
+    def test_results_vary_with_different_seeds(self, single_game_ctx):
         """Multiple simulations should produce varying results."""
-        traces = sim_games(latest_ctx, n=20, base_seed=42)
+        traces = sim_games(single_game_ctx, n=20, base_seed=42)
 
         # Extract final scores from each trace
         scores = []
-        for trace in traces["NYG_WAS"]:
+        for trace in traces["KC_SF"]:
             final_state = trace[-1].state_after
             scores.append(final_state.score)
         unique_scores = set(scores)
@@ -195,27 +216,28 @@ class TestSimGames:
         # Should have some variety in outcomes
         assert len(unique_scores) > 1
 
-    def test_base_seed_produces_reproducible_batch(self, latest_ctx):
+    def test_base_seed_produces_reproducible_batch(self, single_game_ctx):
         """Same base_seed should produce identical batch of simulations."""
-        traces1 = sim_games(latest_ctx, n=5, base_seed=777)
-        traces2 = sim_games(latest_ctx, n=5, base_seed=777)
+        traces1 = sim_games(single_game_ctx, n=5, base_seed=777)
+        traces2 = sim_games(single_game_ctx, n=5, base_seed=777)
 
-        for t1, t2 in zip(traces1["PIT_BAL"], traces2["PIT_BAL"]):
+        for t1, t2 in zip(traces1["KC_SF"], traces2["KC_SF"]):
             assert t1[-1].state_after.score == t2[-1].state_after.score
             assert len(t1) == len(t2)
 
-    def test_n_equals_one(self, latest_ctx):
+    def test_n_equals_one(self, single_game_ctx):
         """Should handle n=1 correctly."""
-        traces = sim_games(latest_ctx, n=1, base_seed=42)
+        traces = sim_games(single_game_ctx, n=1, base_seed=42)
 
-        assert len(traces["LV_KC"]) == 1
+        assert len(traces["KC_SF"]) == 1
 
-    def test_multiple_games(self, latest_ctx):
+    def test_multiple_games(self, multi_game_ctx):
         """Should handle multiple games."""
-        traces = sim_games(latest_ctx, n=5, base_seed=42)
+        traces = sim_games(multi_game_ctx, n=5, base_seed=42)
 
         assert "KC_SF" in traces
         assert "BUF_MIA" in traces
+        assert "DAL_PHI" in traces
         assert len(traces["KC_SF"]) == 5
         assert len(traces["BUF_MIA"]) == 5
 
@@ -228,16 +250,16 @@ class TestSimGames:
 class TestTracesToDataframe:
     """Tests for traces_to_dataframe conversion function."""
 
-    def test_returns_dataframe(self, latest_ctx):
+    def test_returns_dataframe(self, single_game_ctx):
         """Should return a polars DataFrame."""
-        traces = sim_games(latest_ctx, n=5, base_seed=42)
+        traces = sim_games(single_game_ctx, n=5, base_seed=42)
         df = traces_to_dataframe(traces)
 
         assert isinstance(df, pl.DataFrame)
 
-    def test_has_required_columns(self, latest_ctx):
+    def test_has_required_columns(self, single_game_ctx):
         """DataFrame should have all required columns."""
-        traces = sim_games(latest_ctx, n=3, base_seed=42)
+        traces = sim_games(single_game_ctx, n=3, base_seed=42)
         df = traces_to_dataframe(traces)
 
         required_cols = [
@@ -258,24 +280,24 @@ class TestTracesToDataframe:
         for col in required_cols:
             assert col in df.columns, f"Missing column: {col}"
 
-    def test_game_id_is_correct(self, latest_ctx):
+    def test_game_id_is_correct(self, single_game_ctx):
         """Game ID should match the input."""
-        traces = sim_games(latest_ctx, n=2, base_seed=42)
+        traces = sim_games(single_game_ctx, n=2, base_seed=42)
         df = traces_to_dataframe(traces)
 
-        assert df["game_id"].unique().to_list() == ["DAL_NYG"]
+        assert df["game_id"].unique().to_list() == ["KC_SF"]
 
-    def test_sim_id_is_sequential(self, latest_ctx):
+    def test_sim_id_is_sequential(self, single_game_ctx):
         """Sim IDs should be 0, 1, 2, ..., n-1."""
-        traces = sim_games(latest_ctx, n=5, base_seed=42)
+        traces = sim_games(single_game_ctx, n=5, base_seed=42)
         df = traces_to_dataframe(traces)
 
         sim_ids = sorted(df["sim_id"].unique().to_list())
         assert sim_ids == [0, 1, 2, 3, 4]
 
-    def test_events_are_valid(self, latest_ctx):
+    def test_events_are_valid(self, single_game_ctx):
         """Event column should have valid event types."""
-        traces = sim_games(latest_ctx, n=10, base_seed=42)
+        traces = sim_games(single_game_ctx, n=10, base_seed=42)
         df = traces_to_dataframe(traces)
 
         valid_events = {
@@ -295,13 +317,13 @@ class TestTracesToDataframe:
             f"Invalid events: {actual_events - valid_events}"
         )
 
-    def test_multiple_games(self, latest_ctx):
+    def test_multiple_games(self, multi_game_ctx):
         """Should handle multiple games in one call."""
-        traces = sim_games(latest_ctx, n=3, base_seed=42)
+        traces = sim_games(multi_game_ctx, n=3, base_seed=42)
         df = traces_to_dataframe(traces)
 
         game_ids = set(df["game_id"].unique().to_list())
-        assert game_ids == {"KC_SF", "BUF_MIA"}
+        assert game_ids == {"KC_SF", "BUF_MIA", "DAL_PHI"}
 
     def test_empty_traces_returns_empty_df(self):
         """Empty traces dict should return empty DataFrame."""
@@ -347,11 +369,11 @@ class TestCustomComponents:
 class TestEdgeCases:
     """Edge cases and stress tests."""
 
-    def test_many_simulations(self, latest_ctx):
+    def test_many_simulations(self, single_game_ctx):
         """Should handle large number of simulations."""
-        traces = sim_games(latest_ctx, n=200, base_seed=42)
+        traces = sim_games(single_game_ctx, n=200, base_seed=42)
 
-        assert len(traces["STRESS1_STRESS2"]) == 200
+        assert len(traces["KC_SF"]) == 200
 
     def test_zero_zero_start(self):
         """Game should start 0-0."""

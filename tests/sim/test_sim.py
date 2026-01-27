@@ -11,8 +11,8 @@ These tests verify the core game logic:
 
 from dataclasses import replace
 
-from nfl_sim.sim.apply import apply_outcome, is_terminal
-from nfl_sim.sim.state import Action, GameState, Outcome, TurnoverType
+from nfl_sim.engine.apply import apply_outcome, is_terminal
+from nfl_sim.engine.state import Action, GameState, Outcome, TurnoverType
 
 
 # TODO: These should be fixtures

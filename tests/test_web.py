@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import polars as pl
+
 from nfl_sim.web.routes import _compute_histogram
 
 
@@ -66,26 +68,22 @@ class TestRoutes:
     """Tests for route handlers."""
 
     def test_index_returns_200(self, client):
-        with patch("nfl_sim.web.routes.get_schedule") as mock_schedule:
-            mock_schedule.return_value.as_metadata.return_value = [
-                {"home_team": "KC", "away_team": "BUF"}
-            ]
+        """Index route should return 200 when metadata is available."""
+        mock_df = pl.DataFrame({"game_id": ["KC_BUF"], "home_team": ["KC"], "away_team": ["BUF"]})
+        with patch("nfl_sim.web.routes.pull_game_metadata", return_value=mock_df):
             response = client.get("/")
             assert response.status_code == 200
 
     def test_index_returns_html(self, client):
-        with patch("nfl_sim.web.routes.get_schedule") as mock_schedule:
-            mock_schedule.return_value.as_metadata.return_value = []
+        """Index route should return HTML content."""
+        mock_df = pl.DataFrame({"game_id": ["KC_BUF"], "home_team": ["KC"], "away_team": ["BUF"]})
+        with patch("nfl_sim.web.routes.pull_game_metadata", return_value=mock_df):
             response = client.get("/")
             assert b"<!DOCTYPE html>" in response.data or b"<html" in response.data
 
-    def test_refresh_games_returns_200(self, client):
-        with patch("nfl_sim.web.routes.get_schedule") as mock_schedule:
-            mock_schedule.return_value.as_metadata.return_value = []
-            response = client.get("/games")
+    def test_index_with_empty_games(self, client):
+        """Index route should handle empty game list."""
+        mock_df = pl.DataFrame({"game_id": [], "home_team": [], "away_team": []})
+        with patch("nfl_sim.web.routes.pull_game_metadata", return_value=mock_df):
+            response = client.get("/")
             assert response.status_code == 200
-
-    def test_play_by_play_no_cache_returns_error(self, client, mock_storage):
-        response = client.get("/game/2024_01_KC_BUF/0/plays")
-        assert response.status_code == 200
-        assert b"No cached simulation data" in response.data
