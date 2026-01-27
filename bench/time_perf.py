@@ -4,11 +4,11 @@ import sys
 import time
 
 from loguru import logger
-from nfl_sim.simulate import _simulate_game
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim.data import pull_kickoff_data, pull_pbp_data
+from nfl_sim import sim_games
+from nfl_sim.models.context import GameContext
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -18,7 +18,7 @@ def configure_logging(level: str = "WARNING") -> None:
 
 
 def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
-    """Run N simulations per game for multiple matchups and return timing stats.
+    """Run N simulations for a matchup and return timing stats.
 
     Args:
         n_sims_per_game: Number of simulations per game matchup
@@ -29,13 +29,17 @@ def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
     """
     configure_logging("WARNING")
 
-    # Load data once (not included in timing)
-    pbp_data = pull_pbp_data(week_window=12)
-    kickoff_data = pull_kickoff_data(week_window=12)
+    # Build a simple context (no data loading needed with new engine)
+    context = GameContext(
+        game_id="KC_NYJ",
+        home="KC",
+        away="NYJ",
+        spread=-3.0,
+    )
 
-    # Run simulations (timing just the simulation, not data loading)
+    # Time just the simulation (no data loading overhead)
     start = time.perf_counter()
-    _simulate_game("KC", "NYJ", n=n_sims_per_game, pbp_data=pbp_data, kickoff_data=kickoff_data)
+    sim_games({"KC_NYJ": context}, n=n_sims_per_game)
     elapsed = time.perf_counter() - start
 
     # Calculate stats

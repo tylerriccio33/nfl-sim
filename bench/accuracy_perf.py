@@ -1,19 +1,24 @@
 """Benchmark the accuracy of game predictions against actual results."""
 
 import sys
+from pathlib import Path
 
 import polars as pl
 from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from nfl_sim import GameContext, sim_games, understand
-from nfl_sim.data import ScheduleData
+from nfl_sim import sim_games, understand
+from nfl_sim.engine import traces_to_dataframe
+from nfl_sim.models.context import GameContext
 
 NGAMES = 500
 NSIMS = 1_000
 
 BEST_RMSE = 14.90
+
+## Data locations (same as nfl_sim/__init__.py):
+SCHEDULES_DATA = Path("data/schedules.parquet")
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -22,14 +27,12 @@ def configure_logging(level: str = "WARNING") -> None:
     logger.add(sys.stderr, level=level)
 
 
-def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> ScheduleData:
+def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> pl.DataFrame:
     """Fetch completed games with actual results for validation.
 
-    Uses ScheduleData._loader() to leverage caching, then applies benchmark-specific
-    filters (spread_line for Vegas comparison, min_season for team code consistency).
+    Filters to regular season games with results and Vegas spreads.
     """
-    seasons = list(range(min_season, 2025))
-    schedule_df = ScheduleData.from_season(seasons).df
+    schedule_df = pl.read_parquet(SCHEDULES_DATA)
 
     # Filter to completed regular season games with results
     # Require spread_line for comparison against Vegas
@@ -39,6 +42,7 @@ def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> Sche
         pl.col("home_score").is_not_null(),
         pl.col("away_score").is_not_null(),
         pl.col("spread_line").is_not_null(),
+        pl.col("season") >= min_season,
     )
 
     # Sample n_games randomly
@@ -46,7 +50,7 @@ def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> Sche
         completed = completed.sample(n_games)
 
     logger.info(f"Found {len(completed)} viable games to test against.")
-    return ScheduleData(completed)
+    return completed
 
 
 def run_accuracy_benchmark(
@@ -69,35 +73,36 @@ def run_accuracy_benchmark(
     with console.status(f"[bold blue]Fetching {n_games} completed games..."):
         schedule = fetch_completed_games(n_games)
 
-    # Build lookup for actual results by game (home_team, away_team)
-    actual_results: dict[tuple[str, str], dict[str, object]] = {}
-    for row in schedule:
-        key = (row["home_team"], row["away_team"])
-        actual_results[key] = row
-
-    # Run simulations
-    results = []
     console.print(f"[bold green]Simulating {len(schedule)} games ({n_sims_per_game} sims each)...")
 
-    for i, game in enumerate(schedule):
+    results = []
+
+    for i, row in enumerate(schedule.iter_rows(named=True)):
         if (i + 1) % 10 == 0:
             console.print(f"  Progress: {i + 1}/{len(schedule)}")
 
-        home_team: str = game["home_team"]
-        away_team: str = game["away_team"]
-        actual = actual_results[(home_team, away_team)]
-        actual_home = actual["home_score"]
-        actual_away = actual["away_score"]
-        spread = actual["spread_line"]  # Negative = home favored
+        home_team: str = row["home_team"]
+        away_team: str = row["away_team"]
+        game_id: str = row["game_id"]
+        actual_home = row["home_score"]
+        actual_away = row["away_score"]
+        spread = row["spread_line"]  # Negative = home favored
 
-        # Run N simulations for the game in question
-        context = GameContext.from_schedule_row(game)
-        game_id = context.game_id
-        sims = sim_games({game_id: context}, n=n_sims_per_game)
-        stats = understand(sims[game_id])
+        # Build context and run simulations
+        context = GameContext(
+            game_id=game_id,
+            home=home_team,
+            away=away_team,
+            spread=spread or 0.0,
+        )
+        traces = sim_games({game_id: context}, n=n_sims_per_game)
+        sim_df = traces_to_dataframe(traces)
+        stats_df = understand(sim_df, by="game")
 
-        # Model prediction (home margin)
-        pred_diff = stats.home_score_avg - stats.away_score_avg
+        # Extract prediction from DataFrame (understand returns DataFrame now)
+        stats_row = stats_df.row(0, named=True)
+        pred_diff = stats_row["home_score_avg"] - stats_row["away_score_avg"]
+
         # Vegas prediction: spread_line negative = home favored
         vegas_diff = spread
 
@@ -105,7 +110,7 @@ def run_accuracy_benchmark(
             {
                 "home_team": home_team,
                 "away_team": away_team,
-                "game_date": actual["gameday"],
+                "game_date": row.get("gameday", ""),
                 "actual_home": actual_home,
                 "actual_away": actual_away,
                 "pred_differential": pred_diff,
@@ -118,10 +123,9 @@ def run_accuracy_benchmark(
         actual_margin=(pl.col("actual_home") - pl.col("actual_away")),
     )
 
-    n_games = len(results_df)
+    n_games_actual = len(results_df)
 
     # RMSE: model vs vegas prediction error
-    # TODO: Use polars for this this
     model_errors = results_df["actual_margin"] - results_df["pred_differential"]
     vegas_errors = results_df["actual_margin"] - results_df["vegas_differential"]
     model_mse = float((model_errors**2).mean())  # type: ignore[operator]
@@ -138,8 +142,6 @@ def run_accuracy_benchmark(
     vegas_wp = vegas_correct / n_non_ties if n_non_ties > 0 else 0.0
 
     # ATS: model picks vs spread (exclude pushes)
-    # TODO: Use polars for all of this
-    # TODO: Column for model resid, vegas resid and dist between model and vegas (in sample results)
     actual_vs_spread = results_df["actual_margin"] - results_df["vegas_differential"]
     non_pushes = results_df.filter(actual_vs_spread != 0)
     n_ats = len(non_pushes)
@@ -149,7 +151,7 @@ def run_accuracy_benchmark(
     ats_wp = ats_wins / n_ats if n_ats > 0 else 0.0
 
     stats = {
-        "n_games": n_games,
+        "n_games": n_games_actual,
         "model_rmse": model_rmse,
         "vegas_rmse": vegas_rmse,
         "model_wp": model_wp,
@@ -192,7 +194,7 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
         samples_table.add_row(
             row["home_team"],
             row["away_team"],
-            row["game_date"],
+            str(row["game_date"]),
             f"{row['actual_margin']:+.0f}",
             f"{row['pred_differential']:+.0f}",
             f"{row['vegas_differential']:+.1f}",

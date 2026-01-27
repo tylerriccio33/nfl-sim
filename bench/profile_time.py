@@ -10,24 +10,25 @@ from pathlib import Path
 from line_profiler import LineProfiler
 from loguru import logger
 
-## == Profile These ==============================================
-from nfl_sim.game import SingleGame
-from nfl_sim.play import GameEngine
-from nfl_sim.simulate import _simulate_game
-
-from nfl_sim._sampling import build_sample_data, fetch_like_play
-from nfl_sim.data import ScheduleData, pull_pbp_data
+## Profile these functions from the new engine API:
+from nfl_sim.engine.api import _run_game_loop, sim_games, simulate_game, traces_to_dataframe
+from nfl_sim.engine.apply import apply_outcome
+from nfl_sim.models.context import GameContext
+from nfl_sim.models.outcomes import SimpleOutcomeModel
+from nfl_sim.models.policy import RandomPolicy
 
 FUNCTIONS = (
-    ## Game Orchestration:
-    SingleGame._run_half,
-    SingleGame.play_game,
-    ## Sampling:
-    fetch_like_play,
-    build_sample_data,
-    ## Game Engine:
-    GameEngine.ingest_new_play,
-    _simulate_game,
+    ## High-level API:
+    sim_games,
+    simulate_game,
+    _run_game_loop,
+    ## State transitions:
+    apply_outcome,
+    ## Models and policy:
+    SimpleOutcomeModel.sample,
+    RandomPolicy.choose_action,
+    ## DataFrame conversion:
+    traces_to_dataframe,
 )
 
 logger.remove()
@@ -42,25 +43,21 @@ def main() -> None:
     for fn in FUNCTIONS:
         profiler.add_function(fn)
 
-    # Load data
-    print("Loading data...")
-    schedule = ScheduleData.from_cur_week(rm_complete=True)
-    _ = pull_pbp_data()  # Pre-load data to warm cache
-
-    # Get first game metadata
-    meta = schedule[0]
-    home_team = meta["home_team"]
-    away_team = meta["away_team"]
+    # Build a simple context for profiling
+    context = GameContext(
+        game_id="KC_NYJ",
+        home="KC",
+        away="NYJ",
+        spread=-3.0,
+    )
 
     # Profile N simulations
     n_sims = 10
-    print(f"Profiling {home_team} vs {away_team} ({n_sims} simulations)...")
+    print(f"Profiling {context.home} vs {context.away} ({n_sims} simulations)...")
     profiler.runcall(
-        _simulate_game,
-        home_team,
-        away_team,
+        sim_games,
+        {context.game_id: context},
         n=n_sims,
-        week_window=12,
     )
 
     # Save results to file

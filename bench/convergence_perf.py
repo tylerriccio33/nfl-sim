@@ -1,19 +1,23 @@
 """Benchmark convergence of simulation results across different sample sizes."""
 
 import sys
+from pathlib import Path
 
 import polars as pl
 from loguru import logger
-from nfl_sim.simulate import _simulate_game
 from rich.console import Console
 
-from nfl_sim import understand
-from nfl_sim.data import pull_kickoff_data, pull_pbp_data
+from nfl_sim import sim_games, understand
+from nfl_sim.engine import traces_to_dataframe
+from nfl_sim.models.context import GameContext
 
 start_at = 100
 max_sims = 3_000
 incr_by = 100
 SIM_COUNTS = list(range(start_at, max_sims, incr_by))
+
+## Data locations:
+SCHEDULES_DATA = Path("data/schedules.parquet")
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -22,25 +26,24 @@ def configure_logging(level: str = "WARNING") -> None:
     logger.add(sys.stderr, level=level)
 
 
-def fetch_single_game() -> tuple[str, str]:
+def fetch_single_game() -> tuple[str, str, str]:
     """Fetch a single completed game for convergence testing.
 
     Returns:
-        Tuple of (home_team, away_team).
+        Tuple of (game_id, home_team, away_team).
 
     """
-    import nflreadpy as nfl
-
-    schedule_df = nfl.load_schedules(seasons=2024)
+    schedule_df = pl.read_parquet(SCHEDULES_DATA)
 
     completed = schedule_df.filter(
         pl.col("result").is_not_null(),
         pl.col("game_type") == "REG",
+        pl.col("season") >= 2023,
     )
 
     # Pick a single game (first one after sorting for reproducibility)
-    game = completed.sort("week").row(0, named=True)
-    return game["home_team"], game["away_team"]
+    game = completed.sort("season", "week").row(0, named=True)
+    return game["game_id"], game["home_team"], game["away_team"]
 
 
 def run_convergence_benchmark() -> pl.DataFrame:
@@ -55,27 +58,31 @@ def run_convergence_benchmark() -> pl.DataFrame:
 
     # Get a single game
     with console.status("[bold blue]Selecting game for convergence test..."):
-        home_team, away_team = fetch_single_game()
+        game_id, home_team, away_team = fetch_single_game()
 
     console.print(f"[bold green]Testing convergence for: {away_team} @ {home_team}")
     console.print(f"[bold green]Running simulations from {SIM_COUNTS[0]} to {SIM_COUNTS[-1]}...")
 
-    # Load data once for all iterations
-    pbp_data = pull_pbp_data(week_window=12)
-    kickoff_data = pull_kickoff_data(week_window=12)
+    context = GameContext(
+        game_id=game_id,
+        home=home_team,
+        away=away_team,
+        spread=0.0,  # Not relevant for convergence test
+    )
 
     results: list[dict[str, float]] = []
     prev_margin: float | None = None
 
     for n_sims in SIM_COUNTS:
         # Run N simulations
-        sims = _simulate_game(
-            home_team, away_team, n=n_sims, pbp_data=pbp_data, kickoff_data=kickoff_data
-        )
-        stats = understand(sims)
+        traces = sim_games({game_id: context}, n=n_sims)
+        sim_df = traces_to_dataframe(traces)
+        stats_df = understand(sim_df, by="game")
 
-        avg_margin = stats.margin_avg
-        margin_std = stats.margin_std or 0.0
+        # Extract values from DataFrame
+        stats_row = stats_df.row(0, named=True)
+        avg_margin = stats_row["margin_avg"]
+        margin_std = stats_row.get("margin_std") or 0.0
 
         # Calculate change from previous
         margin_change = abs(avg_margin - prev_margin) if prev_margin is not None else 0.0
