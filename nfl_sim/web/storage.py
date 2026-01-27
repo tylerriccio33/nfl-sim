@@ -80,7 +80,7 @@ def pull_understand_results(game_id: str) -> tuple[GameAggs, TeamAggs, TeamAggs]
     except IndexError:  # catch and raise b/c `IndexError` is very confusing to debug
         raise ValueError(
             "Discordance between requested `game_id` and available summaries."
-        ) from None
+        ) from None  # pragma: no cover
 
     by_game_team: dict[str, pl.Series] = (
         pl.scan_parquet(GAME_TEAM_SUMMARY)
