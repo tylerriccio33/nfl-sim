@@ -21,6 +21,3 @@ type GameId = str
 type GameSims = list[PBP]
 """List of N play-by-play DataFrames from N simulations of one game."""
 
-
-type Anchor = tuple[int, int]
-"""(season, week) anchor for historical windowing. Data before this point is included (exclusive upper bound)."""
