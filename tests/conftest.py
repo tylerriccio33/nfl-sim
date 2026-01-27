@@ -75,19 +75,19 @@ def latest_rand_game_id(raw_schedules: pl.DataFrame) -> tuple[str, str] | str:
 
 
 @pytest.fixture
-def result_paths(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
-    """Temporary paths for simulation result files."""
-    pbp_target = tmp_path / "pbp-target.parquet"
-    game_summary_target = tmp_path / "game-summary-target.parquet"
-    game_team_summary_target = tmp_path / "game-team-summary-target.parquet"
-    future_games_target = tmp_path / "future-games-target.parquet"
-    return pbp_target, game_summary_target, game_team_summary_target, future_games_target
+def override_const(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("NFL_SIM_SCHEDULE_LOC", "data/schedules.parquet")
+    monkeypatch.setenv("NFL_SIM_PBP_LOC", "data/pbp.parquet")
+    monkeypatch.setenv("NFL_SIM_DATABASE", str(tmp_path / "1"))
+    monkeypatch.setenv("NFL_SIM_FUTURE_GAMES", str(tmp_path / "2"))
+    monkeypatch.setenv("GAME_SUMMARIZATION", str(tmp_path / "3"))
+    monkeypatch.setenv("GAME_TEAM_SUMMARIZATION", str(tmp_path / "4"))
 
 
 @pytest.fixture
-def build_results(result_paths) -> None:
+def build_results(override_const) -> None:
     """Run simulations and place results at the result paths."""
-    place_sim_results_at_db(*result_paths)
+    place_sim_results_at_db()
 
 
 # =============================================================================

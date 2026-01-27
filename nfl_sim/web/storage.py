@@ -7,18 +7,10 @@ Results are cached locally as parquet files for efficient access.
 
 from __future__ import annotations
 
-import os
-
 import polars as pl
 
 from nfl_sim.analysis._agg_types import GameAggs, TeamAggs
-
-# TODO: Unify this with fixtures
-DATABASE = os.getenv("NFL_SIM_DATABASE", "/tmp/sim-db.parquet")
-FUTURE_GAMES: str = os.getenv("NFL_SIM_FUTURE_GAMES", "/tmp/future-games.parquet")
-GAME_SUMMARY = os.getenv("GAME_SUMMARIZATION", "/tmp/game-summary.parquet")
-GAME_TEAM_SUMMARY = os.getenv("GAME_SUMMARIZATION", "/tmp/game-team-summary.parquet")
-
+from nfl_sim.const import DATABASE, FUTURE_GAMES, GAME_SUMMARY, GAME_TEAM_SUMMARY
 
 # TODO: Update all this documentation
 
@@ -40,7 +32,7 @@ def pull_simulation_results(game_id: str) -> pl.DataFrame:
         FileNotFoundError: If no pre-computed results exist for this game.
 
     """
-    res = pl.scan_parquet(DATABASE).filter(pl.col("game_id") == pl.lit(game_id)).collect()
+    res = pl.scan_parquet(DATABASE()).filter(pl.col("game_id") == pl.lit(game_id)).collect()
     assert len(res) > 0
     return res
 
@@ -48,7 +40,7 @@ def pull_simulation_results(game_id: str) -> pl.DataFrame:
 def pull_game_metadata() -> pl.DataFrame:  # TODO: Why?
     """Pull metadata from future games."""
     return (
-        pl.scan_parquet(FUTURE_GAMES)
+        pl.scan_parquet(FUTURE_GAMES())
         .select("game_id", "home_team", "away_team", "gameday")
         .collect()
     )
@@ -68,7 +60,7 @@ def pull_understand_results(game_id: str) -> tuple[GameAggs, TeamAggs, TeamAggs]
 
     """
     by_game: dict[str, pl.Series] = (
-        pl.scan_parquet(GAME_SUMMARY)
+        pl.scan_parquet(GAME_SUMMARY())
         .filter(pl.col("game_id") == pl.lit(game_id))
         .drop("game_id")
         .collect()
@@ -83,7 +75,7 @@ def pull_understand_results(game_id: str) -> tuple[GameAggs, TeamAggs, TeamAggs]
         ) from None  # pragma: no cover
 
     by_game_team: dict[str, pl.Series] = (
-        pl.scan_parquet(GAME_TEAM_SUMMARY)
+        pl.scan_parquet(GAME_TEAM_SUMMARY())
         .filter(pl.col("game_id") == pl.lit(game_id))
         .drop("game_id", "posteam")
         # TODO: Have to make sure home team is always first via test
