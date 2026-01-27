@@ -8,7 +8,7 @@ from loguru import logger
 from rich.console import Console
 
 from nfl_sim import sim_games, understand
-from nfl_sim.engine import traces_to_dataframe
+from nfl_sim.engine.api import traces_to_dataframe
 from nfl_sim.models.context import GameContext
 
 start_at = 100

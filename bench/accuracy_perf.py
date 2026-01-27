@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from nfl_sim import sim_games, understand
-from nfl_sim.engine import traces_to_dataframe
+from nfl_sim.engine.api import traces_to_dataframe
 from nfl_sim.models.context import GameContext
 
 NGAMES = 500
