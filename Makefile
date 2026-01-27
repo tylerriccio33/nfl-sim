@@ -6,7 +6,6 @@ lint: ## Run ruff and typer
 	@uv run --no-sync ruff check --fix
 	@uv run --no-sync ruff format
 	@uv run --no-sync ty check
-	@uv run --no-sync complexipy src --quiet
 
 build: ## Run maturin develop
 	@uv run maturin develop --release

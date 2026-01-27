@@ -7,7 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from nfl_sim.analysis._agg_types import _game_schema, _team_schema
+from nfl_sim.analysis._agg_types import _game_schema
 
 STUB_PATH = Path(__file__).resolve().parent.parent / "nfl_sim" / "analysis" / "_agg_types.pyi"
 
@@ -43,7 +43,6 @@ def main() -> None:
     """Generate the _agg_types.pyi stub file with typed NamedTuple definitions."""
     # Check if we need the Any import
     all_types = [_map_dtype(_game_schema[n]) for n in _game_schema.names()]
-    all_types += [_map_dtype(_team_schema[n]) for n in _team_schema.names()]
     needs_any = "Any" in all_types
 
     # Build stub content
@@ -56,14 +55,11 @@ def main() -> None:
     lines.append("import polars as pl")
     lines.append("")
 
-    # Expose private schemas used by the stub generator itself
+    # Expose private schema used by the stub generator itself
     lines.append("_game_schema: pl.Schema")
-    lines.append("_team_schema: pl.Schema")
     lines.append("")
 
     lines.extend(_generate_class("GameAggs", _game_schema))
-    lines.append("")
-    lines.extend(_generate_class("TeamAggs", _team_schema))
     lines.append("")
 
     STUB_PATH.write_text("\n".join(lines))

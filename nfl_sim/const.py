@@ -26,8 +26,3 @@ def FUTURE_GAMES() -> str:
 def GAME_SUMMARY() -> str:
     """Location to push/pull the simulation's game summarization data."""
     return os.getenv("GAME_SUMMARIZATION", "0")
-
-
-def GAME_TEAM_SUMMARY() -> str:
-    """Location to push pull the simulation's game team summarization data."""
-    return os.getenv("GAME_TEAM_SUMMARIZATION", "0")

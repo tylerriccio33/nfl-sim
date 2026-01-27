@@ -12,9 +12,9 @@ Main entry points:
     ctx = GameContext(game_id="KC_BAL", home="KC", away="BAL", spread=0.0)
     results = sim_games({ctx.game_id: ctx}, n=100)
 
-    # Analyze results
-    stats = understand(results["KC_BAL"])
-    team1, team2 = understand(results["KC_BAL"], by="game-team")
+    # Analyze results (includes game-level and home_*/away_* team stats)
+    df = traces_to_dataframe(results)
+    stats = understand(df)
 """
 
 import sys
@@ -27,7 +27,6 @@ from nfl_sim.const import (
     DATABASE,
     FUTURE_GAMES,
     GAME_SUMMARY,
-    GAME_TEAM_SUMMARY,
     PBP_DATA,
     SCHEDULES_DATA,
 )
@@ -35,7 +34,6 @@ from nfl_sim.engine.api import sim_games, traces_to_dataframe
 from nfl_sim.models.context import GameContext, ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
 
-# TODO: Clean this all up, why do we even need it honestly
 __all__ = [
     "sim_games",
     "understand",
@@ -53,14 +51,8 @@ def configure_logging(level: str = "INFO") -> None:
     )
 
 
-# TODO: Rename and probably expose to CLI
 def place_sim_results_at_db() -> None:
-    """Run simulations and place results for the web APP.
-
-    Modify program constants in:
-
-    """
-    # TODO: Document well
+    """Run simulations and place results for the web APP."""
     ## Load Data:
     schedule = pl.read_parquet(SCHEDULES_DATA())
     season, week = get_latest_season_week(schedule)
@@ -78,11 +70,9 @@ def place_sim_results_at_db() -> None:
     sim_pbp: pl.DataFrame = traces_to_dataframe(traces)
     sim_pbp.write_parquet(DATABASE())
 
-    ## Understand Data:
-    by_game = understand(sim_pbp, by="game")
-    by_game_team = understand(sim_pbp, by="game-team")
+    ## Understand Data (unified GameAggs with home_*/away_* stats):
+    by_game = understand(sim_pbp)
     by_game.write_parquet(GAME_SUMMARY())
-    by_game_team.write_parquet(GAME_TEAM_SUMMARY())
 
     ## Write Schedules for Reference:
     schedule_filtered.write_parquet(FUTURE_GAMES())

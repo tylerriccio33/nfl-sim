@@ -5,7 +5,6 @@ from typing import NamedTuple
 import polars as pl
 
 _game_schema: pl.Schema
-_team_schema: pl.Schema
 
 class GameAggs(NamedTuple):
     home_win_pct: float
@@ -31,6 +30,30 @@ class GameAggs(NamedTuple):
     fumbles_avg: float
     safeties_avg: float
     first_downs_avg: float
+    home_total_yards_avg: float
+    home_yards_per_play_avg: float
+    home_total_plays_avg: float
+    home_touchdowns_avg: float
+    home_field_goals_avg: float
+    home_interceptions_avg: float
+    home_pick_sixes_avg: float
+    home_punts_avg: float
+    home_turnovers_on_downs_avg: float
+    home_fumbles_avg: float
+    home_safeties_avg: float
+    home_first_downs_avg: float
+    away_total_yards_avg: float
+    away_yards_per_play_avg: float
+    away_total_plays_avg: float
+    away_touchdowns_avg: float
+    away_field_goals_avg: float
+    away_interceptions_avg: float
+    away_pick_sixes_avg: float
+    away_punts_avg: float
+    away_turnovers_on_downs_avg: float
+    away_fumbles_avg: float
+    away_safeties_avg: float
+    away_first_downs_avg: float
     home_score_min: int
     away_score_min: int
     margin_min: int
@@ -43,24 +66,3 @@ class GameAggs(NamedTuple):
     home_scores: list[int]
     away_scores: list[int]
     margins: list[int]
-
-class TeamAggs(NamedTuple):
-    total_yards_avg: float
-    yards_per_play_avg: float
-    total_plays_avg: float
-    num_drives_avg: float
-    touchdowns_avg: float
-    field_goals_avg: float
-    interceptions_avg: float
-    punts_avg: float
-    turnovers_on_downs_avg: float
-    fumbles_avg: float
-    safeties_avg: float
-    first_downs_avg: float
-    touchdowns_min: int
-    field_goals_min: int
-    interceptions_min: int
-    touchdowns_max: int
-    field_goals_max: int
-    interceptions_max: int
-    n_simulations: int

@@ -97,7 +97,7 @@ def run_accuracy_benchmark(
         )
         traces = sim_games({game_id: context}, n=n_sims_per_game)
         sim_df = traces_to_dataframe(traces)
-        stats_df = understand(sim_df, by="game")
+        stats_df = understand(sim_df)
 
         # Extract prediction from DataFrame (understand returns DataFrame now)
         stats_row = stats_df.row(0, named=True)

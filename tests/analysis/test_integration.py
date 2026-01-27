@@ -16,10 +16,16 @@ def test_full_pipeline_completes(ctx):
     traces = sim_games(ctx, n=20, base_seed=42)
     df = traces_to_dataframe(traces)
     game_stats = understand(df)
-    team_stats = understand(df, by="game-team")
 
+    # 2 games (from ctx fixture)
     assert len(game_stats) == 2
-    assert len(team_stats) == 4
+
+    # Verify home_*/away_* team stats are present
+    schema = game_stats.collect_schema()
+    assert "home_touchdowns_avg" in schema
+    assert "away_touchdowns_avg" in schema
+    assert "home_total_yards_avg" in schema
+    assert "away_total_yards_avg" in schema
 
 
 if __name__ == "__main__":

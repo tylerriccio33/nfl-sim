@@ -77,7 +77,7 @@ def run_convergence_benchmark() -> pl.DataFrame:
         # Run N simulations
         traces = sim_games({game_id: context}, n=n_sims)
         sim_df = traces_to_dataframe(traces)
-        stats_df = understand(sim_df, by="game")
+        stats_df = understand(sim_df)
 
         # Extract values from DataFrame
         stats_row = stats_df.row(0, named=True)

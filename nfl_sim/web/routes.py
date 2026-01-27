@@ -37,7 +37,7 @@ def simulate(game_id: str):
     home, away = home_away_from_gameid(game_id)
 
     # Pull pre-computed results
-    game_summary, _, _ = pull_understand_results(game_id)
+    game_summary = pull_understand_results(game_id)
 
     # Build result dict for template
     result = game_summary._asdict()
@@ -125,7 +125,7 @@ def stats_panel(game_id: str):
     """Get statistics panel for current simulation."""
     home, away = home_away_from_gameid(game_id)
 
-    game_stats, home_stats, away_stats = pull_understand_results(game_id)
+    game_stats = pull_understand_results(game_id)
 
     # Pre-compute histograms for the template
     margin_hist = _compute_histogram(game_stats.margins, bucket_size=7)
@@ -139,10 +139,8 @@ def stats_panel(game_id: str):
 
     return render_template(
         "partials/stats_panel.html",
-        # Pass the stat dicts; avoid manipulation in this code.
+        # Pass the unified stats dict with home_*/away_* prefixed fields
         result=game_stats._asdict(),
-        home_stats=home_stats._asdict(),
-        away_stats=away_stats._asdict(),
         home=home,
         away=away,
         margin_hist=margin_hist,

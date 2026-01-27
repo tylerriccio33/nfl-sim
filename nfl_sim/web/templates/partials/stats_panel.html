@@ -160,22 +160,22 @@
             <!-- Touchdowns -->
             <div class="flex justify-between items-center">
                 <span class="text-gray-400">Avg TDs</span>
-                <span class="font-mono text-green-400">{{ "%.1f"|format(home_stats.touchdowns_avg) }}</span>
-                <span class="font-mono text-blue-400">{{ "%.1f"|format(away_stats.touchdowns_avg) }}</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_touchdowns_avg) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_touchdowns_avg) }}</span>
             </div>
 
             <!-- Field Goals -->
             <div class="flex justify-between items-center">
                 <span class="text-gray-400">Avg FGs</span>
-                <span class="font-mono text-green-400">{{ "%.1f"|format(home_stats.field_goals_avg) }}</span>
-                <span class="font-mono text-blue-400">{{ "%.1f"|format(away_stats.field_goals_avg) }}</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_field_goals_avg) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_field_goals_avg) }}</span>
             </div>
 
             <!-- Turnovers -->
             <div class="flex justify-between items-center">
                 <span class="text-gray-400">Avg INTs</span>
-                <span class="font-mono text-green-400">{{ "%.1f"|format(home_stats.interceptions_avg) }}</span>
-                <span class="font-mono text-blue-400">{{ "%.1f"|format(away_stats.interceptions_avg) }}</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_interceptions_avg) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_interceptions_avg) }}</span>
             </div>
 
             <!-- Game totals -->

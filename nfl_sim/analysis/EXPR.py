@@ -2,9 +2,7 @@
 
 This module defines reusable expressions for:
 - SIM_LEVEL_EXPRS: Aggregate play-by-play data to single-simulation summaries
-- SIM_TEAM_LEVEL_EXPRS: Aggregate play-by-play data to per-team simulation summaries
-- GAME_LEVEL_EXPRS: Aggregate multiple simulations to game-level statistics
-- GAME_TEAM_LEVEL_EXPRS: Aggregate sim-team rows across simulations
+- GAME_LEVEL_EXPRS: Aggregate multiple simulations to game-level statistics (includes home_*/away_* team stats)
 - WEEK_LEVEL_EXPRS: Aggregate multiple games to week-level statistics
 """
 
@@ -15,7 +13,7 @@ import polars as pl
 # =============================================================================
 # SHARED PLAY-LEVEL AGGREGATION EXPRESSIONS
 # =============================================================================
-# These are the core play-level aggregations used by both SIM_LEVEL and SIM_TEAM_LEVEL.
+# These are the core play-level aggregations used by SIM_LEVEL.
 # They compute yardage, play counts, event counts, and efficiency metrics.
 
 _PLAY_AGG_EXPRS: list[pl.Expr] = [
@@ -41,6 +39,49 @@ _PLAY_AGG_EXPRS: list[pl.Expr] = [
 ]
 
 # =============================================================================
+# HOME/AWAY TEAM-SPECIFIC PLAY AGGREGATIONS (for SIM_LEVEL)
+# =============================================================================
+# These filter by posteam to compute team-specific stats at the simulation level.
+# The posteam column is "HOME" or "AWAY" in the play-by-play data.
+
+
+def _make_team_play_aggs(team: str, prefix: str) -> list[pl.Expr]:
+    """Generate team-filtered play aggregation expressions.
+
+    Args:
+        team: Either "HOME" or "AWAY" to filter posteam
+        prefix: Prefix for output column names (e.g., "home_" or "away_")
+
+    """
+    flt = pl.col("posteam") == team
+    event_lower = pl.col("event").str.to_lowercase()
+    return [
+        pl.col("yards_gained").filter(flt).sum().alias(f"{prefix}total_yards"),
+        pl.col("yards_gained").filter(flt).mean().alias(f"{prefix}yards_per_play"),
+        flt.sum().alias(f"{prefix}total_plays"),
+        # Event counts
+        (event_lower == "touchdown").filter(flt).sum().alias(f"{prefix}touchdowns"),
+        (event_lower == "fieldgoalsuccess").filter(flt).sum().alias(f"{prefix}field_goals"),
+        (event_lower == "interception").filter(flt).sum().alias(f"{prefix}interceptions"),
+        (event_lower == "picksix").filter(flt).sum().alias(f"{prefix}pick_sixes"),
+        (event_lower.is_in(["puntregular", "puntendzone", "puntblocked"]))
+        .filter(flt)
+        .sum()
+        .alias(f"{prefix}punts"),
+        (event_lower == "turnoverondowns").filter(flt).sum().alias(f"{prefix}turnovers_on_downs"),
+        (event_lower.is_in(["fumblesix", "fumblelost"]))
+        .filter(flt)
+        .sum()
+        .alias(f"{prefix}fumbles"),
+        (event_lower == "safety").filter(flt).sum().alias(f"{prefix}safeties"),
+        (pl.col("down") == 1).filter(flt).sum().alias(f"{prefix}first_downs"),
+    ]
+
+
+_HOME_PLAY_AGG_EXPRS: list[pl.Expr] = _make_team_play_aggs("HOME", "home_")
+_AWAY_PLAY_AGG_EXPRS: list[pl.Expr] = _make_team_play_aggs("AWAY", "away_")
+
+# =============================================================================
 # SCORING EXPRESSIONS (game-global, only meaningful at full-game level)
 # =============================================================================
 
@@ -56,18 +97,19 @@ _SCORING_EXPRS: list[pl.Expr] = [
 # =============================================================================
 # These expressions aggregate a single simulation's play-by-play into summary stats.
 # Input: Play-level rows for one simulation
-# Output: One row per simulation with aggregate stats
+# Output: One row per simulation with aggregate stats (including home_*/away_* team stats)
 
-SIM_LEVEL_EXPRS: list[pl.Expr] = _SCORING_EXPRS + _PLAY_AGG_EXPRS
+SIM_LEVEL_EXPRS: list[pl.Expr] = (
+    _SCORING_EXPRS + _PLAY_AGG_EXPRS + _HOME_PLAY_AGG_EXPRS + _AWAY_PLAY_AGG_EXPRS
+)
 
 
 # =============================================================================
 # GAME-LEVEL AGGREGATIONS
 # =============================================================================
 # These expressions aggregate simulation-level stats into game-level summaries.
-# Input: One row per simulation with sim-level stats
+# Input: One row per simulation with sim-level stats (including home_*/away_* columns)
 # Output: One row per game with mean/std/distribution stats
-# NOTE: If the stat isn't discriminated by team, it belongs here, with the exception of home/away stats.
 
 GAME_LEVEL_EXPRS: list[pl.Expr] = [
     # Calculated Fields:
@@ -78,7 +120,7 @@ GAME_LEVEL_EXPRS: list[pl.Expr] = [
     pl.col("home_score", "away_score").sum().name.suffix("_sum"),
     # Standard Deviation
     pl.col("home_score", "away_score", "margin").std().name.suffix("_std"),
-    # Means
+    # Means for game-wide stats
     pl.col(
         "home_score",
         "away_score",
@@ -98,6 +140,40 @@ GAME_LEVEL_EXPRS: list[pl.Expr] = [
     )
     .mean()
     .name.suffix("_avg"),
+    # Means for home team stats
+    pl.col(
+        "home_total_yards",
+        "home_yards_per_play",
+        "home_total_plays",
+        "home_touchdowns",
+        "home_field_goals",
+        "home_interceptions",
+        "home_pick_sixes",
+        "home_punts",
+        "home_turnovers_on_downs",
+        "home_fumbles",
+        "home_safeties",
+        "home_first_downs",
+    )
+    .mean()
+    .name.suffix("_avg"),
+    # Means for away team stats
+    pl.col(
+        "away_total_yards",
+        "away_yards_per_play",
+        "away_total_plays",
+        "away_touchdowns",
+        "away_field_goals",
+        "away_interceptions",
+        "away_pick_sixes",
+        "away_punts",
+        "away_turnovers_on_downs",
+        "away_fumbles",
+        "away_safeties",
+        "away_first_downs",
+    )
+    .mean()
+    .name.suffix("_avg"),
     # Min/Max:
     pl.col("home_score", "away_score", "margin", "interceptions").min().name.suffix("_min"),
     pl.col("home_score", "away_score", "margin", "interceptions").max().name.suffix("_max"),
@@ -107,34 +183,4 @@ GAME_LEVEL_EXPRS: list[pl.Expr] = [
     pl.col("home_score").alias("home_scores"),
     pl.col("away_score").alias("away_scores"),
     pl.col("margin").alias("margins"),
-]
-
-
-# =============================================================================
-# GAME-TEAM-LEVEL AGGREGATIONS
-# =============================================================================
-# These expressions aggregate sim-team rows across simulations into per-team game stats.
-# Input: One row per (simulation, team) from SIM_TEAM_LEVEL aggregation
-# Output: One row per (game, team)
-
-GAME_TEAM_LEVEL_EXPRS: list[pl.Expr] = [
-    pl.col(
-        "total_yards",
-        "yards_per_play",
-        "total_plays",
-        "num_drives",
-        "touchdowns",
-        "field_goals",
-        "interceptions",
-        "punts",
-        "turnovers_on_downs",
-        "fumbles",
-        "safeties",
-        "first_downs",
-    )
-    .mean()
-    .name.suffix("_avg"),
-    pl.col("touchdowns", "field_goals", "interceptions").min().name.suffix("_min"),
-    pl.col("touchdowns", "field_goals", "interceptions").max().name.suffix("_max"),
-    pl.len().alias("n_simulations"),
 ]
