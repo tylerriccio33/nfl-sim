@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 
-from nfl_sim.sim.state import Action, GameState, Outcome
+from nfl_sim.engine.state import Action, GameState, Outcome
 
 
 def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameState:

@@ -1,10 +1,9 @@
-"""Game outcome modeling lies here; all intelligence is controled via these models."""
+"""Game outcome modeling lies here; all intelligence is controlled via these models."""
 
 from dataclasses import dataclass
 from random import Random
-from typing import Protocol
 
-from nfl_sim.sim.state import Action, GameState, GameTrace, Outcome, TurnoverType
+from nfl_sim.engine.state import Action, GameState, GameTrace, Outcome, TurnoverType
 
 
 class DerivedContext:
@@ -21,21 +20,6 @@ class ModelContext:
     state: GameState
     derived: DerivedContext
     rng: Random
-
-
-class OutcomeModel(Protocol):
-    """Given (state, context) → sampled outcome.
-
-    This is where:
-        - EPA tables
-        - historical distributions
-        - situation-conditioned PDFs live.
-
-    You can swap this without touching the engine.
-    """
-
-    def sample(self, action: Action, context: ModelContext) -> Outcome:
-        """Sample the outcome based on the action."""
 
 
 class SimpleOutcomeModel:

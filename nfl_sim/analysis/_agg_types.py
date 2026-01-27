@@ -9,7 +9,7 @@ from collections import namedtuple
 
 import polars as pl
 
-from nfl_sim.summarize.EXPR import GAME_LEVEL_EXPRS, GAME_TEAM_LEVEL_EXPRS, SIM_LEVEL_EXPRS
+from nfl_sim.analysis.EXPR import GAME_LEVEL_EXPRS, GAME_TEAM_LEVEL_EXPRS, SIM_LEVEL_EXPRS
 
 # Minimal play-level schema covering columns referenced by SIM_LEVEL/SIM_TEAM expressions
 _PLAY_SCHEMA: dict[str, type[pl.DataType]] = {

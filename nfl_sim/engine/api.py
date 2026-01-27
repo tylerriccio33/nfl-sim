@@ -5,11 +5,12 @@ from random import Random
 
 import polars as pl
 
-from nfl_sim.data.context import GameContext
-from nfl_sim.sim.apply import apply_outcome, is_terminal
-from nfl_sim.sim.model import DerivedContext, ModelContext, OutcomeModel, SimpleOutcomeModel
-from nfl_sim.sim.policy import Policy, RandomPolicy
-from nfl_sim.sim.state import Action, GameState, GameTrace, PlayEvent, TurnoverType
+from nfl_sim.engine.apply import apply_outcome, is_terminal
+from nfl_sim.engine.state import Action, GameState, GameTrace, PlayEvent, TurnoverType
+from nfl_sim.models.context import GameContext
+from nfl_sim.models.outcomes import DerivedContext, ModelContext, SimpleOutcomeModel
+from nfl_sim.models.policy import Policy, RandomPolicy
+from nfl_sim.models.protocol import OutcomeModel
 
 
 @dataclass(frozen=True)

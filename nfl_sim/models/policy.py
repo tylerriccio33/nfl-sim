@@ -3,7 +3,7 @@
 from random import Random
 from typing import Protocol
 
-from nfl_sim.sim.state import Action, GameState
+from nfl_sim.engine.state import Action, GameState
 
 
 class Policy(Protocol):

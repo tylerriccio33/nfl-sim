@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-# from nfl_sim.summarize._agg_types import GameAggs, TeamAggs
-from nfl_sim.summarize.EXPR import (
+# from nfl_sim.analysis._agg_types import GameAggs, TeamAggs
+from nfl_sim.analysis.EXPR import (
     GAME_LEVEL_EXPRS,
     GAME_TEAM_LEVEL_EXPRS,
     SIM_LEVEL_EXPRS,
@@ -64,7 +64,7 @@ def understand(
 
     Examples:
         # From sim_games (new way)
-        from nfl_sim.data.context import GameContext
+        from nfl_sim.models.context import GameContext
         ctx = GameContext(game_id="KC_SF", home="KC", away="SF", spread=0.0)
         traces = sim_games({ctx.game_id: ctx}, n=100)
         stats = understand(traces["KC_SF"])

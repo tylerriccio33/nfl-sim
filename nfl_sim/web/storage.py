@@ -11,7 +11,7 @@ import os
 
 import polars as pl
 
-from nfl_sim.summarize._agg_types import GameAggs, TeamAggs
+from nfl_sim.analysis._agg_types import GameAggs, TeamAggs
 
 # TODO: Unify this with fixtures
 DATABASE = os.getenv("NFL_SIM_DATABASE", "/tmp/sim-db.parquet")
