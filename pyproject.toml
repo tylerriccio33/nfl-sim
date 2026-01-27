@@ -9,20 +9,19 @@ dependencies = [
     "fire>=0.7.1",
     "flask>=3.0.0",
     "loguru>=0.7.3",
-    "nflreadpy>=0.1.5",
     "numpy>=2.0.0",
     "polars>=1.36.1",
     "rich>=14.2.0",
 ]
 
 [build-system]
-requires = ["maturin>=1.7,<2.0"]
-build-backend = "maturin"
+requires = ["uv_build>=0.9.27,<0.10.0"]
+build-backend = "uv_build"
 
-[tool.maturin]
-module-name = "nfl_sim._rust_core"
-python-packages = ["nfl_sim"]
-python-source="."
+
+[tool.uv.build-backend]
+module-name = "nfl_sim"
+module-root = ""
 
 [project.scripts]
 nfl-sim = "nfl_sim.__main__:main"
@@ -32,7 +31,6 @@ dev = [
     "complexipy>=5.1.0",
     "hypothesis>=6.100.0",
     "line-profiler>=4.1.0",
-    "maturin>=1.7,<2.0",
     "nflreadpy>=0.1.5",
     "plotext>=5.3.2",
     "pytest>=9.0.2",
