@@ -20,34 +20,10 @@ if TYPE_CHECKING:
     from typing import Literal
 
 
-# @overload
-# def understand(sims: GameSims, *, by: Literal["game-team"]) -> tuple[TeamAggs, TeamAggs]: ...
-
-
-# @overload
-# def understand(sims: GameSims, *, by: None = ...) -> GameAggs: ...
-
-
-# @overload
-# def understand(
-#     sims: dict[str, list[GameTrace]] | list[GameTrace], *, by: Literal["game-team"]
-# ) -> tuple[TeamAggs, TeamAggs]: ...
-
-
-# @overload
-# def understand(sims: dict[str, list[GameTrace]], *, by: None = ...) -> GameAggs: ...
-
-
-# @overload
-# def understand(sims: list[GameTrace], *, by: None = ...) -> GameAggs: ...
-
-
-# TODO: These overloads are super messed up
-# TODO: Should rename this to `summarize`
 def understand(
     sims: pl.DataFrame,
     *,
-    by: Literal["game-team"] | None = None,
+    by: Literal["game-team", "game"] = "game",
 ) -> pl.DataFrame:
     """Analyze simulation results for a single game.
 
@@ -79,35 +55,8 @@ def understand(
 
     """
     # TODO: These examples are wrong, add doctest
-    # Auto-detect input type and convert traces to DataFrames if needed
-    # if isinstance(sims, dict):
-    #     # Convert each game's traces to a DataFrame, then split by sim_id
-    #     converted: list[pl.DataFrame] = []
-    #     for game_id, traces in sims.items():
-    #         df = traces_to_dataframe({game_id: traces})
-    #         # Split by sim_id to get individual simulation DataFrames
-    #         converted.extend(
-    #             df.filter(pl.col("sim_id") == sim_id) for sim_id in df["sim_id"].unique().to_list()
-    #         )
-    #     sims = converted
-    # elif isinstance(sims, list):
-    #     if isinstance
-    #     # Handle list[GameTrace] - a list of traces for a single game
-
-    #     df = traces_to_dataframe({"_": sims})
-    #     sims = [df.filter(pl.col("sim_id") == sim_id) for sim_id in df["sim_id"].unique().to_list()]
-    # else:
-    #     raise TypeError
 
     assert isinstance(sims, pl.DataFrame)
-
-    # assert isinstance(sims, list)
-    # assert isinstance(sims[0], pl.DataFrame)
-    # assert len(sims) > 0
-
-    # # Add simulation index to each sim's plays and concatenate
-    # sims_with_idx = [sim.with_columns(_sim_id=pl.lit(i)) for i, sim in enumerate(sims)]
-    # all_plays = pl.concat(sims_with_idx, how="vertical")
 
     ## Data should be at the play level:
     schema = sims.collect_schema()
@@ -138,13 +87,3 @@ def understand(
 
     # Each row is a game
     return sim_level.group_by("game_id").agg(*GAME_LEVEL_EXPRS)
-    # Use a dummy key to aggregate all sim rows into a single output row
-    # This ensures list-collecting expressions work correctly
-    # result = (
-    #     sim_level.with_columns(_key=pl.lit(1))
-    #     .group_by("_key")
-    #     .agg(*GAME_LEVEL_EXPRS)
-    #     .drop("_key")
-    #     .row(0, named=True)
-    # )
-    # return GameAggs(**result)
