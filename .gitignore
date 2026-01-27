@@ -1,4 +1,5 @@
-data
+data/*.parquet
+data/*.csv
 .venv
 .ruff_cache
 .pytest_cache

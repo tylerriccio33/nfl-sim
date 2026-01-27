@@ -7,22 +7,24 @@ Results are cached locally as parquet files for efficient access.
 
 from __future__ import annotations
 
-import json
 import os
-import tempfile
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-if TYPE_CHECKING:
-    from nfl_sim.typing import GameSims
+from nfl_sim.summarize._agg_types import GameAggs, TeamAggs
 
-# Storage dir configurable via env var, defaults to temp
-STORAGE_DIR = Path(os.environ.get("NFL_SIM_STORAGE_DIR", tempfile.gettempdir())) / "nfl_sim_results"
+# TODO: Unify this with fixtures
+DATABASE = os.getenv("NFL_SIM_DATABASE", "/tmp/sim-db.parquet")
+FUTURE_GAMES: str = os.getenv("NFL_SIM_FUTURE_GAMES", "/tmp/future-games.parquet")
+GAME_SUMMARY = os.getenv("GAME_SUMMARIZATION", "/tmp/game-summary.parquet")
+GAME_TEAM_SUMMARY = os.getenv("GAME_SUMMARIZATION", "/tmp/game-team-summary.parquet")
 
 
-def pull_simulation_results(game_id: str) -> tuple[list[pl.DataFrame], dict[str, Any]]:
+# TODO: Update all this documentation
+
+
+# TODO: Need for this function is dubious, probably over-engineered.
+def pull_simulation_results(game_id: str) -> pl.DataFrame:
     """Pull pre-computed simulation results for a game.
 
     In production, this reads from S3 parquet files.
@@ -38,76 +40,59 @@ def pull_simulation_results(game_id: str) -> tuple[list[pl.DataFrame], dict[str,
         FileNotFoundError: If no pre-computed results exist for this game.
 
     """
-    raise NotImplementedError(
-        f"No pre-computed simulation results for {game_id}. "
-        "In production, this reads from S3. In tests, this should be mocked."
+    res = pl.scan_parquet(DATABASE).filter(pl.col("game_id") == pl.lit(game_id)).collect()
+    assert len(res) > 0
+    return res
+
+
+def pull_game_metadata() -> pl.DataFrame:  # TODO: Why?
+    """Pull metadata from future games."""
+    return (
+        pl.scan_parquet(FUTURE_GAMES)
+        .select("game_id", "home_team", "away_team", "gameday")
+        .collect()
     )
 
 
-def save_simulation(batch_id: str, sims: GameSims, stats: dict[str, Any]) -> None:
-    """Save simulation batch to temp storage.
+def pull_understand_results(game_id: str) -> tuple[GameAggs, TeamAggs, TeamAggs]:
+    """Get the summarized results from the database and package it up.
+
+    Data is returned by the type safe tuples.
 
     Args:
-        batch_id: Unique identifier for this batch (e.g., "KC_BUF").
-        sims: List of simulation DataFrames.
-        stats: Statistics dictionary for the batch.
-
-    """
-    batch_dir = STORAGE_DIR / batch_id
-    batch_dir.mkdir(parents=True, exist_ok=True)
-
-    # Save stats as JSON
-    (batch_dir / "stats.json").write_text(json.dumps(stats))
-
-    # Save each sim as parquet
-    for i, sim in enumerate(sims):
-        sim.write_parquet(batch_dir / f"sim_{i}.parquet")
-
-
-def load_stats(batch_id: str) -> dict[str, Any] | None:
-    """Load stats for a batch.
-
-    Args:
-        batch_id: Unique identifier for the batch.
+        game_id (str): _description_
 
     Returns:
-        Stats dictionary if found, None otherwise.
+        tuple[GameAggs, TeamAggs, TeamAggs]:
+            The game summary, home team summary and away team summary.
 
     """
-    path = STORAGE_DIR / batch_id / "stats.json"
-    if path.exists():
-        return json.loads(path.read_text())
-    return None
+    by_game: dict[str, pl.Series] = (
+        pl.scan_parquet(GAME_SUMMARY)
+        .filter(pl.col("game_id") == pl.lit(game_id))
+        .drop("game_id")
+        .collect()
+        .to_dict(as_series=False)
+    )
 
+    try:
+        game_aggs = GameAggs(**{k: v[0] for k, v in by_game.items()})
+    except IndexError:  # catch and raise b/c `IndexError` is very confusing to debug
+        raise ValueError(
+            "Discordance between requested `game_id` and available summaries."
+        ) from None
 
-def load_pbp(batch_id: str, sim_idx: int) -> pl.DataFrame | None:
-    """Load PBP for a specific simulation.
+    by_game_team: dict[str, pl.Series] = (
+        pl.scan_parquet(GAME_TEAM_SUMMARY)
+        .filter(pl.col("game_id") == pl.lit(game_id))
+        .drop("game_id", "posteam")
+        # TODO: Have to make sure home team is always first via test
+        # - should order it here to make sure anyways
+        .collect()
+        .to_dict(as_series=False)
+    )
 
-    Args:
-        batch_id: Unique identifier for the batch.
-        sim_idx: Index of the simulation to load.
+    home_team = TeamAggs(**{k: v[0] for k, v in by_game_team.items()})
+    away_team = TeamAggs(**{k: v[1] for k, v in by_game_team.items()})
 
-    Returns:
-        PBP DataFrame if found, None otherwise.
-
-    """
-    path = STORAGE_DIR / batch_id / f"sim_{sim_idx}.parquet"
-    if path.exists():
-        return pl.read_parquet(path)
-    return None
-
-
-def get_sim_count(batch_id: str) -> int:
-    """Get the number of simulations in a batch.
-
-    Args:
-        batch_id: Unique identifier for the batch.
-
-    Returns:
-        Number of simulation files found.
-
-    """
-    batch_dir = STORAGE_DIR / batch_id
-    if not batch_dir.exists():
-        return 0
-    return len(list(batch_dir.glob("sim_*.parquet")))
+    return game_aggs, home_team, away_team

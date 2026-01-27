@@ -5,54 +5,50 @@ Aggregates GameSims (list of PBP DataFrames) into summary statistics.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, overload
+from typing import TYPE_CHECKING
 
 import polars as pl
 
-from nfl_sim.summarize._agg_types import GameAggs, TeamAggs
+# from nfl_sim.summarize._agg_types import GameAggs, TeamAggs
 from nfl_sim.summarize.EXPR import (
     GAME_LEVEL_EXPRS,
     GAME_TEAM_LEVEL_EXPRS,
     SIM_LEVEL_EXPRS,
-    SIM_TEAM_LEVEL_EXPRS,
 )
 
 if TYPE_CHECKING:
     from typing import Literal
 
-    from nfl_sim.sim.state import GameTrace
-    from nfl_sim.typing import GameSims
+
+# @overload
+# def understand(sims: GameSims, *, by: Literal["game-team"]) -> tuple[TeamAggs, TeamAggs]: ...
 
 
-@overload
-def understand(sims: GameSims, *, by: Literal["game-team"]) -> tuple[TeamAggs, TeamAggs]: ...
+# @overload
+# def understand(sims: GameSims, *, by: None = ...) -> GameAggs: ...
 
 
-@overload
-def understand(sims: GameSims, *, by: None = ...) -> GameAggs: ...
+# @overload
+# def understand(
+#     sims: dict[str, list[GameTrace]] | list[GameTrace], *, by: Literal["game-team"]
+# ) -> tuple[TeamAggs, TeamAggs]: ...
 
 
-@overload
-def understand(
-    sims: dict[str, list[GameTrace]] | list[GameTrace], *, by: Literal["game-team"]
-) -> tuple[TeamAggs, TeamAggs]: ...
+# @overload
+# def understand(sims: dict[str, list[GameTrace]], *, by: None = ...) -> GameAggs: ...
 
 
-@overload
-def understand(sims: dict[str, list[GameTrace]], *, by: None = ...) -> GameAggs: ...
-
-
-@overload
-def understand(sims: list[GameTrace], *, by: None = ...) -> GameAggs: ...
+# @overload
+# def understand(sims: list[GameTrace], *, by: None = ...) -> GameAggs: ...
 
 
 # TODO: These overloads are super messed up
 # TODO: Should rename this to `summarize`
 def understand(
-    sims: GameSims | dict[str, list[GameTrace]] | list[GameTrace],
+    sims: pl.DataFrame,
     *,
     by: Literal["game-team"] | None = None,
-) -> GameAggs | tuple[TeamAggs, TeamAggs]:
+) -> pl.DataFrame:
     """Analyze simulation results for a single game.
 
     Args:
@@ -103,35 +99,52 @@ def understand(
     # else:
     #     raise TypeError
 
-    assert isinstance(sims, list)
-    assert isinstance(sims[0], pl.DataFrame)
-    assert len(sims) > 0
+    assert isinstance(sims, pl.DataFrame)
 
-    # Add simulation index to each sim's plays and concatenate
-    sims_with_idx = [sim.with_columns(_sim_id=pl.lit(i)) for i, sim in enumerate(sims)]
-    all_plays = pl.concat(sims_with_idx, how="vertical")
+    # assert isinstance(sims, list)
+    # assert isinstance(sims[0], pl.DataFrame)
+    # assert len(sims) > 0
 
+    # # Add simulation index to each sim's plays and concatenate
+    # sims_with_idx = [sim.with_columns(_sim_id=pl.lit(i)) for i, sim in enumerate(sims)]
+    # all_plays = pl.concat(sims_with_idx, how="vertical")
+
+    ## Data should be at the play level:
+    schema = sims.collect_schema()
+    assert "game_id" in schema
+    assert "sim_id" in schema
+    assert "play_id" in schema
+
+    ## Target -> Team-level statistics averaged across simulations.
+    ## Examples of questions that can be answered by these:
+    ## - For each game, give me total yards average across sims by team
+    ## - For each game, give me std of passing yards across sims by team
+    ## - For each game, give me <some stat> averaged across sims by team
     if by == "game-team":
-        result = (
-            all_plays.group_by("_sim_id", "posteam")
-            .agg(*SIM_TEAM_LEVEL_EXPRS)
-            .group_by("posteam")
-            .agg(*GAME_TEAM_LEVEL_EXPRS)
-            .sort("posteam")
-        )
-        rows = result.drop("posteam").rows(named=True)
-        return (TeamAggs(**rows[0]), TeamAggs(**rows[1]))
+        # Each row is a game-sim-team
+        sim_level = sims.group_by("game_id", "sim_id", "posteam").agg(*SIM_LEVEL_EXPRS)
 
-    # Default: game-level aggregates
-    # First aggregate play-level to sim-level, then aggregate across all sims
-    sim_level = all_plays.group_by("_sim_id").agg(*SIM_LEVEL_EXPRS)
+        # Each row is a game-team; i.e. for each game, average up all all the stats across sims
+        return sim_level.group_by("game_id", "posteam").agg(*GAME_TEAM_LEVEL_EXPRS)
+
+    ## Target -> Game-level statistics averaged across simulations.
+    ## Examples of questions that can be answered by these:
+    ## - For each game, give me total interceptions average across sims
+    ## - For each game, give me total score std across sims
+    ## - For each game, give me <some game stat> across sims
+
+    # Each row is a game-sim
+    sim_level = sims.group_by("game_id", "sim_id").agg(*SIM_LEVEL_EXPRS)
+
+    # Each row is a game
+    return sim_level.group_by("game_id").agg(*GAME_LEVEL_EXPRS)
     # Use a dummy key to aggregate all sim rows into a single output row
     # This ensures list-collecting expressions work correctly
-    result = (
-        sim_level.with_columns(_key=pl.lit(1))
-        .group_by("_key")
-        .agg(*GAME_LEVEL_EXPRS)
-        .drop("_key")
-        .row(0, named=True)
-    )
-    return GameAggs(**result)
+    # result = (
+    #     sim_level.with_columns(_key=pl.lit(1))
+    #     .group_by("_key")
+    #     .agg(*GAME_LEVEL_EXPRS)
+    #     .drop("_key")
+    #     .row(0, named=True)
+    # )
+    # return GameAggs(**result)

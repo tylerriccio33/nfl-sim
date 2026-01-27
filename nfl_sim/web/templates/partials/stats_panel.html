@@ -4,7 +4,7 @@
 
     <!-- Matchup Header -->
     <div class="text-center text-sm text-gray-400">
-        {{ result.away_team }} @ {{ result.home_team }}
+        {{ away }} @ {{ home }}
     </div>
 
     <!-- Margin Stats -->
@@ -39,8 +39,8 @@
             <span>{{ "%+d"|format(margin_hist[-1].bucket) }}</span>
         </div>
         <div class="flex justify-between text-xs text-gray-500">
-            <span class="text-blue-400">{{ result.away_team }}</span>
-            <span class="text-green-400">{{ result.home_team }}</span>
+            <span class="text-blue-400">{{ away }}</span>
+            <span class="text-green-400">{{ home }}</span>
         </div>
     </div>
     {% endif %}
@@ -52,7 +52,7 @@
 
         <!-- Home Score Distribution -->
         <div class="mb-1">
-            <div class="text-xs text-green-400 mb-1">{{ result.home_team }}</div>
+            <div class="text-xs text-green-400 mb-1">{{ home }}</div>
             <div class="flex items-end gap-px h-10">
                 {% for bar in home_score_hist %}
                 <div class="flex-1 bg-green-600 rounded-t"
@@ -64,7 +64,7 @@
 
         <!-- Away Score Distribution -->
         <div>
-            <div class="text-xs text-blue-400 mb-1">{{ result.away_team }}</div>
+            <div class="text-xs text-blue-400 mb-1">{{ away }}</div>
             <div class="flex items-end gap-px h-10">
                 {% for bar in away_score_hist %}
                 <div class="flex-1 bg-blue-600 rounded-t"
@@ -92,7 +92,7 @@
         <div class="text-gray-400 text-sm mb-2">Win Probabilities</div>
         <div class="space-y-2">
             <div class="flex justify-between items-center">
-                <span class="text-green-400">{{ result.home_team }}</span>
+                <span class="text-green-400">{{ home }}</span>
                 <span class="font-mono">{{ "%.1f"|format(result.home_win_pct * 100) }}%</span>
             </div>
             <div class="w-full bg-gray-600 rounded-full h-2">
@@ -100,7 +100,7 @@
             </div>
 
             <div class="flex justify-between items-center mt-2">
-                <span class="text-blue-400">{{ result.away_team }}</span>
+                <span class="text-blue-400">{{ away }}</span>
                 <span class="font-mono">{{ "%.1f"|format(result.away_win_pct * 100) }}%</span>
             </div>
             <div class="w-full bg-gray-600 rounded-full h-2">
@@ -124,7 +124,7 @@
             <!-- Home Team -->
             <div>
                 <div class="flex justify-between text-sm">
-                    <span class="text-green-400">{{ result.home_team }}</span>
+                    <span class="text-green-400">{{ home }}</span>
                     <span class="font-mono">{{ "%.1f"|format(result.home_score_avg) }}</span>
                 </div>
                 <div class="text-gray-500 text-xs">
@@ -135,7 +135,7 @@
             <!-- Away Team -->
             <div>
                 <div class="flex justify-between text-sm">
-                    <span class="text-blue-400">{{ result.away_team }}</span>
+                    <span class="text-blue-400">{{ away }}</span>
                     <span class="font-mono">{{ "%.1f"|format(result.away_score_avg) }}</span>
                 </div>
                 <div class="text-gray-500 text-xs">
@@ -152,30 +152,30 @@
         <!-- Header row -->
         <div class="flex justify-between text-xs text-gray-500 mb-1 border-b border-gray-600 pb-1">
             <span></span>
-            <span class="text-green-400">{{ result.home_team }}</span>
-            <span class="text-blue-400">{{ result.away_team }}</span>
+            <span class="text-green-400">{{ home }}</span>
+            <span class="text-blue-400">{{ away }}</span>
         </div>
 
         <div class="space-y-1 text-sm">
             <!-- Touchdowns -->
             <div class="flex justify-between items-center">
                 <span class="text-gray-400">Avg TDs</span>
-                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_touchdowns_avg) }}</span>
-                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_touchdowns_avg) }}</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(home_stats.touchdowns_avg) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(away_stats.touchdowns_avg) }}</span>
             </div>
 
             <!-- Field Goals -->
             <div class="flex justify-between items-center">
                 <span class="text-gray-400">Avg FGs</span>
-                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_field_goals_avg) }}</span>
-                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_field_goals_avg) }}</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(home_stats.field_goals_avg) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(away_stats.field_goals_avg) }}</span>
             </div>
 
             <!-- Turnovers -->
             <div class="flex justify-between items-center">
                 <span class="text-gray-400">Avg INTs</span>
-                <span class="font-mono text-green-400">{{ "%.1f"|format(result.home_interceptions_avg) }}</span>
-                <span class="font-mono text-blue-400">{{ "%.1f"|format(result.away_interceptions_avg) }}</span>
+                <span class="font-mono text-green-400">{{ "%.1f"|format(home_stats.interceptions_avg) }}</span>
+                <span class="font-mono text-blue-400">{{ "%.1f"|format(away_stats.interceptions_avg) }}</span>
             </div>
 
             <!-- Game totals -->

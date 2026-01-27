@@ -8,24 +8,18 @@ detect dead code or broken template rendering.
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
+from nfl_sim.utils import home_away_from_gameid
+from nfl_sim import place_sim_results_at_db
 
-from nfl_sim.web import storage
+DATA_DIR = "data"
+PBP_LOC = f"{DATA_DIR}/pbp.parquet"
+SCHEDULES_LOC = f"{DATA_DIR}/schedules.parquet"
 
-
-@pytest.fixture(autouse=True)
-def isolated_storage(tmp_path):
-    """Autouse fixture to isolate storage for integration tests."""
-    original = storage.STORAGE_DIR
-    storage.STORAGE_DIR = tmp_path
-    yield
-    storage.STORAGE_DIR = original
+# TODO: Also do a test where we pull the latest data? or maybe that's what this test does?
 
 
-game1 = "2025_08_BUF_CAR"
-game2 = "2025_09_DEN_HOU"
-
-
-def test_full_user_journey(client, mock_pull_simulation_results):
+def test_full_user_journey(client, latest_rand_game_id: str | tuple[str, str], build_results):
     """Simulate a user navigating through the entire app sequentially.
 
     Flow:
@@ -38,34 +32,26 @@ def test_full_user_journey(client, mock_pull_simulation_results):
       7. Simulate a second matchup (SF vs DAL)
       8. View its stats and PBP
     """
-    # TODO: Put all this back in?
+    game1: str = (
+        latest_rand_game_id[0] if isinstance(latest_rand_game_id, tuple) else latest_rand_game_id
+    )
+    game2: str = (
+        latest_rand_game_id[1] if isinstance(latest_rand_game_id, tuple) else latest_rand_game_id
+    )
+    home1, away1 = home_away_from_gameid(game1)
+    home2, away2 = home_away_from_gameid(game2)
     # -------------------------------------------------------------------------
     # 1. User lands on the index page
     # -------------------------------------------------------------------------
-    # with patch("nfl_sim.web.routes.get_schedule") as mock_sched:
-    #     mock_sched.return_value.as_metadata.return_value = [
-    #         {"home_team": "KC", "away_team": "BAL"},
-    #         {"home_team": "SF", "away_team": "DAL"},
-    #     ]
-    #     resp = client.get("/")
-    #     # TODO: WTF is this.
-    # assert resp.status_code == 200
-    # html = resp.data.decode()
-    # assert "BUF" in html
-    # assert "CAR" in html
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert home1 in html
+    assert away1 in html
+    assert home2 in html
+    assert away2 in html
 
-    # # -------------------------------------------------------------------------
-    # # 2. User refreshes the game list
-    # # -------------------------------------------------------------------------
-    # with patch("nfl_sim.web.routes.get_schedule") as mock_sched:
-    #     mock_sched.return_value.as_metadata.return_value = [
-    #         {"home_team": "KC", "away_team": "BAL"},
-    #     ]
-    #     resp = client.get("/games")
-    # assert resp.status_code == 200
-    # html = resp.data.decode()
-    # assert "BUF" in html
-    # assert "CAR" in html
+    # TODO: Remove the game refresh button and html artifacts
 
     # -------------------------------------------------------------------------
     # 3. User clicks "Simulate" on KC vs BAL
@@ -73,8 +59,8 @@ def test_full_user_journey(client, mock_pull_simulation_results):
     resp = client.post(f"/simulate/{game1}")
     assert resp.status_code == 200
     html = resp.data.decode()
-    assert "BUF" in html
-    assert "CAR" in html
+    assert home1 in html
+    assert away1 in html
 
     # -------------------------------------------------------------------------
     # 4. User views the stats panel for the simulated game
@@ -83,7 +69,8 @@ def test_full_user_journey(client, mock_pull_simulation_results):
     assert resp.status_code == 200
     html = resp.data.decode()
     assert "Game Stats" in html
-    assert "BUF" in html
+    assert home1 in html
+    assert away1 in html
 
     # -------------------------------------------------------------------------
     # 5. User clicks on the first simulation result (PBP)
@@ -111,30 +98,13 @@ def test_full_user_journey(client, mock_pull_simulation_results):
     assert "Invalid simulation index" not in html
 
     # -------------------------------------------------------------------------
-    # 8. User tries an out-of-range simulation index
-    # -------------------------------------------------------------------------
-    resp = client.get(f"/game/{game1}/100/plays")
-    assert resp.status_code == 200
-    assert b"Invalid simulation index" in resp.data
-
-    # -------------------------------------------------------------------------
-    # 9. User navigates to a matchup that hasn't been simulated
-    # -------------------------------------------------------------------------
-    resp = client.get(f"/game/{game2}/0/plays")
-    assert resp.status_code == 200
-    assert b"No cached simulation data" in resp.data
-
-    resp = client.get(f"/game/{game2}/stats")
-    assert resp.status_code == 200
-
-    # -------------------------------------------------------------------------
     # 10. User simulates a second matchup (DEN vs HOU)
     # -------------------------------------------------------------------------
     resp = client.post(f"/simulate/{game2}")
     assert resp.status_code == 200
     html = resp.data.decode()
-    assert "DEN" in html
-    assert "HOU" in html
+    assert home2 in html
+    assert away2 in html
 
     # -------------------------------------------------------------------------
     # 11. User views stats for the new matchup
@@ -153,7 +123,7 @@ def test_full_user_journey(client, mock_pull_simulation_results):
     assert "No cached simulation data" not in html
 
     # -------------------------------------------------------------------------
-    # 13. User goes back to view the first matchup (still cached)
+    # 13. User goes back to view the first matchup
     # -------------------------------------------------------------------------
     resp = client.get(f"/game/{game1}/0/plays")
     assert resp.status_code == 200

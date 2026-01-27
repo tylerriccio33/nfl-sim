@@ -9,9 +9,8 @@ from unittest.mock import patch
 import polars as pl
 import pytest
 
-from nfl_sim import GameContext, sim_games, understand
-from nfl_sim.data.context import ctx_from_latest_week
-from nfl_sim.sim.api import traces_to_dataframe
+from nfl_sim import GameContext, sim_games, place_sim_results_at_db
+from nfl_sim.utils import get_latest_season_week
 
 if TYPE_CHECKING:
     from nfl_sim.sim.state import GameTrace
@@ -24,6 +23,7 @@ CUR_WEEK = 18
 CUR_SEASON = 2025
 DATA_DIR = Path(__file__).parent.parent / "data"
 PBP_LOC = "data/pbp.parquet"
+SCHEDULES_LOC = "data/schedules.parquet"
 
 
 @pytest.fixture(scope="session")
@@ -67,6 +67,28 @@ def rand_game() -> dict[str, list[GameTrace]]:
 # DATA FIXTURES: Shared across integration tests
 # =============================================================================
 
+# TODO: Need to scope these all to session
+
+
+@pytest.fixture
+def database() -> str:
+    return "/tmp/sim-db.parquet"
+
+
+@pytest.fixture
+def game_summary() -> str:
+    return "/tmp/game-summary.parquet"
+
+
+@pytest.fixture
+def game_team_summary() -> str:
+    return "/tmp/game-team-summary.parquet"
+
+
+@pytest.fixture
+def future_games() -> str:
+    return "/tmp/future-games.parquet"
+
 
 @pytest.fixture(scope="session")
 def raw_pbp() -> pl.DataFrame:
@@ -78,6 +100,16 @@ def raw_pbp() -> pl.DataFrame:
     return pl.read_parquet(DATA_DIR / "pbp.parquet")
 
 
+@pytest.fixture(scope="session")
+def raw_schedules() -> pl.DataFrame:
+    """Load raw play-by-play data directly from parquet.
+
+    Use this for tests that need the raw data without any filtering/transformation.
+    This replaces local `mock_pbp_data` fixtures in test_compare, test_data, etc.
+    """
+    return pl.read_parquet(SCHEDULES_LOC)
+
+
 # NOTE: pbp_data and kickoff_data fixtures removed - old data system no longer exists.
 # The new sim/ module uses its own outcome models and doesn't need historical PBP data.
 
@@ -87,22 +119,6 @@ def sim_single_game_n50() -> dict[str, list[GameTrace]]:
     """50 simulations of a single game for accuracy testing."""
     context = GameContext(game_id="KC_BAL", home="KC", away="BAL", spread=0.0)
     return sim_games({context.game_id: context}, n=50)
-
-
-# =============================================================================
-# CONTEXT FIXTURES: Creating contexts to reuse.
-# =============================================================================
-
-
-@pytest.fixture(scope="session")
-def latest_ctx(raw_pbp) -> dict[str, GameContext]:
-    return ctx_from_latest_week(raw_pbp)
-
-
-@pytest.fixture(scope="session")
-def rand_ctx(latest_ctx) -> GameContext:
-    """Create a single context."""
-    return next(iter(ctx_from_latest_week(latest_ctx)))
 
 
 # =============================================================================
@@ -127,110 +143,6 @@ def client(app):
 
 
 @pytest.fixture
-def mock_storage(tmp_path):
-    """Mock storage to use a temp directory."""
-    from nfl_sim.web import storage
-
-    original_storage_dir = storage.STORAGE_DIR
-    storage.STORAGE_DIR = tmp_path
-    yield tmp_path
-    storage.STORAGE_DIR = original_storage_dir
-
-
-def _build_stats_dict(sims: list[pl.DataFrame], home: str, away: str) -> dict[str, Any]:
-    """Build stats dictionary from simulation DataFrames using understand().
-
-    This converts GameAggs and TeamAggs into the dict format expected by the web app.
-    """
-    game_stats = understand(sims)
-    team_pair = understand(sims, by="game-team")
-
-    # Team-level stats: tuple is sorted alphabetically by team name.
-    sorted_teams = sorted([home, away])
-    if home == sorted_teams[0]:
-        home_team_aggs, away_team_aggs = team_pair
-    else:
-        away_team_aggs, home_team_aggs = team_pair
-
-    # Build prefixed team stats (skip n_simulations)
-    skip_keys = {"n_simulations"}
-    home_prefixed = {
-        f"home_{k}": v for k, v in home_team_aggs._asdict().items() if k not in skip_keys
-    }
-    away_prefixed = {
-        f"away_{k}": v for k, v in away_team_aggs._asdict().items() if k not in skip_keys
-    }
-
-    return {
-        "home_team": home,
-        "away_team": away,
-        "n_simulations": game_stats.n_simulations,
-        "home_win_pct": game_stats.home_win_pct,
-        "away_win_pct": game_stats.away_win_pct,
-        "tie_pct": game_stats.tie_pct,
-        "home_score_avg": game_stats.home_score_avg,
-        "home_score_min": int(game_stats.home_score_min),
-        "home_score_max": int(game_stats.home_score_max),
-        "home_score_std": game_stats.home_score_std or 0.0,
-        "away_score_avg": game_stats.away_score_avg,
-        "away_score_min": int(game_stats.away_score_min),
-        "away_score_max": int(game_stats.away_score_max),
-        "away_score_std": game_stats.away_score_std or 0.0,
-        "margin_avg": game_stats.margin_avg,
-        "margin_min": int(game_stats.margin_min),
-        "margin_max": int(game_stats.margin_max),
-        "margin_std": game_stats.margin_std or 0.0,
-        "num_drives_avg": game_stats.num_drives_avg,
-        "total_plays_avg": game_stats.total_plays_avg,
-        **home_prefixed,
-        **away_prefixed,
-        "margins": list(game_stats.margins),
-        "home_scores": list(game_stats.home_scores),
-        "away_scores": list(game_stats.away_scores),
-        "individual_results": [
-            {
-                "home_score": h,
-                "away_score": a,
-                "home_win": h > a,
-            }
-            for h, a in zip(game_stats.home_scores, game_stats.away_scores)
-        ],
-    }
-
-
-# Game IDs used in web integration tests
-WEB_TEST_GAME_IDS = ["2025_08_BUF_CAR", "2025_09_DEN_HOU"]
-
-
-@pytest.fixture(scope="session")
-def _precomputed_sims() -> dict[str, tuple[list[pl.DataFrame], dict[str, Any]]]:
-    """Pre-compute simulations for web test game IDs (session-scoped for speed)."""
-    results = {}
-    n_sims = 100
-
-    for game_id in WEB_TEST_GAME_IDS:
-        # Parse home/away from game_id (format: YYYY_WW_HOME_AWAY)
-        _, _, home, away = game_id.split("_")
-
-        # Run simulations
-        ctx = GameContext(game_id=game_id, home=home, away=away, spread=0.0)
-        traces = sim_games({game_id: ctx}, n=n_sims)
-
-        # Convert to DataFrames
-        combined_df = traces_to_dataframe(traces)
-        sims = [
-            combined_df.filter(pl.col("sim_id") == i).drop("sim_id", "game_id")
-            for i in range(n_sims)
-        ]
-
-        # Build stats dict
-        stats_dict = _build_stats_dict(sims, home, away)
-        results[game_id] = (sims, stats_dict)
-
-    return results
-
-
-@pytest.fixture
 def mock_pull_simulation_results(_precomputed_sims, mock_storage):
     """Mock pull_simulation_results to return pre-computed simulation data.
 
@@ -245,6 +157,41 @@ def mock_pull_simulation_results(_precomputed_sims, mock_storage):
     with patch("nfl_sim.web.storage.pull_simulation_results", side_effect=_mock_pull):  # noqa: SIM117
         with patch("nfl_sim.web.routes.pull_simulation_results", side_effect=_mock_pull):
             yield
+
+
+@pytest.fixture
+def latest_rand_game_id(raw_schedules: pl.DataFrame) -> tuple[str, str] | str:
+    """Two game IDs from the latest week, 1 if superbowl."""
+    season, week = get_latest_season_week(raw_schedules)
+    game_ids = (
+        pl.read_parquet(SCHEDULES_LOC)
+        .filter(pl.col("season") == season, pl.col("week") == week)
+        .select("game_id")
+        .unique()
+        .slice(0, 2)
+        .to_series()
+        .to_list()
+    )
+    assert isinstance(game_ids, list)
+    if len(game_ids) == 1:
+        return game_ids[0]
+    if len(game_ids) == 2:
+        return game_ids[0], game_ids[1]
+    raise NotImplementedError
+
+
+@pytest.fixture
+def result_paths(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    pbp_target = tmp_path / "pbp-target.parquet"
+    game_summary_target = tmp_path / "game-summary-target.parquet"
+    game_team_summary_target = tmp_path / "game-team-summary-target.parquet"
+    future_games_target = tmp_path / "future-games-target.parquet"
+    return pbp_target, game_summary_target, game_team_summary_target, future_games_target
+
+# TODO: Would love if this wasn't re-computed ever time
+@pytest.fixture
+def build_results(result_paths) -> None:
+    place_sim_results_at_db(*result_paths)
 
 
 # =============================================================================

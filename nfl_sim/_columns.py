@@ -32,7 +32,3 @@ PBP_COLUMNS: list[str] = _load_columns(
         "player_ids",
     ],
 )
-ENGINE_COLUMNS: list[str] = _load_columns(
-    "engine_columns.toml",
-    ["filter", "play_result", "meta", "depth_chart"],
-)

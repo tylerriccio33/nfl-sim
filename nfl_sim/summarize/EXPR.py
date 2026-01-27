@@ -60,15 +60,6 @@ _SCORING_EXPRS: list[pl.Expr] = [
 
 SIM_LEVEL_EXPRS: list[pl.Expr] = _SCORING_EXPRS + _PLAY_AGG_EXPRS
 
-# =============================================================================
-# SIMULATION-TEAM-LEVEL AGGREGATIONS
-# =============================================================================
-# Same play aggregations as SIM_LEVEL but grouped by posteam.
-# Input: Play-level rows for one simulation, grouped by posteam
-# Output: One row per (simulation, team) pair
-
-SIM_TEAM_LEVEL_EXPRS: list[pl.Expr] = _PLAY_AGG_EXPRS
-
 
 # =============================================================================
 # GAME-LEVEL AGGREGATIONS
@@ -76,6 +67,7 @@ SIM_TEAM_LEVEL_EXPRS: list[pl.Expr] = _PLAY_AGG_EXPRS
 # These expressions aggregate simulation-level stats into game-level summaries.
 # Input: One row per simulation with sim-level stats
 # Output: One row per game with mean/std/distribution stats
+# NOTE: If the stat isn't discriminated by team, it belongs here, with the exception of home/away stats.
 
 GAME_LEVEL_EXPRS: list[pl.Expr] = [
     # Calculated Fields:
