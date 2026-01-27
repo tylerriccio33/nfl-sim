@@ -43,9 +43,10 @@ def simulate(game_id: str):
     result = game_summary._asdict()
     result["home_team"] = home
     result["away_team"] = away
+    # TODO: We should do something about this. Might want to do this in `understand`
     result["individual_results"] = [
         {"home_score": h, "away_score": a, "home_win": h > a}
-        for h, a in zip(game_summary.home_scores, game_summary.away_scores)
+        for h, a in zip(game_summary.home_score_all, game_summary.away_score_all)
     ]
 
     return render_template("partials/sim_results.html", result=result, game_id=game_id)
@@ -128,12 +129,12 @@ def stats_panel(game_id: str):
     game_stats = pull_understand_results(game_id)
 
     # Pre-compute histograms for the template
-    margin_hist = _compute_histogram(game_stats.margins, bucket_size=7)
+    margin_hist = _compute_histogram(game_stats.margin_all, bucket_size=7)
 
     # Compute aligned score histograms so they share the same x-axis
     home_score_hist, away_score_hist = _compute_aligned_histograms(
-        game_stats.home_scores,
-        game_stats.away_scores,
+        game_stats.home_score_all,
+        game_stats.away_score_all,
         bucket_size=7,
     )
 

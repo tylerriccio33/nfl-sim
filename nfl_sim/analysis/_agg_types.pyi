@@ -7,62 +7,184 @@ import polars as pl
 _game_schema: pl.Schema
 
 class GameAggs(NamedTuple):
-    home_win_pct: float
-    away_win_pct: float
-    tie_pct: float
-    home_score_sum: int
-    away_score_sum: int
-    home_score_std: float
-    away_score_std: float
-    margin_std: float
     home_score_avg: float
     away_score_avg: float
     margin_avg: float
-    total_yards_avg: float
-    yards_per_play_avg: float
-    total_plays_avg: float
-    num_drives_avg: float
-    touchdowns_avg: float
-    field_goals_avg: float
-    interceptions_avg: float
-    punts_avg: float
-    turnovers_on_downs_avg: float
-    fumbles_avg: float
-    safeties_avg: float
-    first_downs_avg: float
-    home_total_yards_avg: float
-    home_yards_per_play_avg: float
-    home_total_plays_avg: float
+    home_win_avg: float
+    away_win_avg: float
+    home_yards_gained_avg: float
     home_touchdowns_avg: float
     home_field_goals_avg: float
     home_interceptions_avg: float
-    home_pick_sixes_avg: float
+    home_pick_sixs_avg: float
     home_punts_avg: float
-    home_turnovers_on_downs_avg: float
-    home_fumbles_avg: float
     home_safeties_avg: float
+    home_turnoverondowns_avg: float
+    home_fumbles_avg: float
     home_first_downs_avg: float
-    away_total_yards_avg: float
-    away_yards_per_play_avg: float
-    away_total_plays_avg: float
+    home_total_plays_avg: float
+    home_num_drives_avg: float
+    home_yards_per_play_avg: float
+    away_yards_gained_avg: float
     away_touchdowns_avg: float
     away_field_goals_avg: float
     away_interceptions_avg: float
-    away_pick_sixes_avg: float
+    away_pick_sixs_avg: float
     away_punts_avg: float
-    away_turnovers_on_downs_avg: float
-    away_fumbles_avg: float
     away_safeties_avg: float
+    away_turnoverondowns_avg: float
+    away_fumbles_avg: float
     away_first_downs_avg: float
+    away_total_plays_avg: float
+    away_num_drives_avg: float
+    away_yards_per_play_avg: float
+    yards_gained_avg: float
+    touchdowns_avg: float
+    field_goals_avg: float
+    interceptions_avg: float
+    pick_sixs_avg: float
+    punts_avg: float
+    safeties_avg: float
+    turnoverondowns_avg: float
+    fumbles_avg: float
+    first_downs_avg: float
+    total_plays_avg: float
+    num_drives_avg: float
+    yards_per_play_avg: float
+    home_score_std: float
+    away_score_std: float
+    margin_std: float
+    home_win_std: float
+    away_win_std: float
+    home_yards_gained_std: float
+    home_touchdowns_std: float
+    home_field_goals_std: float
+    home_interceptions_std: float
+    home_pick_sixs_std: float
+    home_punts_std: float
+    home_safeties_std: float
+    home_turnoverondowns_std: float
+    home_fumbles_std: float
+    home_first_downs_std: float
+    home_total_plays_std: float
+    home_num_drives_std: float
+    home_yards_per_play_std: float
+    away_yards_gained_std: float
+    away_touchdowns_std: float
+    away_field_goals_std: float
+    away_interceptions_std: float
+    away_pick_sixs_std: float
+    away_punts_std: float
+    away_safeties_std: float
+    away_turnoverondowns_std: float
+    away_fumbles_std: float
+    away_first_downs_std: float
+    away_total_plays_std: float
+    away_num_drives_std: float
+    away_yards_per_play_std: float
+    yards_gained_std: float
+    touchdowns_std: float
+    field_goals_std: float
+    interceptions_std: float
+    pick_sixs_std: float
+    punts_std: float
+    safeties_std: float
+    turnoverondowns_std: float
+    fumbles_std: float
+    first_downs_std: float
+    total_plays_std: float
+    num_drives_std: float
+    yards_per_play_std: float
     home_score_min: int
     away_score_min: int
     margin_min: int
+    home_win_min: bool
+    away_win_min: bool
+    home_yards_gained_min: int
+    home_touchdowns_min: int
+    home_field_goals_min: int
+    home_interceptions_min: int
+    home_pick_sixs_min: int
+    home_punts_min: int
+    home_safeties_min: int
+    home_turnoverondowns_min: int
+    home_fumbles_min: int
+    home_first_downs_min: int
+    home_total_plays_min: list[int]
+    home_num_drives_min: int
+    home_yards_per_play_min: float
+    away_yards_gained_min: int
+    away_touchdowns_min: int
+    away_field_goals_min: int
+    away_interceptions_min: int
+    away_pick_sixs_min: int
+    away_punts_min: int
+    away_safeties_min: int
+    away_turnoverondowns_min: int
+    away_fumbles_min: int
+    away_first_downs_min: int
+    away_total_plays_min: list[int]
+    away_num_drives_min: int
+    away_yards_per_play_min: float
+    yards_gained_min: int
+    touchdowns_min: int
+    field_goals_min: int
     interceptions_min: int
+    pick_sixs_min: int
+    punts_min: int
+    safeties_min: int
+    turnoverondowns_min: int
+    fumbles_min: int
+    first_downs_min: int
+    total_plays_min: list[int]
+    num_drives_min: int
+    yards_per_play_min: float
     home_score_max: int
     away_score_max: int
     margin_max: int
+    home_win_max: bool
+    away_win_max: bool
+    home_yards_gained_max: int
+    home_touchdowns_max: int
+    home_field_goals_max: int
+    home_interceptions_max: int
+    home_pick_sixs_max: int
+    home_punts_max: int
+    home_safeties_max: int
+    home_turnoverondowns_max: int
+    home_fumbles_max: int
+    home_first_downs_max: int
+    home_total_plays_max: list[int]
+    home_num_drives_max: int
+    home_yards_per_play_max: float
+    away_yards_gained_max: int
+    away_touchdowns_max: int
+    away_field_goals_max: int
+    away_interceptions_max: int
+    away_pick_sixs_max: int
+    away_punts_max: int
+    away_safeties_max: int
+    away_turnoverondowns_max: int
+    away_fumbles_max: int
+    away_first_downs_max: int
+    away_total_plays_max: list[int]
+    away_num_drives_max: int
+    away_yards_per_play_max: float
+    yards_gained_max: int
+    touchdowns_max: int
+    field_goals_max: int
     interceptions_max: int
+    pick_sixs_max: int
+    punts_max: int
+    safeties_max: int
+    turnoverondowns_max: int
+    fumbles_max: int
+    first_downs_max: int
+    total_plays_max: list[int]
+    num_drives_max: int
+    yards_per_play_max: float
+    home_score_all: list[int]
+    away_score_all: list[int]
+    margin_all: list[int]
+    tie_pct: float
     n_simulations: int
-    home_scores: list[int]
-    away_scores: list[int]
-    margins: list[int]

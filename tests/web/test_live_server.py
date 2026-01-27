@@ -20,7 +20,7 @@ from nfl_sim.web import create_app
     os.getenv("NFL_SIM_LIVE", "0") != "1",
     reason="This test is not meant to run in CI, only for live debugging.",
 )
-def test_live_server(place_sim_results_at_db):
+def test_live_server(build_results):
     """Start a live server with latest week data for debugging."""
     app = create_app()
 

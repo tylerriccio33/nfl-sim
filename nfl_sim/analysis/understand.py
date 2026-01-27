@@ -5,9 +5,12 @@ Aggregates GameSims (list of PBP DataFrames) into summary statistics.
 
 from __future__ import annotations
 
-import polars as pl
+from typing import TYPE_CHECKING
 
 from nfl_sim.analysis.EXPR import GAME_LEVEL_EXPRS, SIM_LEVEL_EXPRS
+
+if TYPE_CHECKING:
+    import polars as pl
 
 
 def understand(sims: pl.DataFrame) -> pl.DataFrame:
@@ -35,16 +38,15 @@ def understand(sims: pl.DataFrame) -> pl.DataFrame:
         >>> print(stats["home_win_pct", "margin_avg"])
 
     """
-    assert isinstance(sims, pl.DataFrame)
-
     # Data should be at the play level
     schema = sims.collect_schema()
     assert "game_id" in schema
     assert "sim_id" in schema
     assert "play_id" in schema
 
-    # Each row is a game-sim (includes home_*/away_* team stats via filtered exprs)
-    sim_level = sims.group_by("game_id", "sim_id").agg(*SIM_LEVEL_EXPRS)
-
-    # Each row is a game (averages sim-level stats including home_*/away_*)
-    return sim_level.group_by("game_id").agg(*GAME_LEVEL_EXPRS)
+    return (
+        sims.group_by("game_id", "sim_id")
+        .agg(*SIM_LEVEL_EXPRS)  # -> game-sim (includes home_*/away_* team stats via filtered exprs)
+        .group_by("game_id")
+        .agg(*GAME_LEVEL_EXPRS)  # -> each row is a game
+    )

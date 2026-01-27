@@ -20,12 +20,13 @@ def test_full_pipeline_completes(ctx):
     # 2 games (from ctx fixture)
     assert len(game_stats) == 2
 
+    # TODO: this is suchhhhh a weird test. Probably should just hypothesis this and call it a day?
+
     # Verify home_*/away_* team stats are present
     schema = game_stats.collect_schema()
     assert "home_touchdowns_avg" in schema
     assert "away_touchdowns_avg" in schema
-    assert "home_total_yards_avg" in schema
-    assert "away_total_yards_avg" in schema
+    assert "home_yards_gained_avg" in schema
 
 
 if __name__ == "__main__":

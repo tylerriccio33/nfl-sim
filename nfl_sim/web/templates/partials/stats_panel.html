@@ -93,18 +93,18 @@
         <div class="space-y-2">
             <div class="flex justify-between items-center">
                 <span class="text-green-400">{{ home }}</span>
-                <span class="font-mono">{{ "%.1f"|format(result.home_win_pct * 100) }}%</span>
+                <span class="font-mono">{{ "%.1f"|format(result.home_win_avg * 100) }}%</span>
             </div>
             <div class="w-full bg-gray-600 rounded-full h-2">
-                <div class="bg-green-500 h-2 rounded-full" style="width: {{ result.home_win_pct * 100 }}%"></div>
+                <div class="bg-green-500 h-2 rounded-full" style="width: {{ result.home_win_avg * 100 }}%"></div>
             </div>
 
             <div class="flex justify-between items-center mt-2">
                 <span class="text-blue-400">{{ away }}</span>
-                <span class="font-mono">{{ "%.1f"|format(result.away_win_pct * 100) }}%</span>
+                <span class="font-mono">{{ "%.1f"|format(result.away_win_avg * 100) }}%</span>
             </div>
             <div class="w-full bg-gray-600 rounded-full h-2">
-                <div class="bg-blue-500 h-2 rounded-full" style="width: {{ result.away_win_pct * 100 }}%"></div>
+                <div class="bg-blue-500 h-2 rounded-full" style="width: {{ result.away_win_avg * 100 }}%"></div>
             </div>
 
             {% if result.tie_pct > 0 %}
