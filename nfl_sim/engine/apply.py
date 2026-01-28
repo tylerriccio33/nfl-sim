@@ -1,7 +1,5 @@
 """All game logic lies here, and is orchestrated by the `apply_outcome` function."""
 
-from dataclasses import replace
-
 from nfl_sim.engine.state import Action, GameState, Outcome
 
 
@@ -32,8 +30,7 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
             offense_idx = 0 if state.offense == "HOME" else 1
             score[offense_idx] += 3
         # After FG attempt (made or missed), other team gets ball at their 25
-        return replace(
-            state,
+        return state.__replace__(
             quarter=new_quarter,
             clock=new_clock,
             offense=state.defense,
@@ -41,7 +38,7 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
             down=1,
             distance=10,
             yardline=75,
-            score=tuple(score),
+            score=tuple(score),  # ty:ignore[invalid-argument-type]
             possession_id=state.possession_id + 1,
         )
 
@@ -56,8 +53,7 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
         else:
             # Receiving team gets ball at the landing spot (flipped perspective)
             receiving_yardline = 100 - punt_landing
-        return replace(
-            state,
+        return state.__replace__(
             quarter=new_quarter,
             clock=new_clock,
             offense=state.defense,
@@ -74,8 +70,7 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
         offense_idx = 0 if state.offense == "HOME" else 1
         score[offense_idx] += 7
         # Reset after TD - other team gets ball at their 25
-        return replace(
-            state,
+        return state.__replace__(
             quarter=new_quarter,
             clock=new_clock,
             offense=state.defense,
@@ -83,15 +78,14 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
             down=1,
             distance=10,
             yardline=75,  # 25 yards from own endzone = 75 from opponent's
-            score=tuple(score),
+            score=tuple(score),  # ty:ignore[invalid-argument-type]
             possession_id=state.possession_id + 1,
         )
 
     # Handle turnover (interception/fumble from outcome model)
     if outcome.turnover:
         flipped_yardline = 100 - new_yardline
-        return replace(
-            state,
+        return state.__replace__(
             quarter=new_quarter,
             clock=new_clock,
             offense=state.defense,
@@ -104,8 +98,7 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
 
     # Handle first down
     if outcome.yards >= state.distance:
-        return replace(
-            state,
+        return state.__replace__(
             quarter=new_quarter,
             clock=new_clock,
             down=1,
@@ -116,8 +109,7 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
     # Handle turnover on downs
     if state.down == 4:
         flipped_yardline = 100 - new_yardline
-        return replace(
-            state,
+        return state.__replace__(
             quarter=new_quarter,
             clock=new_clock,
             offense=state.defense,
@@ -129,8 +121,7 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
         )
 
     # Normal play - advance down
-    return replace(
-        state,
+    return state.__replace__(
         quarter=new_quarter,
         clock=new_clock,
         down=state.down + 1,

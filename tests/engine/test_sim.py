@@ -29,7 +29,7 @@ def make_state(**kwargs) -> GameState:
         score=(0, 0),
         possession_id=1,
     )
-    return replace(default, **kwargs)
+    return default.__replace__(**kwargs)
 
 
 def make_outcome(**kwargs) -> Outcome:

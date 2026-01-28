@@ -2,17 +2,21 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import NamedTuple
 
 type TeamId = str
 
 
-@dataclass(frozen=True)
-class GameState:
+# @dataclass(frozen=True, slots=True)
+class GameState(NamedTuple):
+    # class GameState:
     """What the rules care about NOW.
 
     This is the minimal Markov state needed to advance the game.
     If removing a field would change the next-play distribution, it belongs here.
     GameState is rules-complete, not information-complete
+
+    This should be as minimal as possible, it's copied in the hottest loops.
     """
 
     quarter: int
@@ -23,7 +27,7 @@ class GameState:
     distance: int
     yardline: int  # yards from endzone
     score: tuple[int, int]
-    possession_id: int
+    possession_id: int  # TODO: Unlikely we need this
 
 
 class Action(Enum):

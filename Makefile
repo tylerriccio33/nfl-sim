@@ -19,6 +19,9 @@ test: ## Run tests
 		--cov-report term-missing \
 		--durations 10
 
+parity: ## Run parity tests
+	@NFL_SIM_PARITY=1 uv run pytest tests/engine/test_parity.py
+
 cov-api: ## Run web API integration tests with coverage
 	@uv run --no-sync pytest tests/web/test_web_integration.py \
 		--cov nfl_sim \

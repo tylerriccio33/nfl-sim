@@ -1,10 +1,13 @@
+import os
+
 import pytest
 
 from nfl_sim.analysis._agg_types import GameAggs
 
-TOL = 0.1
 
-
+@pytest.mark.skipif(
+    os.getenv("NFL_SIM_PARITY", "0") != "1", reason="Run parity tests with `make parity`."
+)
 @pytest.mark.parametrize("stat", GameAggs._fields)
 def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str):
     real_stats, sim_stats = build_comparison_data
@@ -18,9 +21,9 @@ def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str):
     one_std_abv = ravg + rstd
     one_std_bel = ravg - rstd
 
-    msg = f"{savg:.2f} is +=1 standard deviation ({rstd:.2f}) above the avg {ravg:.2f}"
-    assert savg > one_std_bel, msg
-    assert savg < one_std_abv, msg
+    msg = f"SIM AVG -> {savg:.2f} : REAL AVG -> {ravg:.2f} : STD -> {rstd:.2f}"
+    assert savg >= one_std_bel, msg
+    assert savg <= one_std_abv, msg
 
 
 # TODO: Changing seed → different outcomes
