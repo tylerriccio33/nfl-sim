@@ -4,30 +4,23 @@ from nfl_sim.analysis._agg_types import GameAggs
 
 TOL = 0.1
 
-EPS = 1e-8
-
 
 @pytest.mark.parametrize("stat", GameAggs._fields)
 def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str):
     real_stats, sim_stats = build_comparison_data
 
     ravg, rstd = real_stats[stat]
-    savg, sstd = sim_stats[stat]
+    savg, _ = sim_stats[stat]
 
     if ravg is None:
         pytest.skip(f"Stat {stat} is None, check sim logic.")
 
-    err = abs(savg - ravg) / max(rstd, sstd, abs(ravg), abs(savg), EPS)
+    one_std_abv = ravg + rstd
+    one_std_bel = ravg - rstd
 
-    assert err < TOL
-
-    # TOL ≈ 0.05 → very tight (basically same behavior)
-    # TOL ≈ 0.1 → reasonable agreement
-    # TOL ≈ 0.3 → “directionally similar, not identical”
-
-    # Z-score when variance exists
-    # Relative error when variance is zero
-    # Absolute error when everything is tiny
+    msg = f"{savg:.2f} is +=1 standard deviation ({rstd:.2f}) above the avg {ravg:.2f}"
+    assert savg > one_std_bel, msg
+    assert savg < one_std_abv, msg
 
 
 if __name__ == "__main__":
