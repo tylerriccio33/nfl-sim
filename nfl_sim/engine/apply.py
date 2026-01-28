@@ -20,8 +20,9 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
         new_clock = 900  # 15 min quarters
         new_quarter = state.quarter + 1
 
-    # Apply yards
-    new_yardline = state.yardline - outcome.yards
+    # Apply yards (TD check uses <= 0, so don't clamp the lower bound here)
+    # Upper bound: >100 would be safety - clamp to 99 for now (safety handling TBD)
+    new_yardline = min(99, state.yardline - outcome.yards)
 
     # Handle field goal (special case - points without TD, changes possession)
     if action == Action.FIELD_GOAL:
@@ -46,11 +47,15 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
 
     # Handle punt (intentional possession change)
     if action == Action.PUNT:
-        # Simplified punt - assume average net of 40 yards
+        # Simplified punt - assume average net of 40 yards toward opponent's endzone
         punt_distance = 40
-        new_yardline_for_opponent = max(20, state.yardline + punt_distance)
-        if new_yardline_for_opponent > 100:
-            new_yardline_for_opponent = 80  # touchback equivalent
+        punt_landing = state.yardline - punt_distance
+        if punt_landing <= 0:
+            # Into or past endzone - touchback at the 25
+            receiving_yardline = 75
+        else:
+            # Receiving team gets ball at the landing spot (flipped perspective)
+            receiving_yardline = 100 - punt_landing
         return replace(
             state,
             quarter=new_quarter,
@@ -58,8 +63,8 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
             offense=state.defense,
             defense=state.offense,
             down=1,
-            distance=10,
-            yardline=100 - new_yardline_for_opponent,
+            distance=min(10, receiving_yardline),
+            yardline=receiving_yardline,
             possession_id=state.possession_id + 1,
         )
 
@@ -84,6 +89,7 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
 
     # Handle turnover (interception/fumble from outcome model)
     if outcome.turnover:
+        flipped_yardline = 100 - new_yardline
         return replace(
             state,
             quarter=new_quarter,
@@ -91,8 +97,8 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
             offense=state.defense,
             defense=state.offense,
             down=1,
-            distance=10,
-            yardline=100 - new_yardline,
+            distance=min(10, flipped_yardline),  # goal-to-go if near endzone
+            yardline=flipped_yardline,
             possession_id=state.possession_id + 1,
         )
 
@@ -109,6 +115,7 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
 
     # Handle turnover on downs
     if state.down == 4:
+        flipped_yardline = 100 - new_yardline
         return replace(
             state,
             quarter=new_quarter,
@@ -116,8 +123,8 @@ def apply_outcome(state: GameState, action: Action, outcome: Outcome) -> GameSta
             offense=state.defense,
             defense=state.offense,
             down=1,
-            distance=10,
-            yardline=100 - new_yardline,
+            distance=min(10, flipped_yardline),  # goal-to-go if near endzone
+            yardline=flipped_yardline,
             possession_id=state.possession_id + 1,
         )
 

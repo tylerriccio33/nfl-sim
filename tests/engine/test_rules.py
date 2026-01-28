@@ -212,10 +212,10 @@ DRIVE_RULES: tuple[RuleChecker, ...] = (
 
 
 def _gained_first_down(event: PlayEvent) -> bool:
-    """Check if a play resulted in a first down (same possession, down reset to 1)."""
+    """Check if a play resulted in a first down (same possession, gained enough yards)."""
     before, after = event.state_before, event.state_after
     same_possession = before.offense == after.offense
-    return same_possession and after.down == 1 and before.down != 1
+    return same_possession and event.outcome.yards >= before.distance
 
 
 def check_down_increments_without_first_down(trace: GameTrace) -> None:
@@ -305,17 +305,14 @@ DOWN_DISTANCE_RULES: tuple[RuleChecker, ...] = (
 # =============================================================================
 
 
-def check_touchdown_gives_6(trace: GameTrace) -> None:
-    """Touchdown adds exactly 6 points."""
+def check_touchdown_gives_7(trace: GameTrace) -> None:
+    """Touchdown adds exactly 7 points (TD + automatic PAT)."""
     for event in trace:
         if not event.outcome.touchdown:
             continue
         before, after = event.state_before, event.state_after
-        # Figure out which team scored (offense)
-        # Score tuple is (team0, team1), need to map offense to index
-        # This is tricky without knowing team->index mapping, so check delta = 6
         delta = sum(after.score) - sum(before.score)
-        assert delta == 6, f"TD gave {delta} points, expected 6"
+        assert delta == 7, f"TD gave {delta} points, expected 7"
 
 
 def check_field_goal_gives_3(trace: GameTrace) -> None:
@@ -325,15 +322,18 @@ def check_field_goal_gives_3(trace: GameTrace) -> None:
     for event in trace:
         if event.action != Action.FIELD_GOAL:
             continue
-        if event.outcome.turnover:
-            continue  # Missed/blocked
         before, after = event.state_before, event.state_after
         delta = sum(after.score) - sum(before.score)
-        assert delta == 3, f"FG gave {delta} points, expected 3"
+        # FG is made when yards >= yardline (reaching the endzone)
+        fg_made = event.outcome.yards >= before.yardline
+        if fg_made:
+            assert delta == 3, f"Made FG gave {delta} points, expected 3"
+        else:
+            assert delta == 0, f"Missed FG gave {delta} points, expected 0"
 
 
 SCORING_RULES: tuple[RuleChecker, ...] = (
-    check_touchdown_gives_6,
+    check_touchdown_gives_7,
     check_field_goal_gives_3,
 )
 

@@ -30,16 +30,19 @@ class SimpleOutcomeModel:
 
     def sample(self, action: Action, context: ModelContext) -> Outcome:
         """All intelligence/models live here."""
+        remaining_clock = context.state.clock
+
         if action == Action.RUN:
             yards = self.rng.gauss(4, 3)
             yards = int(max(-5, min(20, yards)))
             # 2% fumble rate on runs
             turnover_type = TurnoverType.FUMBLE if self.rng.random() < 0.02 else TurnoverType.NONE
+            time_elapsed = min(self.rng.randint(5, 10), remaining_clock)
             return Outcome(
                 yards=yards,
                 turnover_type=turnover_type,
                 touchdown=False,  # handled by yardline
-                time_elapsed=self.rng.randint(5, 10),
+                time_elapsed=time_elapsed,
             )
 
         elif action == Action.PASS:
@@ -48,41 +51,43 @@ class SimpleOutcomeModel:
                     yards=0,
                     turnover_type=TurnoverType.NONE,
                     touchdown=False,
-                    time_elapsed=5,
+                    time_elapsed=min(5, remaining_clock),
                 )
             if self.rng.random() < 0.03:  # interception
                 return Outcome(
                     yards=0,
                     turnover_type=TurnoverType.INTERCEPTION,
                     touchdown=False,
-                    time_elapsed=5,
+                    time_elapsed=min(5, remaining_clock),
                 )
             yards = self.rng.gauss(8, 8)
             yards = int(max(-5, min(40, yards)))
+            time_elapsed = min(self.rng.randint(5, 15), remaining_clock)
             return Outcome(
                 yards=yards,
                 turnover_type=TurnoverType.NONE,
                 touchdown=False,
-                time_elapsed=self.rng.randint(5, 15),
+                time_elapsed=time_elapsed,
             )
 
         elif action == Action.FIELD_GOAL:
             # Success rate depends on distance
             success_prob = max(0.3, 1.0 - (context.state.yardline / 100))
+            time_elapsed = min(5, remaining_clock)
             if self.rng.random() < success_prob:
                 # Field goal made - special handling needed
                 return Outcome(
                     yards=context.state.yardline,
                     turnover_type=TurnoverType.NONE,
                     touchdown=False,
-                    time_elapsed=5,
+                    time_elapsed=time_elapsed,
                 )
             # Missed - turnover at spot (not a "turnover" in the traditional sense)
             return Outcome(
                 yards=0,
                 turnover_type=TurnoverType.NONE,
                 touchdown=False,
-                time_elapsed=5,
+                time_elapsed=time_elapsed,
             )
 
         elif action == Action.PUNT:
@@ -91,7 +96,12 @@ class SimpleOutcomeModel:
                 yards=0,
                 turnover_type=TurnoverType.NONE,
                 touchdown=False,
-                time_elapsed=5,
+                time_elapsed=min(5, remaining_clock),
             )
 
-        return Outcome(yards=0, turnover_type=TurnoverType.NONE, touchdown=False, time_elapsed=5)
+        return Outcome(
+            yards=0,
+            turnover_type=TurnoverType.NONE,
+            touchdown=False,
+            time_elapsed=min(5, remaining_clock),
+        )

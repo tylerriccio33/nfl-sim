@@ -56,6 +56,12 @@ def _run_game_loop(
         outcome = model.sample(action, context)
         new_state = apply_outcome(state, action, outcome)
 
+        # Engine detects TDs by yardline - reflect this in the outcome for consumers
+        if action not in (Action.FIELD_GOAL, Action.PUNT):
+            new_yardline = state.yardline - outcome.yards
+            if new_yardline <= 0:
+                outcome.touchdown = True
+
         trace.append(PlayEvent(state, action, outcome, new_state))
         state = new_state
 
