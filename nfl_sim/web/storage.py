@@ -66,7 +66,6 @@ def pull_understand_results(game_id: str) -> GameAggs:
 
     try:
         return GameAggs(**{k: v[0] for k, v in by_game.items()})
-    except IndexError:  # catch and raise b/c `IndexError` is very confusing to debug
-        raise ValueError(
-            "Discordance between requested `game_id` and available summaries."
-        ) from None
+    except IndexError:  # pragma: no cover
+        # catch and raise b/c `IndexError` is very confusing to debug
+        raise ValueError("No requested `game_id` and available summaries.") from None

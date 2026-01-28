@@ -5,9 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import polars as pl
+import polars.selectors as cs
 import pytest
 
-from nfl_sim import GameContext, place_sim_results_at_db
+from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
+from nfl_sim.engine.api import traces_to_dataframe
+from nfl_sim.models.context import ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
 
@@ -91,7 +94,7 @@ def build_results(override_const) -> None:
 
 
 # =============================================================================
-#
+# Context Fixtures
 # =============================================================================
 
 
@@ -106,3 +109,47 @@ def ctx() -> dict[str, GameContext]:
         GameContext(game_id="2025_03_BUF_MIA", home="BUF", away="MIA", spread=-7.0),
     ]
     return {g.game_id: g for g in games}
+
+
+# =============================================================================
+# Larger Fixtures
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+def build_comparison_data(
+    raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame
+) -> tuple[dict[str, tuple[float, float]], dict[str, tuple[float, float]]]:
+    real_stats = raw_pbp.with_columns(
+        sim_id=pl.lit(1).over("game_id"),
+        # TODO: Need to flesh out the event logic
+        event=pl.when(pl.col("touchdown").eq(1)).then(pl.lit("touchdown")),
+    ).pipe(understand)
+
+    real_stat_avgs = real_stats.select(cs.numeric().mean()).to_dict(as_series=False)
+    real_stat_std = real_stats.select(cs.numeric().std()).to_dict(as_series=False)
+    real_stats_combined: dict[str, tuple[float, float]] = {}
+    for col in real_stat_avgs:
+        real_stats_combined[col] = real_stat_avgs[col][0], real_stat_std[col][0]
+
+    ## Run simulations:
+    schedule_filtered = raw_schedules.filter(pl.col("season") > 2024)
+    latest_games: list[str] = schedule_filtered.select("game_id").unique().to_series().to_list()
+
+    ## Engineer data for Sims:
+    ctx: dict[str, GameContext] = ctx_from_game_id(
+        pbp=raw_pbp, schedule_data=schedule_filtered, game_ids=latest_games
+    )
+
+    ## Sim Data:
+    traces = sim_games(ctx, n=2)
+    sim_pbp: pl.DataFrame = traces_to_dataframe(traces)
+    sim_stats = understand(sim_pbp)
+
+    sim_stat_avgs = sim_stats.select(cs.numeric().mean()).to_dict(as_series=False)
+    sim_stat_std = sim_stats.select(cs.numeric().std()).to_dict(as_series=False)
+    sim_stats_combined: dict[str, tuple[float, float]] = {}
+    for col in sim_stat_avgs:
+        sim_stats_combined[col] = sim_stat_avgs[col][0], sim_stat_std[col][0]
+
+    return real_stats_combined, sim_stats_combined

@@ -89,12 +89,7 @@ def run_accuracy_benchmark(
         spread = row["spread_line"]  # Negative = home favored
 
         # Build context and run simulations
-        context = GameContext(
-            game_id=game_id,
-            home=home_team,
-            away=away_team,
-            spread=spread or 0.0,
-        )
+        context = GameContext(game_id=game_id, home=home_team, away=away_team, spread=spread)
         traces = sim_games({game_id: context}, n=n_sims_per_game)
         sim_df = traces_to_dataframe(traces)
         stats_df = understand(sim_df)
