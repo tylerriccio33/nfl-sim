@@ -9,7 +9,7 @@ import polars.selectors as cs
 import pytest
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
-from nfl_sim.engine.api import traces_to_dataframe
+from nfl_sim.engine.api import GameTrace, traces_to_dataframe
 from nfl_sim.models.context import ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
@@ -98,7 +98,7 @@ def build_results(override_const) -> None:
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def ctx() -> dict[str, GameContext]:
     """Multiple game contexts for testing."""
     # These games don't even matter, just matters we pass data down
@@ -109,6 +109,11 @@ def ctx() -> dict[str, GameContext]:
         GameContext(game_id="2025_03_BUF_MIA", home="BUF", away="MIA", spread=-7.0),
     ]
     return {g.game_id: g for g in games}
+
+
+@pytest.fixture(scope="session")
+def sims(ctx: dict[str, GameContext]) -> dict[str, list[GameTrace]]:
+    return sim_games(ctx)
 
 
 # =============================================================================

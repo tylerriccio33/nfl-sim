@@ -23,5 +23,21 @@ def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str):
     assert savg < one_std_abv, msg
 
 
+# TODO: Changing seed → different outcomes
+# TODO: No hidden global state between simulations
+# TODO: Re-running same sim object doesnt mutate previous results
+# TODO: Average points per game in realistic range (e.g. 35 55 total)
+# TODO: No team averages negative yards
+# TODO: Turnovers per game within plausible bounds
+# TODO: Punt rate non-zero
+# TODO: FG attempts non-zero
+# TODO: Blowouts rare but possible
+# TODO: Ties extremely rare (or impossible if OT enforced)
+# TODO: Total plays in game within sane bounds
+# TODO: No drive with 0 yards and infinite downs
+# TODO: Game state is serializable at any play
+# TODO: Replaying event log reproduces final score exactly
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-sv"])
