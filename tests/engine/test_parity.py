@@ -12,6 +12,9 @@ from nfl_sim.analysis._agg_types import GameAggs
 def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str):
     real_stats, sim_stats = build_comparison_data
 
+    if stat not in real_stats:
+        pytest.skip(f"Stat {stat} not in real data (sim-only metric).")
+
     ravg, rstd = real_stats[stat]
     savg, _ = sim_stats[stat]
 

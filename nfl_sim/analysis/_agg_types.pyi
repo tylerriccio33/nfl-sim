@@ -110,7 +110,7 @@ class GameAggs(NamedTuple):
     home_turnoverondowns_min: int
     home_fumbles_min: int
     home_first_downs_min: int
-    home_total_plays_min: list[int]
+    home_total_plays_min: int
     home_num_drives_min: int
     home_yards_per_play_min: float
     away_yards_gained_min: int
@@ -123,7 +123,7 @@ class GameAggs(NamedTuple):
     away_turnoverondowns_min: int
     away_fumbles_min: int
     away_first_downs_min: int
-    away_total_plays_min: list[int]
+    away_total_plays_min: int
     away_num_drives_min: int
     away_yards_per_play_min: float
     yards_gained_min: int
@@ -136,7 +136,7 @@ class GameAggs(NamedTuple):
     turnoverondowns_min: int
     fumbles_min: int
     first_downs_min: int
-    total_plays_min: list[int]
+    total_plays_min: int
     num_drives_min: int
     yards_per_play_min: float
     home_score_max: int
@@ -154,7 +154,7 @@ class GameAggs(NamedTuple):
     home_turnoverondowns_max: int
     home_fumbles_max: int
     home_first_downs_max: int
-    home_total_plays_max: list[int]
+    home_total_plays_max: int
     home_num_drives_max: int
     home_yards_per_play_max: float
     away_yards_gained_max: int
@@ -167,7 +167,7 @@ class GameAggs(NamedTuple):
     away_turnoverondowns_max: int
     away_fumbles_max: int
     away_first_downs_max: int
-    away_total_plays_max: list[int]
+    away_total_plays_max: int
     away_num_drives_max: int
     away_yards_per_play_max: float
     yards_gained_max: int
@@ -180,7 +180,7 @@ class GameAggs(NamedTuple):
     turnoverondowns_max: int
     fumbles_max: int
     first_downs_max: int
-    total_plays_max: list[int]
+    total_plays_max: int
     num_drives_max: int
     yards_per_play_max: float
     home_score_all: list[int]

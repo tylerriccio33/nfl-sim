@@ -121,21 +121,83 @@ def sims(ctx: dict[str, GameContext]) -> dict[str, list[GameTrace]]:
 # =============================================================================
 
 
+def _real_pbp_to_sim_schema(pbp: pl.DataFrame) -> pl.DataFrame:
+    """Map real nflfastR play-by-play data into the same schema the sim engine produces.
+
+    The sim engine emits: game_id, sim_id, play_id, quarter, clock, down, distance,
+    yardline, posteam (HOME/AWAY), yards_gained, event, home_score, away_score.
+
+    Real PBP has all the raw info but in a different shape. This function bridges
+    the gap so `understand()` can consume both real and simulated data identically.
+    """
+    # Only keep actual scrimmage plays + punts + field goals (no kickoffs, extra points, etc.)
+    pbp = pbp.filter(
+        pl.col("play_type").is_in(["pass", "run", "punt", "field_goal", "qb_kneel", "qb_spike"])
+    )
+
+    # Build the event column from real PBP binary flags.
+    # Order matters: more specific events checked first.
+    event_expr = (
+        pl.when(pl.col("interception").eq(1) & pl.col("return_touchdown").eq(1))
+        .then(pl.lit("PickSix"))
+        .when(pl.col("fumble_lost").eq(1) & pl.col("return_touchdown").eq(1))
+        .then(pl.lit("FumbleSix"))
+        .when(pl.col("safety").eq(1))
+        .then(pl.lit("Safety"))
+        .when(pl.col("interception").eq(1))
+        .then(pl.lit("Interception"))
+        .when(pl.col("fumble_lost").eq(1))
+        .then(pl.lit("FumbleLost"))
+        .when(pl.col("touchdown").eq(1))
+        .then(pl.lit("Touchdown"))
+        .when(pl.col("field_goal_result").eq("made"))
+        .then(pl.lit("FieldGoalSuccess"))
+        .when(pl.col("field_goal_result").is_in(["missed", "blocked"]))
+        .then(pl.lit("FieldGoalMiss"))
+        .when(pl.col("fourth_down_failed").eq(1))
+        .then(pl.lit("TurnoverOnDowns"))
+        .when(pl.col("punt_attempt").eq(1))
+        .then(pl.lit("PuntRegular"))
+        .otherwise(pl.lit("Play"))
+    )
+
+    # Map posteam from team abbreviation to HOME/AWAY so EXPR.py filters work
+    posteam_expr = (
+        pl.when(pl.col("posteam") == pl.col("home_team"))
+        .then(pl.lit("HOME"))
+        .when(pl.col("posteam") == pl.col("away_team"))
+        .then(pl.lit("AWAY"))
+        .otherwise(pl.lit("UNKNOWN"))
+    )
+
+    return pbp.select(
+        "game_id",
+        pl.lit(1).alias("sim_id"),
+        pl.cum_count("game_id").over("game_id").alias("play_id"),
+        "down",
+        pl.col("yards_gained").cast(pl.Int64),
+        event_expr.alias("event"),
+        posteam_expr.alias("posteam"),
+        pl.col("home_score").cast(pl.Int64),
+        pl.col("away_score").cast(pl.Int64),
+    ).drop_nulls(subset=["down"])
+
+
+def _stats_to_avg_std(stats: pl.DataFrame) -> dict[str, tuple[float, float]]:
+    """Collapse a game-level stats DataFrame into {col: (mean, std)} across games."""
+    avgs = stats.select(cs.numeric().mean()).to_dict(as_series=False)
+    stds = stats.select(cs.numeric().std()).to_dict(as_series=False)
+    return {col: (avgs[col][0], stds[col][0]) for col in avgs}
+
+
 @pytest.fixture(scope="session")
 def build_comparison_data(
     raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame
 ) -> tuple[dict[str, tuple[float, float]], dict[str, tuple[float, float]]]:
-    real_stats = raw_pbp.with_columns(
-        sim_id=pl.lit(1).over("game_id"),
-        # TODO: Need to flesh out the event logic
-        event=pl.when(pl.col("touchdown").eq(1)).then(pl.lit("touchdown")),
-    ).pipe(understand)
-
-    real_stat_avgs = real_stats.select(cs.numeric().mean()).to_dict(as_series=False)
-    real_stat_std = real_stats.select(cs.numeric().std()).to_dict(as_series=False)
-    real_stats_combined: dict[str, tuple[float, float]] = {}
-    for col in real_stat_avgs:
-        real_stats_combined[col] = real_stat_avgs[col][0], real_stat_std[col][0]
+    ## Real data: reshape into sim schema and aggregate
+    real_pbp = _real_pbp_to_sim_schema(raw_pbp)
+    real_stats = understand(real_pbp)
+    real_stats_combined = _stats_to_avg_std(real_stats)
 
     ## Run simulations:
     schedule_filtered = raw_schedules.filter(pl.col("season") > 2024)
@@ -150,11 +212,6 @@ def build_comparison_data(
     traces = sim_games(ctx, n=2)
     sim_pbp: pl.DataFrame = traces_to_dataframe(traces)
     sim_stats = understand(sim_pbp)
-
-    sim_stat_avgs = sim_stats.select(cs.numeric().mean()).to_dict(as_series=False)
-    sim_stat_std = sim_stats.select(cs.numeric().std()).to_dict(as_series=False)
-    sim_stats_combined: dict[str, tuple[float, float]] = {}
-    for col in sim_stat_avgs:
-        sim_stats_combined[col] = sim_stat_avgs[col][0], sim_stat_std[col][0]
+    sim_stats_combined = _stats_to_avg_std(sim_stats)
 
     return real_stats_combined, sim_stats_combined
