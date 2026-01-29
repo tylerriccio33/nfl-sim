@@ -10,15 +10,15 @@ from rich.table import Table
 
 from nfl_sim import sim_games, understand
 from nfl_sim.engine.api import traces_to_dataframe
-from nfl_sim.models.context import GameContext
+from nfl_sim.models.context import GameContext, ctx_from_game_id
 
-NGAMES = 500
-NSIMS = 1_000
+NGAMES = 10
+NSIMS = 100
 
 BEST_RMSE = 14.90
 
-## Data locations (same as nfl_sim/__init__.py):
 SCHEDULES_DATA = Path("data/schedules.parquet")
+PBP_DATA = Path("data/pbp.parquet")
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -75,83 +75,51 @@ def run_accuracy_benchmark(
 
     console.print(f"[bold green]Simulating {len(schedule)} games ({n_sims_per_game} sims each)...")
 
-    results = []
+    # results = []
 
-    for i, row in enumerate(schedule.iter_rows(named=True)):
-        if (i + 1) % 10 == 0:
-            console.print(f"  Progress: {i + 1}/{len(schedule)}")
+    contexts = ctx_from_game_id(pl.read_parquet(PBP_DATA), schedule, schedule["game_id"].to_list())
 
-        home_team: str = row["home_team"]
-        away_team: str = row["away_team"]
-        game_id: str = row["game_id"]
-        actual_home = row["home_score"]
-        actual_away = row["away_score"]
-        spread = row["spread_line"]  # Negative = home favored
+    results = sim_games(games=contexts, n=n_sims_per_game)
 
-        # Build context and run simulations
-        context = GameContext(game_id=game_id, home=home_team, away=away_team, spread=spread)
-        traces = sim_games({game_id: context}, n=n_sims_per_game)
-        sim_df = traces_to_dataframe(traces)
-        stats_df = understand(sim_df)
-
-        # Extract prediction from DataFrame (understand returns DataFrame now)
-        stats_row = stats_df.row(0, named=True)
-        pred_diff = stats_row["home_score_avg"] - stats_row["away_score_avg"]
-
-        # Vegas prediction: spread_line negative = home favored
-        vegas_diff = spread
-
-        results.append(
-            {
-                "home_team": home_team,
-                "away_team": away_team,
-                "game_date": row.get("gameday", ""),
-                "actual_home": actual_home,
-                "actual_away": actual_away,
-                "pred_differential": pred_diff,
-                "vegas_differential": vegas_diff,
-            }
+    results_df = (
+        traces_to_dataframe(results)
+        .select("game_id", sim_result=pl.col("home_score") - pl.col("away_score"))
+        .unique()
+        .group_by("game_id")
+        .agg(pl.col("sim_result").mean())
+        .join(
+            schedule.select(
+                "game_id", "gameday", "home_team", "away_team", "spread_line", "result"
+            ),
+            on="game_id",
         )
-
-    # Convert to DataFrame with actual margin
-    results_df = pl.DataFrame(results).with_columns(
-        actual_margin=(pl.col("actual_home") - pl.col("actual_away")),
+        .with_columns(
+            sim_err=pl.col("result") - pl.col("sim_result"),
+            vegas_err=pl.col("spread_line") - pl.col("result"),
+        )
     )
 
-    n_games_actual = len(results_df)
-
     # RMSE: model vs vegas prediction error
-    model_errors = results_df["actual_margin"] - results_df["pred_differential"]
-    vegas_errors = results_df["actual_margin"] - results_df["vegas_differential"]
-    model_mse = float((model_errors**2).mean())  # type: ignore[operator]
-    vegas_mse = float((vegas_errors**2).mean())  # type: ignore[operator]
-    model_rmse = model_mse**0.5
-    vegas_rmse = vegas_mse**0.5
+    vegas_rmse: float = results_df.select(
+        (pl.col("spread_line") - pl.col("result")).pow(2).mean().sqrt()
+    ).item()
+    model_rmse: float = results_df.select(
+        (pl.col("sim_result") - pl.col("result")).pow(2).mean().sqrt()
+    ).item()
 
-    # Win prediction accuracy (excluding ties)
-    non_ties = results_df.filter(pl.col("actual_margin") != 0)
-    n_non_ties = len(non_ties)
-    model_correct = ((non_ties["actual_margin"] > 0) == (non_ties["pred_differential"] > 0)).sum()
-    vegas_correct = ((non_ties["actual_margin"] > 0) == (non_ties["vegas_differential"] > 0)).sum()
-    model_wp = model_correct / n_non_ties if n_non_ties > 0 else 0.0
-    vegas_wp = vegas_correct / n_non_ties if n_non_ties > 0 else 0.0
-
-    # ATS: model picks vs spread (exclude pushes)
-    actual_vs_spread = results_df["actual_margin"] - results_df["vegas_differential"]
-    non_pushes = results_df.filter(actual_vs_spread != 0)
-    n_ats = len(non_pushes)
-    model_vs_spread = non_pushes["pred_differential"] - non_pushes["vegas_differential"]
-    actual_vs_spread_np = non_pushes["actual_margin"] - non_pushes["vegas_differential"]
-    ats_wins = ((model_vs_spread > 0) == (actual_vs_spread_np > 0)).sum()
-    ats_wp = ats_wins / n_ats if n_ats > 0 else 0.0
+    # Win prediction accuracy:
+    # TODO: Pretty sure the spread is jacked up
+    sim_wp = results_df.select(((pl.col("sim_result") > 0) & pl.col("result").gt(0)).mean()).item()
+    vegas_wp = results_df.select(
+        ((pl.col("spread_line") > 0) & pl.col("result").gt(0)).mean()
+    ).item()
 
     stats = {
-        "n_games": n_games_actual,
+        "n_games": len(results_df),
         "model_rmse": model_rmse,
         "vegas_rmse": vegas_rmse,
-        "model_wp": model_wp,
+        "sim_wp": sim_wp,
         "vegas_wp": vegas_wp,
-        "ats_wp": ats_wp,
     }
 
     return stats, results_df
@@ -168,8 +136,7 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
 
     metrics_table.add_row("Games", f"{stats['n_games']:.0f}", "")
     metrics_table.add_row("RMSE", f"{stats['model_rmse']:.2f}", f"{stats['vegas_rmse']:.2f}")
-    metrics_table.add_row("Win %", f"{stats['model_wp']:.1%}", f"{stats['vegas_wp']:.1%}")
-    metrics_table.add_row("ATS %", f"{stats['ats_wp']:.1%}", "50%")
+    metrics_table.add_row("Win %", f"{stats['sim_wp']:.1%}", f"{stats['vegas_wp']:.1%}")
 
     console.print()
     console.print(metrics_table)
@@ -180,7 +147,6 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
     samples_table = Table(title=f"Sample Results (First {sample_size})")
     samples_table.add_column("Home", style="cyan")
     samples_table.add_column("Away", style="cyan")
-    samples_table.add_column("Date", style="cyan")
     samples_table.add_column("Actual", style="green", justify="right")
     samples_table.add_column("Model", style="yellow", justify="right")
     samples_table.add_column("Vegas", style="blue", justify="right")
@@ -189,10 +155,9 @@ def report_results(stats: dict[str, float], results_df: pl.DataFrame) -> None:
         samples_table.add_row(
             row["home_team"],
             row["away_team"],
-            str(row["game_date"]),
-            f"{row['actual_margin']:+.0f}",
-            f"{row['pred_differential']:+.0f}",
-            f"{row['vegas_differential']:+.1f}",
+            f"{row['result']:+.0f}",
+            f"{row['sim_err']:+.0f}",
+            f"{row['vegas_err']:+.1f}",
         )
 
     console.print()

@@ -1,6 +1,8 @@
 """Public API for the simulation engine."""
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
+from os import cpu_count
 from random import Random
 
 import polars as pl
@@ -114,6 +116,34 @@ def simulate_game(
     )
 
 
+def _run_one_game(
+    game_id: str,
+    context: GameContext,
+    n: int,
+    seed: int | None,
+    policy_factory: type[Policy] | None,
+    model_factory: type[OutcomeModel] | None,
+) -> tuple[str, list[GameTrace]]:
+    """Simulate all n iterations of a single game. Unit of parallel work."""
+    rng = Random(seed)
+    policy = RandomPolicy(rng) if policy_factory is None else policy_factory(rng)
+    model = SimpleOutcomeModel(rng) if model_factory is None else model_factory(rng)
+
+    traces: list[GameTrace] = []
+    for _ in range(n):
+        result = simulate_game(
+            context.home,
+            context.away,
+            seed=seed,
+            policy=policy,
+            model=model,
+            context=context,
+        )
+        traces.append(result.trace)
+
+    return game_id, traces
+
+
 def sim_games(
     games: dict[str, GameContext],
     *,
@@ -121,43 +151,50 @@ def sim_games(
     base_seed: int | None = None,
     policy_factory: type[Policy] | None = None,
     model_factory: type[OutcomeModel] | None = None,
+    max_workers: int | None = None,
 ) -> dict[str, list[GameTrace]]:
     """Simulate multiple games n times each.
+
+    Each game is an independent work unit. When multiple games are provided,
+    they are distributed across processes (one game per core).
 
     Args:
         games: Dict mapping game_id to GameContext
         n: Number of simulations per game
-        base_seed: Base seed (each sim uses base_seed + i)
-        policy_factory: Policy class to instantiate per sim
-        model_factory: Model class to instantiate per sim
+        base_seed: Base seed (each game derives a deterministic seed)
+        policy_factory: Policy class to instantiate per worker
+        model_factory: Model class to instantiate per worker
+        max_workers: Process count. Defaults to min(num_games, cpu_count).
+            Set to 1 to force sequential execution.
 
     Returns:
         Dict mapping game_id to list of GameTrace
 
     """
+    game_items = list(games.items())
+
+    # Deterministic per-game seeds so results don't depend on execution order
+    seeds = [None if base_seed is None else base_seed + 77 + i for i in range(len(game_items))]
+
+    workers = max_workers or min(len(game_items), cpu_count() or 1)
+
+    def _submit(gid: str, ctx: GameContext, seed: int | None) -> tuple[str, list[GameTrace]]:
+        return _run_one_game(gid, ctx, n, seed, policy_factory, model_factory)
+
+    # Skip process overhead when it can't help
+    if workers <= 1 or len(game_items) <= 1:
+        return dict(_submit(gid, ctx, seed) for (gid, ctx), seed in zip(game_items, seeds))
+
+    # TODO: Progress bar!?
     results: dict[str, list[GameTrace]] = {}
-
-    for game_id, context in games.items():
-        traces: list[GameTrace] = []
-
-        for i in range(n):
-            seed = None if base_seed is None else base_seed + i
-            rng = Random(seed)
-
-            policy = RandomPolicy(rng) if policy_factory is None else policy_factory(rng)
-            model = SimpleOutcomeModel(rng) if model_factory is None else model_factory(rng)
-
-            result = simulate_game(
-                context.home,
-                context.away,
-                seed=seed,
-                policy=policy,
-                model=model,
-                context=context,
-            )
-            traces.append(result.trace)
-
-        results[game_id] = traces
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_run_one_game, gid, ctx, n, seed, policy_factory, model_factory): gid
+            for (gid, ctx), seed in zip(game_items, seeds)
+        }
+        for future in as_completed(futures):
+            gid, traces = future.result()
+            results[gid] = traces
 
     return results
 
