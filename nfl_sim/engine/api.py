@@ -317,30 +317,34 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
     # ------------------------------------------------------------------
     i = 0
 
-    for g_id, game_traces in traces.items():
-        for s_id, trace in enumerate(game_traces):
-            for p_id, play in enumerate(trace):
-                sb = play.state_before
-                sa = play.state_after
+    with Progress() as progress:
+        task = progress.add_task("Building PBP from traces", total=total_rows)
+        for g_id, game_traces in traces.items():
+            for s_id, trace in enumerate(game_traces):
+                for p_id, play in enumerate(trace):
+                    sb = play.state_before
+                    sa = play.state_after
 
-                game_id[i] = g_id
-                sim_id[i] = s_id
-                play_id[i] = p_id
+                    game_id[i] = g_id
+                    sim_id[i] = s_id
+                    play_id[i] = p_id
 
-                quarter[i] = sb[_Q]
-                clock[i] = sb[_CLK]
-                down[i] = sb[_DN]
-                distance[i] = sb[_DIST]
-                yardline[i] = sb[_YL]
-                posteam[i] = sb[_OFF]
+                    quarter[i] = sb[_Q]
+                    clock[i] = sb[_CLK]
+                    down[i] = sb[_DN]
+                    distance[i] = sb[_DIST]
+                    yardline[i] = sb[_YL]
+                    posteam[i] = sb[_OFF]
 
-                yards_gained[i] = play.outcome.yards
-                event[i] = _event_from_play(play)
+                    yards_gained[i] = play.outcome.yards
+                    event[i] = _event_from_play(play)
 
-                home_score[i] = sa[_SC][0]
-                away_score[i] = sa[_SC][1]
+                    home_score[i] = sa[_SC][0]
+                    away_score[i] = sa[_SC][1]
 
-                i += 1
+                    i += 1
+
+                    progress.advance(task)
 
     # Safety invariant — catches subtle bugs early
     assert i == total_rows, f"Row count mismatch: expected {total_rows}, got {i}"

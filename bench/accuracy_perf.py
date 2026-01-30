@@ -12,10 +12,12 @@ from nfl_sim import sim_games
 from nfl_sim.engine.api import traces_to_dataframe
 from nfl_sim.models.context import ctx_from_game_id
 
-NGAMES = 100
-NSIMS = 1_400  # determined by `make converge`
+NGAMES = 1_000
+NSIMS = 1_000  # run `make converge` to explore
+CHUNK_SIZE = 100  # process games in chunks to limit memory
+SIM_CHUNK_SIZE = 100  # sims per sub-batch to limit peak trace memory
 
-BEST_RMSE = 14.90
+BEST_RMSE = 14.65
 
 SCHEDULES_DATA = Path("data/schedules.parquet")
 PBP_DATA = Path("data/pbp.parquet")
@@ -73,19 +75,41 @@ def run_accuracy_benchmark(
     with console.status(f"[bold blue]Fetching {n_games} completed games..."):
         schedule = fetch_completed_games(n_games)
 
-    console.print(f"[bold green]Simulating {len(schedule)} games ({n_sims_per_game} sims each)...")
+    total_games = len(schedule)
+    console.print(
+        f"[bold green]Simulating {total_games} games ({n_sims_per_game} sims each, chunks of {CHUNK_SIZE})..."
+    )
 
-    contexts = ctx_from_game_id(pl.read_parquet(PBP_DATA), schedule, schedule["game_id"].to_list())
+    pbp = pl.read_parquet(PBP_DATA)
+    game_ids = schedule["game_id"].to_list()
 
-    results = sim_games(games=contexts, n=n_sims_per_game)
+    # Process in chunks to limit peak memory usage.
+    # Each chunk simulates a subset of games, converts traces to aggregated
+    # sim results, then discards the raw traces before the next chunk.
+    chunk_dfs: list[pl.DataFrame] = []
+    for i in range(0, total_games, CHUNK_SIZE):
+        chunk_ids = game_ids[i : i + CHUNK_SIZE]
+        chunk_schedule = schedule.filter(pl.col("game_id").is_in(chunk_ids))
+
+        contexts = ctx_from_game_id(pbp, chunk_schedule, chunk_ids)
+        traces = sim_games(games=contexts, n=n_sims_per_game)
+
+        chunk_df = (
+            traces_to_dataframe(traces)
+            .lazy()
+            .select("game_id", sim_result=pl.col("home_score") - pl.col("away_score"))
+            .unique()
+            .group_by("game_id")
+            .agg(pl.col("sim_result").mean())
+            .collect()
+        )
+        chunk_dfs.append(chunk_df)
+
+        console.print(f"  [{min(i + CHUNK_SIZE, total_games)}/{total_games}] games done")
 
     results_df = (
-        traces_to_dataframe(results)
+        pl.concat(chunk_dfs)
         .lazy()
-        .select("game_id", sim_result=pl.col("home_score") - pl.col("away_score"))
-        .unique()
-        .group_by("game_id")
-        .agg(pl.col("sim_result").mean())
         .join(
             schedule.lazy().select(
                 "game_id", "gameday", "home_team", "away_team", "spread_line", "result"
