@@ -13,7 +13,7 @@ from nfl_sim.engine.api import traces_to_dataframe
 from nfl_sim.models.context import ctx_from_game_id
 
 NGAMES = 100
-NSIMS = 100
+NSIMS = 1_400 # determined by `make converge`
 
 BEST_RMSE = 14.90
 

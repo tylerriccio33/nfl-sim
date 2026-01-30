@@ -6,6 +6,7 @@ from os import cpu_count
 from random import Random
 
 import polars as pl
+from rich.progress import Progress
 
 from nfl_sim.engine.apply import apply_outcome, is_terminal
 from nfl_sim.engine.state import Action, GameState, GameTrace, PlayEvent, TurnoverType
@@ -196,16 +197,19 @@ def sim_games(
     if workers <= 1 or len(game_items) <= 1:
         return dict(_submit(gid, ctx, seed) for (gid, ctx), seed in zip(game_items, seeds))
 
-    # TODO: Progress bar!
     results: dict[str, list[GameTrace]] = {}
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        futures = {
-            pool.submit(_run_one_game, gid, ctx, n, seed, policy_factory, model_factory): gid
-            for (gid, ctx), seed in zip(game_items, seeds)
-        }
-        for future in as_completed(futures):
-            gid, traces = future.result()
-            results[gid] = traces
+    with Progress() as progress:
+        task = progress.add_task("Simulating games", total=len(game_items))
+
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(_run_one_game, gid, ctx, n, seed, policy_factory, model_factory): gid
+                for (gid, ctx), seed in zip(game_items, seeds)
+            }
+            for future in as_completed(futures):
+                gid, traces = future.result()
+                results[gid] = traces
+                progress.advance(task)
 
     return results
 

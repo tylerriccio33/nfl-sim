@@ -34,17 +34,17 @@ load-dictionaries: ## Download data dictionaries
 	@curl -L -o dictionary/pbp.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_pbp.csv
 	@curl -L -o dictionary/dc.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_depth_charts.csv
 
-bench-time: ## Run performance benchmarks for time
+time: ## Run performance benchmarks for time
 	@uv run --no-sync bench/time_perf.py
 
-bench-profile: ## Run line profiler on single game
+profile: ## Run line profiler on single game
 	@uv run python bench/profile_time.py > bench/profile_results.txt
 	@echo "Profile results written to bench/profile_results.txt"
 	
-bench-results: ## Run performance of results against real
+perf: ## Run performance of results against real
 	@uv run --no-sync bench/accuracy_perf.py
 
-bench-converge: ## Run convergence benchmark
+converge: ## Run convergence benchmark
 	@uv run --no-sync bench/convergence_perf.py
 
 train-wp-model: ## Run the model training script for WP model
