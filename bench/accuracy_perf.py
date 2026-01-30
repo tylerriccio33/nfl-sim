@@ -75,20 +75,19 @@ def run_accuracy_benchmark(
 
     console.print(f"[bold green]Simulating {len(schedule)} games ({n_sims_per_game} sims each)...")
 
-    # results = []
-
     contexts = ctx_from_game_id(pl.read_parquet(PBP_DATA), schedule, schedule["game_id"].to_list())
 
     results = sim_games(games=contexts, n=n_sims_per_game)
 
     results_df = (
         traces_to_dataframe(results)
+        .lazy()
         .select("game_id", sim_result=pl.col("home_score") - pl.col("away_score"))
         .unique()
         .group_by("game_id")
         .agg(pl.col("sim_result").mean())
         .join(
-            schedule.select(
+            schedule.lazy().select(
                 "game_id", "gameday", "home_team", "away_team", "spread_line", "result"
             ),
             on="game_id",
@@ -97,6 +96,7 @@ def run_accuracy_benchmark(
             sim_err=pl.col("result") - pl.col("sim_result"),
             vegas_err=pl.col("spread_line") - pl.col("result"),
         )
+        .collect()
     )
 
     # RMSE: model vs vegas prediction error

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from os import cpu_count
 from random import Random
 
+import numpy as np
 import polars as pl
 from rich.progress import Progress
 
@@ -234,19 +235,6 @@ def _event_from_play(play: PlayEvent) -> str:
     action = play.action
     outcome = play.outcome
 
-    # Check for touchdown (yardline reached/passed endzone)
-    if sa[_YL] == 75 and sa[_OFF] != sb[_OFF]:
-        # Possession changed with reset to 75 - could be TD, FG, punt, or turnover
-        # Check if score increased for the offense
-        offense_idx = 0 if sb[_OFF] == "HOME" else 1
-        score_before = sb[_SC][offense_idx]
-        score_after = sa[_SC][offense_idx]
-
-        if score_after - score_before == 7:
-            return "Touchdown"
-        if score_after - score_before == 3:
-            return "FieldGoalSuccess"
-
     # Field goal miss (FG action, no score change, possession changed)
     if action == Action.FIELD_GOAL:
         offense_idx = 0 if sb[_OFF] == "HOME" else 1
@@ -263,6 +251,19 @@ def _event_from_play(play: PlayEvent) -> str:
         return "Interception"
     if outcome.turnover_type == TurnoverType.FUMBLE:
         return "FumbleLost"
+
+    # Check for touchdown (yardline reached/passed endzone)
+    if sa[_YL] == 75 and sa[_OFF] != sb[_OFF]:
+        # Possession changed with reset to 75 - could be TD, FG, punt, or turnover
+        # Check if score increased for the offense
+        offense_idx = 0 if sb[_OFF] == "HOME" else 1
+        score_before = sb[_SC][offense_idx]
+        score_after = sa[_SC][offense_idx]
+
+        if score_after - score_before == 7:
+            return "Touchdown"
+        if score_after - score_before == 3:
+            return "FieldGoalSuccess"
 
     # Turnover on downs: 4th down, possession changed, but not a model turnover
     if sb[_DN] == 4 and sa[_OFF] != sb[_OFF]:
@@ -286,29 +287,81 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
             posteam, yards_gained, event, home_score, away_score
 
     """
-    rows: list[dict] = []
+    # ------------------------------------------------------------------
+    # 1. Compute total number of plays (rows)
+    # ------------------------------------------------------------------
+    total_rows = sum(len(trace) for game_traces in traces.values() for trace in game_traces)
 
-    for game_id, game_traces in traces.items():
-        for sim_id, trace in enumerate(game_traces):
-            for play_id, play in enumerate(trace):
-                event = _event_from_play(play)
+    # ------------------------------------------------------------------
+    # 2. Pre-allocate column arrays
+    # ------------------------------------------------------------------
+    game_id = np.empty(total_rows, dtype=object)  # string keys
+    sim_id = np.empty(total_rows, dtype=np.int32)
+    play_id = np.empty(total_rows, dtype=np.int32)
 
-                rows.append(  # TODO: To metadata or something
-                    {
-                        "game_id": game_id,
-                        "sim_id": sim_id,
-                        "play_id": play_id,
-                        "quarter": play.state_before[_Q],
-                        "clock": play.state_before[_CLK],
-                        "down": play.state_before[_DN],
-                        "distance": play.state_before[_DIST],
-                        "yardline": play.state_before[_YL],
-                        "posteam": play.state_before[_OFF],
-                        "yards_gained": play.outcome.yards,
-                        "event": event,
-                        "home_score": play.state_after[_SC][0],
-                        "away_score": play.state_after[_SC][1],
-                    }
-                )
+    quarter = np.empty(total_rows, dtype=np.int8)
+    clock = np.empty(total_rows, dtype=np.int16)
+    down = np.empty(total_rows, dtype=np.int8)
+    distance = np.empty(total_rows, dtype=np.int8)
+    yardline = np.empty(total_rows, dtype=np.int8)
+    posteam = np.empty(total_rows, dtype=object)
 
-    return pl.DataFrame(rows)
+    yards_gained = np.empty(total_rows, dtype=np.int16)
+    event = np.empty(total_rows, dtype=object)
+
+    home_score = np.empty(total_rows, dtype=np.int16)
+    away_score = np.empty(total_rows, dtype=np.int16)
+
+    # ------------------------------------------------------------------
+    # 3. Fill arrays
+    # ------------------------------------------------------------------
+    i = 0
+
+    for g_id, game_traces in traces.items():
+        for s_id, trace in enumerate(game_traces):
+            for p_id, play in enumerate(trace):
+                sb = play.state_before
+                sa = play.state_after
+
+                game_id[i] = g_id
+                sim_id[i] = s_id
+                play_id[i] = p_id
+
+                quarter[i] = sb[_Q]
+                clock[i] = sb[_CLK]
+                down[i] = sb[_DN]
+                distance[i] = sb[_DIST]
+                yardline[i] = sb[_YL]
+                posteam[i] = sb[_OFF]
+
+                yards_gained[i] = play.outcome.yards
+                event[i] = _event_from_play(play)
+
+                home_score[i] = sa[_SC][0]
+                away_score[i] = sa[_SC][1]
+
+                i += 1
+
+    # Safety invariant — catches subtle bugs early
+    assert i == total_rows, f"Row count mismatch: expected {total_rows}, got {i}"
+
+    # ------------------------------------------------------------------
+    # 4. Build Polars DataFrame
+    # ------------------------------------------------------------------
+    return pl.DataFrame(
+        {
+            "game_id": game_id,
+            "sim_id": sim_id,
+            "play_id": play_id,
+            "quarter": quarter,
+            "clock": clock,
+            "down": down,
+            "distance": distance,
+            "yardline": yardline,
+            "posteam": posteam,
+            "yards_gained": yards_gained,
+            "event": event,
+            "home_score": home_score,
+            "away_score": away_score,
+        }
+    )

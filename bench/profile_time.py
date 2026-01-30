@@ -11,7 +11,13 @@ from line_profiler import LineProfiler
 from loguru import logger
 
 ## Profile these functions from the new engine API:
-from nfl_sim.engine.api import _run_game_loop, sim_games, simulate_game, traces_to_dataframe
+from nfl_sim.engine.api import (
+    _event_from_play,
+    _run_game_loop,
+    sim_games,
+    simulate_game,
+    traces_to_dataframe,
+)
 from nfl_sim.engine.apply import apply_outcome
 from nfl_sim.models.context import GameContext
 from nfl_sim.models.outcomes import outcome_model
@@ -29,6 +35,7 @@ FUNCTIONS = (
     RandomPolicy.choose_action,
     ## DataFrame conversion:
     traces_to_dataframe,
+    _event_from_play,
 )
 
 logger.remove()
@@ -54,11 +61,12 @@ def main() -> None:
     # Profile N simulations
     n_sims = 10
     print(f"Profiling {context.home} vs {context.away} ({n_sims} simulations)...")
-    profiler.runcall(
+    res = profiler.runcall(
         sim_games,
         {context.game_id: context},
         n=n_sims,
     )
+    profiler.runcall(traces_to_dataframe, res)
 
     # Save results to file
     output_path = Path(__file__).parent / "profile_results.txt"
