@@ -14,6 +14,18 @@ from nfl_sim.models.outcomes import DerivedContext, ModelContext, OutcomeModel, 
 from nfl_sim.models.policy import Policy, RandomPolicy
 
 
+def make_learned_model(backend_name: str = "xgb") -> OutcomeModel:
+    """Load a trained backend and return an OutcomeModel callable.
+
+    Slots directly into simulate_game(model=...) or sim_games(model_factory=...).
+    """
+    from nfl_sim.models.backends import load_backend
+    from nfl_sim.models.outcomes import LearnedOutcomeModel
+
+    backend = load_backend(backend_name)
+    return LearnedOutcomeModel(backend)
+
+
 @dataclass(frozen=True)
 class GameResult:
     """Result of a single game simulation."""
