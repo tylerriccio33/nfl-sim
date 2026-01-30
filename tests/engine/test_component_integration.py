@@ -20,7 +20,7 @@ from nfl_sim.engine.api import (
     traces_to_dataframe,
 )
 from nfl_sim.engine.state import Action
-from nfl_sim.models.outcomes import SimpleOutcomeModel
+from nfl_sim.models.outcomes import outcome_model
 from nfl_sim.models.policy import RandomPolicy
 
 # =============================================================================
@@ -311,9 +311,8 @@ class TestCustomComponents:
     def test_custom_model_is_used(self):
         """Custom model should be called during simulation."""
         rng = Random(42)
-        model = SimpleOutcomeModel(rng)
 
-        result = simulate_game("TEST1", "TEST2", seed=42, model=model)
+        result = simulate_game("TEST1", "TEST2", seed=42, model=outcome_model)
 
         assert isinstance(result, GameResult)
         assert len(result.trace) > 0

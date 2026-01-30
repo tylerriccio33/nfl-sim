@@ -63,6 +63,7 @@ def run_convergence_benchmark() -> pl.DataFrame:
     console.print(f"[bold green]Testing convergence for: {away_team} @ {home_team}")
     console.print(f"[bold green]Running simulations from {SIM_COUNTS[0]} to {SIM_COUNTS[-1]}...")
 
+    # TODO: Use new API
     context = GameContext(
         game_id=game_id,
         home=home_team,

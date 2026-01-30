@@ -10,9 +10,8 @@ import polars as pl
 from nfl_sim.engine.apply import apply_outcome, is_terminal
 from nfl_sim.engine.state import Action, GameState, GameTrace, PlayEvent, TurnoverType
 from nfl_sim.models.context import GameContext
-from nfl_sim.models.outcomes import DerivedContext, ModelContext, SimpleOutcomeModel
+from nfl_sim.models.outcomes import DerivedContext, ModelContext, OutcomeModel, outcome_model
 from nfl_sim.models.policy import Policy, RandomPolicy
-from nfl_sim.models.protocol import OutcomeModel
 
 
 @dataclass(frozen=True)
@@ -52,10 +51,10 @@ def _run_game_loop(
     trace: GameTrace = []
 
     while not is_terminal(state):
-        action = policy.choose_action(state)
+        action: Action = policy.choose_action(state)
         derived = DerivedContext(trace)
         context = ModelContext(state, derived, rng)
-        outcome = model.sample(action, context)
+        outcome = model(action, context)
         new_state = apply_outcome(state, action, outcome)
 
         # Engine detects TDs by yardline - reflect this in the outcome for consumers
@@ -98,7 +97,7 @@ def simulate_game(
     if policy is None:
         policy = RandomPolicy(rng)
     if model is None:
-        model = SimpleOutcomeModel(rng)
+        model = outcome_model
 
     initial_state = _create_initial_state()
     trace = _run_game_loop(initial_state, policy, model, rng)
@@ -127,7 +126,7 @@ def _run_one_game(
     """Simulate all n iterations of a single game. Unit of parallel work."""
     rng = Random(seed)
     policy = RandomPolicy(rng) if policy_factory is None else policy_factory(rng)
-    model = SimpleOutcomeModel(rng) if model_factory is None else model_factory(rng)
+    model = outcome_model if model_factory is None else model_factory(rng)
 
     traces: list[GameTrace] = []
     for _ in range(n):
@@ -185,7 +184,7 @@ def sim_games(
     if workers <= 1 or len(game_items) <= 1:
         return dict(_submit(gid, ctx, seed) for (gid, ctx), seed in zip(game_items, seeds))
 
-    # TODO: Progress bar!?
+    # TODO: Progress bar!
     results: dict[str, list[GameTrace]] = {}
     with ProcessPoolExecutor(max_workers=workers) as pool:
         futures = {

@@ -14,7 +14,7 @@ from loguru import logger
 from nfl_sim.engine.api import _run_game_loop, sim_games, simulate_game, traces_to_dataframe
 from nfl_sim.engine.apply import apply_outcome
 from nfl_sim.models.context import GameContext
-from nfl_sim.models.outcomes import SimpleOutcomeModel
+from nfl_sim.models.outcomes import outcome_model
 from nfl_sim.models.policy import RandomPolicy
 
 FUNCTIONS = (
@@ -25,7 +25,7 @@ FUNCTIONS = (
     ## State transitions:
     apply_outcome,
     ## Models and policy:
-    SimpleOutcomeModel.sample,
+    outcome_model,
     RandomPolicy.choose_action,
     ## DataFrame conversion:
     traces_to_dataframe,

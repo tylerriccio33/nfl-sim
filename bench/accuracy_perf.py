@@ -12,7 +12,7 @@ from nfl_sim import sim_games
 from nfl_sim.engine.api import traces_to_dataframe
 from nfl_sim.models.context import ctx_from_game_id
 
-NGAMES = 10
+NGAMES = 100
 NSIMS = 100
 
 BEST_RMSE = 14.90
@@ -108,7 +108,7 @@ def run_accuracy_benchmark(
     ).item()
 
     # Win prediction accuracy:
-    # TODO: Pretty sure the spread is jacked up
+    # TODO: Pretty sure this is 100% jacked up
     sim_wp = results_df.select(((pl.col("sim_result") > 0) & pl.col("result").gt(0)).mean()).item()
     vegas_wp = results_df.select(
         ((pl.col("spread_line") > 0) & pl.col("result").gt(0)).mean()
