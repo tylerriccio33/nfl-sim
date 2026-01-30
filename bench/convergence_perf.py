@@ -11,11 +11,9 @@ Convergence is reached when the 99% CI half-width drops below a threshold.
 """
 
 import math
-import sys
 from pathlib import Path
 
 import polars as pl
-from loguru import logger
 from rich.console import Console
 
 from nfl_sim import sim_games
@@ -34,12 +32,6 @@ Q_99 = 3  # ~99% confidence
 ## Data locations:
 SCHEDULES_DATA = Path("data/schedules.parquet")
 PBP_DATA = Path("data/pbp.parquet")
-
-
-def configure_logging(level: str = "WARNING") -> None:
-    """Configure loguru to be quiet during benchmarks."""
-    logger.remove()
-    logger.add(sys.stderr, level=level)
 
 
 def fetch_single_game() -> tuple[pl.DataFrame, str]:
@@ -101,7 +93,6 @@ def run_convergence_benchmark() -> pl.DataFrame:
             n_sims, mean_margin, variance, ci95_lo, ci95_hi, ci99_lo, ci99_hi, ci99_width
 
     """
-    configure_logging("WARNING")
     console = Console()
 
     # Get a single game and build context via the standard pipeline

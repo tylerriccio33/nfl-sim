@@ -17,10 +17,7 @@ Main entry points:
     stats = understand(df)
 """
 
-import sys
-
 import polars as pl
-from loguru import logger
 
 from nfl_sim.analysis.understand import understand
 from nfl_sim.const import (
@@ -39,16 +36,6 @@ __all__ = [
     "understand",
     "place_sim_results_at_db",
 ]
-
-
-def configure_logging(level: str = "INFO") -> None:
-    """Configure loguru for the simulation."""
-    logger.remove()
-    logger.add(
-        sys.stderr,
-        level=level,
-        format="<green>{time:HH:mm:ss}</green> | <level>{level: <7}</level> | <level>{message}</level>",
-    )
 
 
 def place_sim_results_at_db() -> None:

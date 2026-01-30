@@ -1,6 +1,5 @@
 """Benchmark the accuracy of game predictions against actual results."""
 
-import sys
 from pathlib import Path
 
 import polars as pl
@@ -21,12 +20,6 @@ BEST_RMSE = 14.65
 
 SCHEDULES_DATA = Path("data/schedules.parquet")
 PBP_DATA = Path("data/pbp.parquet")
-
-
-def configure_logging(level: str = "WARNING") -> None:
-    """Configure loguru to be quiet during benchmarks."""
-    logger.remove()
-    logger.add(sys.stderr, level=level)
 
 
 def fetch_completed_games(n_games: int = NGAMES, min_season: int = 2020) -> pl.DataFrame:
@@ -68,7 +61,6 @@ def run_accuracy_benchmark(
         Tuple of (stats dict, results DataFrame)
 
     """
-    configure_logging("WARNING")
     console = Console()
 
     # Get completed games with actual results

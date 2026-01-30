@@ -1,20 +1,12 @@
 """Run simulation benchmarks using N-times simulation."""
 
-import sys
 import time
 
-from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
 from nfl_sim import sim_games
 from nfl_sim.models.context import GameContext
-
-
-def configure_logging(level: str = "WARNING") -> None:
-    """Configure loguru to be quiet during benchmarks."""
-    logger.remove()
-    logger.add(sys.stderr, level=level)
 
 
 def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
@@ -27,8 +19,6 @@ def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
         Dictionary with timing statistics
 
     """
-    configure_logging("WARNING")
-
     # Build a simple context (no data loading needed with new engine)
     context = GameContext(
         game_id="KC_NYJ",
