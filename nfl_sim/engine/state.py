@@ -6,10 +6,30 @@ from typing import NamedTuple
 
 type TeamId = str
 
+# ---------------------------------------------------------------------------
+# _GameState: plain tuple used in the hot loop for zero-overhead construction.
+#
+# Layout (index constants below):
+#   (quarter, clock, offense, defense, down, distance, yardline, score, possession_id)
+#
+# GameState (NamedTuple) is the public API; _GameState is the internal
+# representation returned by apply_outcome and consumed by the game loop.
+# ---------------------------------------------------------------------------
 
-# @dataclass(frozen=True, slots=True)
+_Q = 0  # quarter
+_CLK = 1  # clock (seconds remaining in quarter)
+_OFF = 2  # offense TeamId
+_DEF = 3  # defense TeamId
+_DN = 4  # down
+_DIST = 5  # distance
+_YL = 6  # yardline (yards from endzone)
+_SC = 7  # score  (home, away)
+_PID = 8  # possession_id
+
+type _GameState = tuple[int, int, TeamId, TeamId, int, int, int, tuple[int, int], int]
+
+
 class GameState(NamedTuple):
-    # class GameState:
     """What the rules care about NOW.
 
     This is the minimal Markov state needed to advance the game.
@@ -66,17 +86,17 @@ class Outcome:
         return self.turnover_type != TurnoverType.NONE
 
 
-@dataclass
+@dataclass  # TODO: Frozen?
 class PlayEvent:
     """Log of the play that took place.
 
     This is not part of the state machine.
     """
 
-    state_before: GameState
+    state_before: _GameState
     action: Action
     outcome: Outcome
-    state_after: GameState
+    state_after: _GameState
 
 
 GameTrace = list[PlayEvent]

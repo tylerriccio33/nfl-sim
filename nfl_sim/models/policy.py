@@ -3,7 +3,7 @@
 from random import Random
 from typing import Protocol
 
-from nfl_sim.engine.state import Action, GameState
+from nfl_sim.engine.state import _DN, _YL, Action, _GameState
 
 
 class Policy(Protocol):
@@ -19,7 +19,7 @@ class Policy(Protocol):
 
     """
 
-    def choose_action(self, state: GameState) -> Action:
+    def choose_action(self, state: _GameState) -> Action:
         """Choose the action the coach would take based on state."""
 
 
@@ -29,11 +29,11 @@ class RandomPolicy:
     def __init__(self, rng: Random):
         self.rng = rng
 
-    def choose_action(self, state: GameState) -> Action:
+    def choose_action(self, state: _GameState) -> Action:
         """Choose the action the coach would take based on state."""
         # On 4th down, usually punt or kick
-        if state.down == 4:
-            if state.yardline <= 35:
+        if state[_DN] == 4:
+            if state[_YL] <= 35:
                 return Action.FIELD_GOAL
             return Action.PUNT
         # Otherwise run or pass

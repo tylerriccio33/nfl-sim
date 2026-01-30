@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from nfl_sim.engine.state import Action
     from nfl_sim.models.outcomes import ModelContext
 
+from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL
+
 # Canonical feature names, in order. Backends can use this for validation.
 FEATURE_NAMES: list[str] = [
     "is_pass",
@@ -40,24 +42,24 @@ def state_to_features(action: Action, context: ModelContext) -> np.ndarray:
     """
     from nfl_sim.engine.state import Action
 
-    state = context.state
+    s = context.state
 
     # Score differential from the perspective of the offense
-    if state.offense == "HOME":
-        score_diff = state.score[0] - state.score[1]
+    if s[_OFF] == "HOME":
+        score_diff = s[_SC][0] - s[_SC][1]
     else:
-        score_diff = state.score[1] - state.score[0]
+        score_diff = s[_SC][1] - s[_SC][0]
 
     return np.array(
         [
             float(action == Action.PASS),
-            state.down,
-            state.distance,
-            state.yardline,
+            s[_DN],
+            s[_DIST],
+            s[_YL],
             score_diff,
-            state.quarter,
-            state.clock,
-            float(state.distance >= state.yardline),  # goal_to_go
+            s[_Q],
+            s[_CLK],
+            float(s[_DIST] >= s[_YL]),  # goal_to_go
         ],
         dtype=np.float32,
     )

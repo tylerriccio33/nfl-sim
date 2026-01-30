@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from nfl_sim.engine.state import Action, GameState, GameTrace, Outcome, TurnoverType
+from nfl_sim.engine.state import _CLK, _YL, Action, GameTrace, Outcome, TurnoverType, _GameState
 
 if TYPE_CHECKING:
     from random import Random
@@ -26,13 +26,13 @@ class ModelContext:
     """Context actually passed to the model.
 
     Attributes:
-    - state (GameState): Used to guide post-processing of generated play.
+    - state (_GameState): Used to guide post-processing of generated play.
     - derived (DerivedContext): Momentum-like variables based off trace.
     - rng (Random): Random number generator used by model.
 
     """
 
-    state: GameState
+    state: _GameState
     derived: DerivedContext
     rng: Random
 
@@ -46,14 +46,14 @@ def _rule_based_outcome(action: Action, context: ModelContext) -> Outcome:
     Shared between the hardcoded model and the learned model so both use
     identical special-teams behavior.
     """
-    remaining_clock = context.state.clock
+    remaining_clock = context.state[_CLK]
 
     if action == Action.FIELD_GOAL:
-        success_prob = max(0.3, 1.0 - (context.state.yardline / 100))
+        success_prob = max(0.3, 1.0 - (context.state[_YL] / 100))
         time_elapsed = min(5, remaining_clock)
         if context.rng.random() < success_prob:
             return Outcome(
-                yards=context.state.yardline,
+                yards=context.state[_YL],
                 turnover_type=TurnoverType.NONE,
                 touchdown=False,
                 time_elapsed=time_elapsed,
@@ -76,7 +76,7 @@ def _rule_based_outcome(action: Action, context: ModelContext) -> Outcome:
 
 def outcome_model(action: Action, context: ModelContext) -> Outcome:
     """Hardcoded Gaussian outcome model (default fallback)."""
-    remaining_clock = context.state.clock
+    remaining_clock = context.state[_CLK]
 
     if action == Action.RUN:
         yards = context.rng.gauss(4, 3)
@@ -148,6 +148,6 @@ class LearnedOutcomeModel:
         outcome = self.backend.predict(features, context.rng)
 
         # Clamp time to remaining clock
-        outcome.time_elapsed = min(outcome.time_elapsed, context.state.clock)
+        outcome.time_elapsed = min(outcome.time_elapsed, context.state[_CLK])
         outcome.touchdown = False  # engine detects via yardline
         return outcome

@@ -19,7 +19,7 @@ from nfl_sim.engine.api import (
     simulate_game,
     traces_to_dataframe,
 )
-from nfl_sim.engine.state import Action
+from nfl_sim.engine.state import _CLK, _DIST, _DN, _Q, _SC, _YL, Action
 from nfl_sim.models.outcomes import outcome_model
 from nfl_sim.models.policy import RandomPolicy
 
@@ -60,7 +60,7 @@ class TestSimulateGame:
 
         # Last play should transition to quarter 5 (terminal)
         final_state = result.trace[-1].state_after
-        assert final_state.quarter > 4
+        assert final_state[_Q] > 4
 
     def test_seed_produces_reproducible_results(self):
         """Same seed should produce identical games."""
@@ -122,19 +122,19 @@ class TestTraceValidity:
         result = simulate_game("MIN", "DET", seed=42)
 
         first_state = result.trace[0].state_before
-        assert first_state.quarter == 1
-        assert first_state.clock == 900
-        assert first_state.down == 1
-        assert first_state.distance == 10
-        assert first_state.yardline == 75
-        assert first_state.score == (0, 0)
+        assert first_state[_Q] == 1
+        assert first_state[_CLK] == 900
+        assert first_state[_DN] == 1
+        assert first_state[_DIST] == 10
+        assert first_state[_YL] == 75
+        assert first_state[_SC] == (0, 0)
 
     def test_trace_ends_in_terminal_state(self):
         """Last play should end in a terminal state (quarter > 4)."""
         result = simulate_game("LAC", "DEN", seed=42)
 
         final_state = result.trace[-1].state_after
-        assert final_state.quarter > 4
+        assert final_state[_Q] > 4
 
     def test_score_only_increases(self):
         """Score should never decrease during a game."""
@@ -142,7 +142,7 @@ class TestTraceValidity:
 
         prev_score = (0, 0)
         for play in result.trace:
-            current_score = play.state_after.score
+            current_score = play.state_after[_SC]
             assert current_score[0] >= prev_score[0]
             assert current_score[1] >= prev_score[1]
             prev_score = current_score
@@ -186,7 +186,7 @@ class TestSimGames:
         scores = []
         for trace in traces["2025_02_KC_BUF"]:
             final_state = trace[-1].state_after
-            scores.append(final_state.score)
+            scores.append(final_state[_SC])
         unique_scores = set(scores)
 
         # Should have some variety in outcomes
@@ -198,7 +198,7 @@ class TestSimGames:
         traces2 = sim_games(ctx, n=5, base_seed=777)
 
         for t1, t2 in zip(traces1["2025_02_KC_BUF"], traces2["2025_02_KC_BUF"]):
-            assert t1[-1].state_after.score == t2[-1].state_after.score
+            assert t1[-1].state_after[_SC] == t2[-1].state_after[_SC]
             assert len(t1) == len(t2)
 
     def test_n_equals_one(self, ctx):
@@ -337,7 +337,7 @@ class TestEdgeCases:
         result = simulate_game("ZERO1", "ZERO2", seed=42)
 
         first_play = result.trace[0]
-        assert first_play.state_before.score == (0, 0)
+        assert first_play.state_before[_SC] == (0, 0)
 
 
 if __name__ == "__main__":

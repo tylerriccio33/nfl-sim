@@ -9,7 +9,20 @@ import polars as pl
 from rich.progress import Progress
 
 from nfl_sim.engine.apply import apply_outcome, is_terminal
-from nfl_sim.engine.state import Action, GameState, GameTrace, PlayEvent, TurnoverType
+from nfl_sim.engine.state import (
+    _CLK,
+    _DIST,
+    _DN,
+    _OFF,
+    _Q,
+    _SC,
+    _YL,
+    Action,
+    GameTrace,
+    PlayEvent,
+    TurnoverType,
+    _GameState,
+)
 from nfl_sim.models.context import GameContext
 from nfl_sim.models.outcomes import DerivedContext, ModelContext, OutcomeModel, outcome_model
 from nfl_sim.models.policy import Policy, RandomPolicy
@@ -38,23 +51,13 @@ class GameResult:
     trace: GameTrace
 
 
-def _create_initial_state() -> GameState:
+def _create_initial_state() -> _GameState:
     """Standard kickoff state."""
-    return GameState(
-        quarter=1,
-        clock=900,  # 15 min quarter
-        offense="HOME",
-        defense="AWAY",
-        down=1,
-        distance=10,
-        yardline=75,  # starting at own 25
-        score=(0, 0),
-        possession_id=1,
-    )
+    return (1, 900, "HOME", "AWAY", 1, 10, 75, (0, 0), 1)
 
 
 def _run_game_loop(
-    initial_state: GameState,
+    initial_state: _GameState,
     policy: Policy,
     model: OutcomeModel,
     rng: Random,
@@ -72,7 +75,7 @@ def _run_game_loop(
 
         # Engine detects TDs by yardline - reflect this in the outcome for consumers
         if action not in (Action.FIELD_GOAL, Action.PUNT):
-            new_yardline = state.yardline - outcome.yards
+            new_yardline = state[_YL] - outcome.yards
             if new_yardline <= 0:
                 outcome.touchdown = True
 
@@ -117,7 +120,7 @@ def simulate_game(
 
     # Extract final score from last play
     final_state = trace[-1].state_after
-    home_score, away_score = final_state.score
+    home_score, away_score = final_state[_SC]
 
     return GameResult(
         home=home,
@@ -226,18 +229,18 @@ def _event_from_play(play: PlayEvent) -> str:
     - PuntRegular: punt action
     - Play: default (normal run/pass)
     """
-    state_before = play.state_before
-    state_after = play.state_after
+    sb = play.state_before
+    sa = play.state_after
     action = play.action
     outcome = play.outcome
 
     # Check for touchdown (yardline reached/passed endzone)
-    if state_after.yardline == 75 and state_after.offense != state_before.offense:
+    if sa[_YL] == 75 and sa[_OFF] != sb[_OFF]:
         # Possession changed with reset to 75 - could be TD, FG, punt, or turnover
         # Check if score increased for the offense
-        offense_idx = 0 if state_before.offense == "HOME" else 1
-        score_before = state_before.score[offense_idx]
-        score_after = state_after.score[offense_idx]
+        offense_idx = 0 if sb[_OFF] == "HOME" else 1
+        score_before = sb[_SC][offense_idx]
+        score_after = sa[_SC][offense_idx]
 
         if score_after - score_before == 7:
             return "Touchdown"
@@ -246,8 +249,8 @@ def _event_from_play(play: PlayEvent) -> str:
 
     # Field goal miss (FG action, no score change, possession changed)
     if action == Action.FIELD_GOAL:
-        offense_idx = 0 if state_before.offense == "HOME" else 1
-        if state_after.score[offense_idx] == state_before.score[offense_idx]:
+        offense_idx = 0 if sb[_OFF] == "HOME" else 1
+        if sa[_SC][offense_idx] == sb[_SC][offense_idx]:
             return "FieldGoalMiss"
         return "FieldGoalSuccess"
 
@@ -262,7 +265,7 @@ def _event_from_play(play: PlayEvent) -> str:
         return "FumbleLost"
 
     # Turnover on downs: 4th down, possession changed, but not a model turnover
-    if state_before.down == 4 and state_after.offense != state_before.offense:
+    if sb[_DN] == 4 and sa[_OFF] != sb[_OFF]:
         if outcome.turnover_type == TurnoverType.NONE:
             return "TurnoverOnDowns"
 
@@ -295,16 +298,16 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
                         "game_id": game_id,
                         "sim_id": sim_id,
                         "play_id": play_id,
-                        "quarter": play.state_before.quarter,
-                        "clock": play.state_before.clock,
-                        "down": play.state_before.down,
-                        "distance": play.state_before.distance,
-                        "yardline": play.state_before.yardline,
-                        "posteam": play.state_before.offense,
+                        "quarter": play.state_before[_Q],
+                        "clock": play.state_before[_CLK],
+                        "down": play.state_before[_DN],
+                        "distance": play.state_before[_DIST],
+                        "yardline": play.state_before[_YL],
+                        "posteam": play.state_before[_OFF],
                         "yards_gained": play.outcome.yards,
                         "event": event,
-                        "home_score": play.state_after.score[0],
-                        "away_score": play.state_after.score[1],
+                        "home_score": play.state_after[_SC][0],
+                        "away_score": play.state_after[_SC][1],
                     }
                 )
 

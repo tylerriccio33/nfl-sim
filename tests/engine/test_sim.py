@@ -12,12 +12,27 @@ These tests verify the core game logic:
 from dataclasses import replace
 
 from nfl_sim.engine.apply import apply_outcome, is_terminal
-from nfl_sim.engine.state import Action, GameState, Outcome, TurnoverType
+from nfl_sim.engine.state import (
+    _CLK,
+    _DEF,
+    _DIST,
+    _DN,
+    _OFF,
+    _PID,
+    _Q,
+    _SC,
+    _YL,
+    Action,
+    GameState,
+    Outcome,
+    TurnoverType,
+    _GameState,
+)
 
 
 # TODO: These should be fixtures
-def make_state(**kwargs) -> GameState:
-    """Helper to create GameState with sensible defaults."""
+def make_state(**kwargs) -> _GameState:
+    """Helper to create _GameState with sensible defaults."""
     default = GameState(
         quarter=1,
         clock=900,
@@ -29,7 +44,7 @@ def make_state(**kwargs) -> GameState:
         score=(0, 0),
         possession_id=1,
     )
-    return default.__replace__(**kwargs)
+    return default._replace(**kwargs)
 
 
 def make_outcome(**kwargs) -> Outcome:
@@ -69,9 +84,9 @@ class TestDownProgression:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.down == 2
-        assert result.distance == 10
-        assert result.yardline == 75
+        assert result[_DN] == 2
+        assert result[_DIST] == 10
+        assert result[_YL] == 75
 
     def test_short_gain_advances_down(self):
         """3 yard gain on 1st & 10 → 2nd & 7."""
@@ -80,9 +95,9 @@ class TestDownProgression:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.down == 2
-        assert result.distance == 7
-        assert result.yardline == 72
+        assert result[_DN] == 2
+        assert result[_DIST] == 7
+        assert result[_YL] == 72
 
     def test_second_to_third_down(self):
         """2nd & 7 with 2 yard gain → 3rd & 5."""
@@ -91,9 +106,9 @@ class TestDownProgression:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.down == 3
-        assert result.distance == 5
-        assert result.yardline == 70
+        assert result[_DN] == 3
+        assert result[_DIST] == 5
+        assert result[_YL] == 70
 
     def test_third_to_fourth_down(self):
         """3rd & 5 with 1 yard gain → 4th & 4."""
@@ -102,9 +117,9 @@ class TestDownProgression:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.down == 4
-        assert result.distance == 4
-        assert result.yardline == 69
+        assert result[_DN] == 4
+        assert result[_DIST] == 4
+        assert result[_YL] == 69
 
     def test_loss_of_yards_increases_distance(self):
         """Sack for -5 yards on 2nd & 8 → 3rd & 13."""
@@ -113,9 +128,9 @@ class TestDownProgression:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.down == 3
-        assert result.distance == 13
-        assert result.yardline == 55
+        assert result[_DN] == 3
+        assert result[_DIST] == 13
+        assert result[_YL] == 55
 
 
 # =============================================================================
@@ -133,9 +148,9 @@ class TestFirstDown:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.down == 1
-        assert result.distance == 10
-        assert result.yardline == 43
+        assert result[_DN] == 1
+        assert result[_DIST] == 10
+        assert result[_YL] == 43
 
     def test_first_down_with_extra_yards(self):
         """Gain more than needed → still new 1st & 10."""
@@ -144,9 +159,9 @@ class TestFirstDown:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.down == 1
-        assert result.distance == 10
-        assert result.yardline == 25
+        assert result[_DN] == 1
+        assert result[_DIST] == 10
+        assert result[_YL] == 25
 
     def test_first_down_on_fourth_down_conversion(self):
         """Converting 4th down gives new set of downs."""
@@ -155,10 +170,10 @@ class TestFirstDown:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.down == 1
-        assert result.distance == 10
-        assert result.yardline == 27
-        assert result.offense == "HOME"  # Kept possession
+        assert result[_DN] == 1
+        assert result[_DIST] == 10
+        assert result[_YL] == 27
+        assert result[_OFF] == "HOME"  # Kept possession
 
     def test_goal_to_go_first_down(self):
         """First down inside 10 yard line → goal to go."""
@@ -167,9 +182,9 @@ class TestFirstDown:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.down == 1
-        assert result.distance == 4  # Only 4 yards to go
-        assert result.yardline == 4
+        assert result[_DN] == 1
+        assert result[_DIST] == 4  # Only 4 yards to go
+        assert result[_YL] == 4
 
 
 # =============================================================================
@@ -187,12 +202,12 @@ class TestTurnoverOnDowns:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.offense == "AWAY"
-        assert result.defense == "HOME"
-        assert result.down == 1
-        assert result.distance == 10
-        assert result.yardline == 52  # 100 - 48
-        assert result.possession_id == 2
+        assert result[_OFF] == "AWAY"
+        assert result[_DEF] == "HOME"
+        assert result[_DN] == 1
+        assert result[_DIST] == 10
+        assert result[_YL] == 52  # 100 - 48
+        assert result[_PID] == 2
 
     def test_fourth_down_incomplete_pass(self):
         """Incomplete pass on 4th down → turnover."""
@@ -201,10 +216,10 @@ class TestTurnoverOnDowns:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.offense == "HOME"
-        assert result.defense == "AWAY"
-        assert result.down == 1
-        assert result.yardline == 35  # 100 - 65
+        assert result[_OFF] == "HOME"
+        assert result[_DEF] == "AWAY"
+        assert result[_DN] == 1
+        assert result[_YL] == 35  # 100 - 65
 
 
 # =============================================================================
@@ -222,12 +237,12 @@ class TestTurnovers:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.offense == "AWAY"
-        assert result.defense == "HOME"
-        assert result.down == 1
-        assert result.distance == 10
-        assert result.yardline == 55  # 100 - 45 (spot of fumble)
-        assert result.possession_id == 2
+        assert result[_OFF] == "AWAY"
+        assert result[_DEF] == "HOME"
+        assert result[_DN] == 1
+        assert result[_DIST] == 10
+        assert result[_YL] == 55  # 100 - 45 (spot of fumble)
+        assert result[_PID] == 2
 
     def test_interception_changes_possession(self):
         """Interception → defense gets ball."""
@@ -236,10 +251,10 @@ class TestTurnovers:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.offense == "HOME"
-        assert result.defense == "AWAY"
-        assert result.down == 1
-        assert result.yardline == 60  # 100 - 40
+        assert result[_OFF] == "HOME"
+        assert result[_DEF] == "AWAY"
+        assert result[_DN] == 1
+        assert result[_YL] == 60  # 100 - 40
 
     def test_turnover_increments_possession_id(self):
         """Each turnover should increment possession_id."""
@@ -248,7 +263,7 @@ class TestTurnovers:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.possession_id == 4
+        assert result[_PID] == 4
 
 
 # =============================================================================
@@ -266,7 +281,7 @@ class TestTouchdowns:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.score == (21, 7)
+        assert result[_SC] == (21, 7)
 
     def test_away_team_touchdown(self):
         """Away team scoring gets correct score update."""
@@ -275,7 +290,7 @@ class TestTouchdowns:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.score == (7, 21)
+        assert result[_SC] == (7, 21)
 
     def test_touchdown_resets_possession(self):
         """After TD, other team gets ball at their 25."""
@@ -284,11 +299,11 @@ class TestTouchdowns:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.offense == "AWAY"
-        assert result.defense == "HOME"
-        assert result.down == 1
-        assert result.distance == 10
-        assert result.yardline == 75  # Their 25 = 75 from opponent endzone
+        assert result[_OFF] == "AWAY"
+        assert result[_DEF] == "HOME"
+        assert result[_DN] == 1
+        assert result[_DIST] == 10
+        assert result[_YL] == 75  # Their 25 = 75 from opponent endzone
 
     def test_touchdown_increments_possession_id(self):
         """TD changes possession → increments possession_id."""
@@ -297,7 +312,7 @@ class TestTouchdowns:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.possession_id == 6
+        assert result[_PID] == 6
 
     def test_long_touchdown_run(self):
         """75+ yard TD run from own 25."""
@@ -306,8 +321,8 @@ class TestTouchdowns:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.score == (7, 0)
-        assert result.offense == "AWAY"
+        assert result[_SC] == (7, 0)
+        assert result[_OFF] == "AWAY"
 
 
 # =============================================================================
@@ -325,7 +340,7 @@ class TestClockManagement:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.clock == 593
+        assert result[_CLK] == 593
 
     def test_quick_play_short_time(self):
         """Short plays take less time."""
@@ -334,7 +349,7 @@ class TestClockManagement:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.clock == 115
+        assert result[_CLK] == 115
 
     def test_clock_at_zero_advances_quarter(self):
         """Clock hitting 0 moves to next quarter."""
@@ -343,8 +358,8 @@ class TestClockManagement:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.quarter == 2
-        assert result.clock == 900  # Reset to 15 minutes
+        assert result[_Q] == 2
+        assert result[_CLK] == 900  # Reset to 15 minutes
 
 
 # =============================================================================
@@ -362,8 +377,8 @@ class TestQuarterTransitions:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.quarter == 2
-        assert result.clock == 900
+        assert result[_Q] == 2
+        assert result[_CLK] == 900
 
     def test_halftime_transition(self):
         """Q2 → Q3 (halftime)."""
@@ -372,7 +387,7 @@ class TestQuarterTransitions:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.quarter == 3
+        assert result[_Q] == 3
 
     def test_third_to_fourth_quarter(self):
         """Q3 → Q4 transition."""
@@ -381,7 +396,7 @@ class TestQuarterTransitions:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.quarter == 4
+        assert result[_Q] == 4
 
     def test_game_progresses_past_fourth_quarter(self):
         """Q4 end → quarter becomes 5 (terminal check elsewhere)."""
@@ -390,7 +405,7 @@ class TestQuarterTransitions:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.quarter == 5
+        assert result[_Q] == 5
 
 
 # =============================================================================
@@ -430,7 +445,7 @@ class TestFieldPositionEdgeCases:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.yardline == 92
+        assert result[_YL] == 92
 
     def test_near_goal_line(self):
         """Play from opponent's 1 yard line."""
@@ -439,9 +454,9 @@ class TestFieldPositionEdgeCases:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.down == 2
-        assert result.distance == 1
-        assert result.yardline == 1
+        assert result[_DN] == 2
+        assert result[_DIST] == 1
+        assert result[_YL] == 1
 
 
 # =============================================================================
@@ -459,9 +474,9 @@ class TestPossessionContinuity:
 
         result = apply_outcome(state, Action.RUN, outcome)
 
-        assert result.offense == "HOME"
-        assert result.defense == "AWAY"
-        assert result.possession_id == 1
+        assert result[_OFF] == "HOME"
+        assert result[_DEF] == "AWAY"
+        assert result[_PID] == 1
 
     def test_first_down_keeps_possession(self):
         """Getting first down keeps same possession."""
@@ -470,8 +485,8 @@ class TestPossessionContinuity:
 
         result = apply_outcome(state, Action.PASS, outcome)
 
-        assert result.offense == "AWAY"
-        assert result.possession_id == 2
+        assert result[_OFF] == "AWAY"
+        assert result[_PID] == 2
 
 
 # =============================================================================
