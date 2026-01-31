@@ -1,16 +1,20 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from collections.abc import Callable
 
 import pytest
 
-from nfl_sim.engine.state import _CLK, _DEF, _DIST, _DN, _OFF, _PID, _Q, _SC, _YL
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from nfl_sim.engine.state import GameTrace, PlayEvent
-
+from nfl_sim.engine.state import (
+    _CLK,
+    _DEF,
+    _DIST,
+    _DN,
+    _OFF,
+    _PID,
+    _Q,
+    _SC,
+    _YL,
+    GameTrace,
+    PlayEvent,
+)
 
 type RuleChecker = Callable[[GameTrace], None]
 

@@ -5,8 +5,6 @@ In production, results are pulled from pre-computed parquet files (e.g., S3).
 Results are cached locally as parquet files for efficient access.
 """
 
-from __future__ import annotations
-
 import polars as pl
 
 from nfl_sim.analysis._agg_types import GameAggs

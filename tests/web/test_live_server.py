@@ -6,8 +6,6 @@ This test is SKIPPED by default. Run it manually for live debugging:
 It mocks the schedule to use the latest week from pbp data and runs real simulations.
 """
 
-from __future__ import annotations
-
 import os
 
 import pytest

@@ -1,44 +1,11 @@
 """Game outcome modeling lies here; all intelligence is controlled via these models."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-from nfl_sim.engine.state import _CLK, _YL, Action, GameTrace, Outcome, TurnoverType, _GameState
+from nfl_sim.engine.state import _CLK, _YL, Action, Outcome, TurnoverType
+from nfl_sim.models.backends import Backend
+from nfl_sim.models.context import ModelContext
 from nfl_sim.models.features import state_to_features
-
-if TYPE_CHECKING:
-    from random import Random
-
-    from nfl_sim.models.backends import Backend
-    from nfl_sim.models.context import GameContext
-
-
-class DerivedContext:  # TODO: Feels like overkill?
-    """Game context; basically features."""
-
-    def __init__(self, trace: GameTrace):
-        self._trace = trace
-
-
-@dataclass
-class ModelContext:
-    """Context actually passed to the model.
-
-    Attributes:
-    - state (_GameState): Used to guide post-processing of generated play.
-    - derived (DerivedContext): Momentum-like variables based off trace.
-    - rng (Random): Random number generator used by model.
-
-    """
-
-    state: _GameState
-    derived: DerivedContext
-    rng: Random
-    game_context: GameContext | None = None
-
 
 type OutcomeModel = Callable[[Action, ModelContext], Outcome]
 

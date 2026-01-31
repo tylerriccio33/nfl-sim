@@ -7,8 +7,6 @@ This module defines reusable expressions for:
 """
 # TODO: Update those docs above me
 
-from __future__ import annotations
-
 import polars as pl
 
 ## These are the columns present in each play AT LEAST.

@@ -1,24 +1,31 @@
 """Training CLI for learned outcome models.
 
 Usage:
-    python -m training.train --backend xgb
-    python -m training.train --backend torch
-    python -m training.train --backend torch --epochs 100
+    uv run training/train.py xgb
+    uv run training/train.py torch
+    uv run training/train.py torch --epochs 100
 """
 
-from __future__ import annotations
-
+import math
 from pathlib import Path
-from typing import TYPE_CHECKING
+from random import Random
 
 import numpy as np
+import plotext as plt
+import polars as pl
+import polars_ds as pds
+from loguru import logger
+from rich.console import Console
+from rich.table import Table
 
+from nfl_sim.models.backends import Backend
 from training.prepare import prepare
 
-if TYPE_CHECKING:
-    from nfl_sim.models.backends import Backend
-
 ARTIFACTS_DIR = Path("training/artifacts")
+
+# Permutation / bootstrap iterations for significance testing
+N_PERMUTATIONS = 10_000
+N_BOOTSTRAP = 10_000
 
 
 def train(
@@ -38,14 +45,12 @@ def train(
         lr: Learning rate (torch only)
 
     """
-    print("Preparing training data...")
     data = prepare()
-    print(f"  Total plays: {len(data.yards):,}")
 
     # Split by season
     train_mask = data.season != holdout_season
     val_mask = data.season == holdout_season
-    print(f"  Train: {train_mask.sum():,}  Val: {val_mask.sum():,}")
+    logger.info(f"Train Data: {len(train_mask):,}")
 
     train_features = data.features[train_mask]
     train_yards = data.yards[train_mask]
@@ -64,13 +69,11 @@ def train(
     if backend == "xgb":
         from nfl_sim.models.backends.xgb import train_xgb
 
-        print("Training XGBoost backend...")
         trained = train_xgb(train_features, train_yards, train_turnover, train_time)
 
     elif backend == "torch":
         from nfl_sim.models.backends.torch import train_torch
 
-        print("Training PyTorch backend...")
         trained = train_torch(
             train_features,
             train_yards,
@@ -82,14 +85,62 @@ def train(
         )
 
     else:
-        msg = f"Unknown backend: {backend!r}"
-        raise ValueError(msg)
+        raise ValueError(f"Unknown backend: {backend!r}")
 
     trained.save(artifact_path)
-    print(f"Saved artifacts to {artifact_path}")
+    logger.success(f"Saved artifacts to {artifact_path}")
 
     # Diagnostics on validation set
     _print_diagnostics(trained, val_features, val_yards, val_turnover, val_time)
+
+
+def _rmse(predictions: np.ndarray, actuals: np.ndarray) -> float:
+    return float(np.sqrt(np.mean((predictions - actuals) ** 2)))
+
+
+def _significance_stats(
+    preds: np.ndarray,
+    actuals: np.ndarray,
+    rng: np.random.Generator,
+) -> dict:
+    """Compute skill score, permutation p-value, and bootstrap CIs for one target.
+
+    Returns a dict with keys: model_rmse, random_rmse, skill, p_value,
+    ci_lo, ci_hi, perm_rmses.
+    """
+    n = len(actuals)
+    model_rmse = _rmse(preds, actuals)
+    random_rmse = _rmse(np.zeros(n), actuals)
+
+    # Forecast skill score: 1 - (MSE_model / MSE_random)
+    skill = 1.0 - (model_rmse**2 / random_rmse**2)
+
+    # Permutation test: shuffle predictions to break feature association,
+    # giving us the null distribution of RMSE.
+    perm_rmses = np.empty(N_PERMUTATIONS)
+    for i in range(N_PERMUTATIONS):
+        perm_rmses[i] = _rmse(rng.permutation(preds), actuals)
+
+    p_value = float(np.mean(perm_rmses <= model_rmse))
+
+    # Bootstrap CIs on model RMSE
+    boot_rmses = np.empty(N_BOOTSTRAP)
+    for i in range(N_BOOTSTRAP):
+        idx = rng.integers(0, n, size=n)
+        boot_rmses[i] = _rmse(preds[idx], actuals[idx])
+
+    ci_lo = float(np.percentile(boot_rmses, 2.5))
+    ci_hi = float(np.percentile(boot_rmses, 97.5))
+
+    return {
+        "model_rmse": model_rmse,
+        "random_rmse": random_rmse,
+        "skill": skill,
+        "p_value": p_value,
+        "ci_lo": ci_lo,
+        "ci_hi": ci_hi,
+        "perm_rmses": perm_rmses,
+    }
 
 
 def _print_diagnostics(
@@ -101,18 +152,9 @@ def _print_diagnostics(
 ) -> None:
     """Print distributional diagnostics comparing model predictions to held-out data.
 
-    Shows model vs random baseline so we can see how much value the model adds
-    beyond just sampling from the training distribution.
+    Shows model vs random baseline with statistical significance testing so we
+    can quantify how much value the model adds beyond sampling from the marginal.
     """
-    import math
-    from random import Random
-
-    import plotext as plt
-    import polars as pl
-    import polars_ds as pds
-    from rich.console import Console
-    from rich.table import Table
-
     console = Console()
     rng = Random(42)
     np_rng = np.random.default_rng(42)
@@ -134,6 +176,8 @@ def _print_diagnostics(
     actual_yards_arr = yards[indices]
     actual_time_arr = time_elapsed[indices]
     actual_turnover_arr = turnover_type[indices]
+    pred_yards_arr = np.array(pred_yards_list)
+    pred_time_arr = np.array(pred_time_list)
 
     # Random baseline: shuffle actuals to break any correlation with features.
     # This gives us "what if we just randomly sampled from the marginal distribution?"
@@ -198,6 +242,41 @@ def _print_diagnostics(
         f"{metrics['time_r2_rand']:.4f}",
     )
     console.print(reg_table)
+
+    # ── Significance testing: yards and time ──
+    # Permutation test + bootstrap CIs + forecast skill score for each target.
+    yards_sig = _significance_stats(pred_yards_arr, actual_yards_arr, np_rng)
+    time_sig = _significance_stats(pred_time_arr, actual_time_arr, np_rng)
+
+    sig_table = Table(title="Statistical Significance (vs Random)")
+    sig_table.add_column("", style="cyan", no_wrap=True)
+    sig_table.add_column("Yards", justify="right")
+    sig_table.add_column("Time", justify="right")
+
+    sig_table.add_row(
+        "Model RMSE", f"{yards_sig['model_rmse']:.3f}", f"{time_sig['model_rmse']:.3f}"
+    )
+    sig_table.add_row(
+        "Random RMSE", f"{yards_sig['random_rmse']:.3f}", f"{time_sig['random_rmse']:.3f}"
+    )
+    sig_table.add_row("Skill Score", f"{yards_sig['skill']:+.4f}", f"{time_sig['skill']:+.4f}")
+    sig_table.add_row(
+        "95% CI",
+        f"[{yards_sig['ci_lo']:.3f}, {yards_sig['ci_hi']:.3f}]",
+        f"[{time_sig['ci_lo']:.3f}, {time_sig['ci_hi']:.3f}]",
+    )
+    sig_table.add_row("p-value", f"{yards_sig['p_value']:.4f}", f"{time_sig['p_value']:.4f}")
+
+    for label, sig in [("Yards", yards_sig), ("Time", time_sig)]:
+        is_sig = sig["p_value"] < 0.05
+        sig_table.add_row(
+            f"{label} sig (p<0.05)?",
+            "[bold green]YES[/]" if is_sig else "[bold red]NO[/]",
+            "",
+        )
+
+    console.print()
+    console.print(sig_table)
 
     # ── Distribution comparison ──
     dist = df.select(
@@ -272,38 +351,67 @@ def _print_diagnostics(
 
     # ── Terminal plots ──
 
-    # 1) Yards residual histogram
+    # 1) Permutation null distributions for yards and time
+    for label, sig in [("Yards", yards_sig), ("Time", time_sig)]:
+        plt.clear_figure()
+        plt.theme("dark")
+        plt.plot_size(80, 20)
+        plt.title(f"{label}: Permutation Null Distribution of RMSE")
+        plt.xlabel("RMSE")
+        plt.ylabel("Count")
+        plt.hist(sig["perm_rmses"].tolist(), bins=50, label="Shuffled (null)")
+        plt.vline(sig["model_rmse"], color="red")
+        plt.vline(sig["random_rmse"], color="white")
+        plt.show()
+
+    # 2) Yards residual histogram
     residuals = (df["pred_yards"] - df["actual_yards"]).to_list()
     plt.clear_figure()
+    plt.theme("dark")
+    plt.plot_size(80, 20)
     plt.hist(residuals, bins=50)
     plt.title("Yards Residual Distribution (pred - actual)")
     plt.xlabel("Residual (yards)")
     plt.ylabel("Count")
-    plt.plot_size(height=25)
     plt.show()
 
-    # 2) Yards scatter: actual vs predicted (subsample for readability)
+    # 3) Yards error overlay: model vs random
+    model_errors = (pred_yards_arr - actual_yards_arr).tolist()
+    random_errors = (0.0 - actual_yards_arr).tolist()
+    plt.clear_figure()
+    plt.theme("dark")
+    plt.plot_size(80, 20)
+    plt.title("Yards Error Distribution: Model vs Random")
+    plt.xlabel("Error (predicted - actual)")
+    plt.ylabel("Count")
+    plt.hist(model_errors, bins=40, label="Model")
+    plt.hist(random_errors, bins=40, label="Random (0)")
+    plt.show()
+
+    # 4) Yards scatter: actual vs predicted (subsample for readability)
     scatter_n = min(500, len(df))
     scatter_idx = np.random.default_rng(99).choice(len(df), scatter_n, replace=False)
     scatter_actual = df["actual_yards"].gather(scatter_idx).to_list()
     scatter_pred = df["pred_yards"].gather(scatter_idx).to_list()
     plt.clear_figure()
+    plt.theme("dark")
+    plt.plot_size(80, 20)
     plt.scatter(scatter_actual, scatter_pred)
     plt.title("Yards: Actual vs Predicted")
     plt.xlabel("Actual")
     plt.ylabel("Predicted")
-    plt.plot_size(height=25)
     plt.show()
 
-    # 3) Turnover confusion bar chart
+    # 5) Turnover confusion bar chart
     bar_labels = list(turnover_classes.keys())
     actual_vals = [actual_turn_rates[k] for k in bar_labels]
     pred_vals = [pred_turn_rates[k] for k in bar_labels]
     plt.clear_figure()
+    plt.theme("dark")
+    plt.plot_size(80, 20)
     plt.multiple_bar(bar_labels, [actual_vals, pred_vals], labels=["Actual", "Predicted"])
     plt.title("Turnover Rates: Actual vs Predicted")
     plt.ylabel("Rate")
-    plt.plot_size(height=25)
     plt.show()
 
 

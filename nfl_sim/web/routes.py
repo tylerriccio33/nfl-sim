@@ -7,8 +7,6 @@ Principles of this code section:
 - Fail loudly; throw the KeyError, ValueError, etc.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 import polars as pl

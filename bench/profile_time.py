@@ -14,19 +14,19 @@ from loguru import logger
 from nfl_sim.engine.api import (
     _event_from_play,
     _run_game_loop,
+    _simulate_game,
     sim_games,
-    simulate_game,
     traces_to_dataframe,
 )
 from nfl_sim.engine.apply import apply_outcome
-from nfl_sim.models.context import GameContext
+from nfl_sim.models.context import GameContext, GameFeatures
 from nfl_sim.models.outcomes import outcome_model
 from nfl_sim.models.policy import RandomPolicy
 
 FUNCTIONS = (
     ## High-level API:
     sim_games,
-    simulate_game,
+    _simulate_game,
     _run_game_loop,
     ## State transitions:
     apply_outcome,
@@ -55,7 +55,7 @@ def main() -> None:
         game_id="KC_NYJ",
         home="KC",
         away="NYJ",
-        spread=-3.0,
+        features=GameFeatures(spread=-3.0),
     )
 
     # Profile N simulations

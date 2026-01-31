@@ -1,7 +1,5 @@
 """Supporting data operations."""
 
-from __future__ import annotations
-
 import polars as pl
 
 # TODO: I want to get away from all of this.

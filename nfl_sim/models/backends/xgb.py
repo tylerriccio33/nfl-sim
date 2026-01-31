@@ -8,21 +8,17 @@ Internally uses three models but exposes a single predict → Outcome interface:
 Correlations: yards prediction feeds into time sampling (longer plays → more time).
 """
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Self
+from pathlib import Path
+from random import Random
+from typing import Self
 
 import numpy as np
 import xgboost as xgb
 
 from nfl_sim.engine.state import Outcome, TurnoverType
 from nfl_sim.models.features import FEATURE_NAMES
-
-if TYPE_CHECKING:
-    from pathlib import Path
-    from random import Random
 
 
 @dataclass

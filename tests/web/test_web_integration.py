@@ -5,8 +5,6 @@ This is a single sequential test that exercises the full user journey to
 detect dead code or broken template rendering.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from nfl_sim.utils import home_away_from_gameid

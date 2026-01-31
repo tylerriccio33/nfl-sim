@@ -1,16 +1,12 @@
 """Backend protocol and loader for learned outcome models."""
 
-from __future__ import annotations
-
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, Self
+from random import Random
+from typing import Protocol, Self
 
-if TYPE_CHECKING:
-    from random import Random
+import numpy as np
 
-    import numpy as np
-
-    from nfl_sim.engine.state import Outcome
+from nfl_sim.engine.state import Outcome
 
 
 class Backend(Protocol):

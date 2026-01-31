@@ -8,23 +8,18 @@ Single MLP with a shared trunk and three prediction heads:
 Correlations between outputs are implicit via the shared trunk.
 """
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Self
+from pathlib import Path
+from random import Random
+from typing import Self
 
+import numpy as np
 import torch
 import torch.nn as nn
 
 from nfl_sim.engine.state import Outcome, TurnoverType
 from nfl_sim.models.features import FEATURE_NAMES
-
-if TYPE_CHECKING:
-    from pathlib import Path
-    from random import Random
-
-    import numpy as np
 
 
 class OutcomeNet(nn.Module):

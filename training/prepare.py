@@ -4,8 +4,6 @@ Loads data/pbp.parquet, filters to real run/pass plays, extracts features
 and targets in a format ready for backend training.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 

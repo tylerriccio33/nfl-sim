@@ -1,10 +1,25 @@
 """Module for collecting data relevant to the current game."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
+from random import Random
+from typing import Self
 
 import polars as pl
+
+from nfl_sim.engine.state import GameTrace, _GameState
+
+
+@dataclass(frozen=True)
+class GameFeatures:
+    """Little container for all features at the game level.
+
+    Easier to track and keep a source of truth, also easier to generate meta-programming
+    downstream.
+    """
+
+    spread: float
+    # home_season_epa, home_12_week_epa, away_*, etc.
+    # features that require schedule/meta and pbp
 
 
 @dataclass
@@ -18,22 +33,23 @@ class GameContext:
     requires a lot of code to engineer everything.
     """
 
+    # TODO: come to think of it, why do we need game_id, home and away here? If we remove, let's just get rid of `GameFeatures`
     game_id: str
     home: str
     away: str
-    spread: float
-    # home_season_epa, home_12_week_epa, away_*, etc.
-    # features that require schedule/meta and pbp
+    features: GameFeatures
 
     @classmethod
-    def from_row(cls, row: dict) -> GameContext:
+    def from_row(cls, row: dict) -> Self:
         """Construct a game context from a row in a dataframe."""
         # TODO: Probably a way to do this automatically
         return cls(
             game_id=row["game_id"],
             home=row["home_team"],
             away=row["away_team"],
-            spread=row["spread_line"] or 0.0,
+            features=GameFeatures(
+                spread=row["spread_line"],
+            ),
         )
 
 
@@ -74,3 +90,27 @@ def ctx_from_game_id(
 
     assert len(sched_features) > 0, "No games found in filter."
     return _rows_to_contexts(sched_features)
+
+
+class DerivedContext:
+    """Game context; basically features."""
+
+    def __init__(self, trace: GameTrace):
+        self._trace = trace
+
+
+@dataclass
+class ModelContext:
+    """Context actually passed to the model.
+
+    Attributes:
+    - state (_GameState): Used to guide post-processing of generated play.
+    - derived (DerivedContext): Momentum-like variables based off trace.
+    - rng (Random): Random number generator used by model.
+
+    """
+
+    state: _GameState
+    derived: DerivedContext
+    rng: Random
+    game_context: GameContext

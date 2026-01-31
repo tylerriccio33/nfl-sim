@@ -7,20 +7,14 @@ Two parallel paths exist:
 Both must produce the exact same feature vector layout.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 import numpy as np
+import polars as pl
 
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, Action
-
-if TYPE_CHECKING:
-    import polars as pl
-
-    from nfl_sim.models.outcomes import ModelContext
+from nfl_sim.models.context import ModelContext
 
 # Canonical feature names, in order. Backends can use this for validation.
+# TODO: Need to auto-generate this from ModelContext
 FEATURE_NAMES: list[str] = [
     "is_pass",
     "down",
@@ -51,7 +45,7 @@ def state_to_features(action: Action, context: ModelContext) -> np.ndarray:
 
     # Meta features from GameContext (default to 0 when absent)
     gc = context.game_context
-    spread = gc.spread if gc is not None else 0.0
+    spread = gc.features.spread
 
     return np.array(
         [
@@ -72,6 +66,7 @@ def state_to_features(action: Action, context: ModelContext) -> np.ndarray:
     )
 
 
+# TODO: This should live outside the package
 def pbp_to_features(df: pl.DataFrame) -> np.ndarray:
     """Extract the same feature vector from historical pbp data.
 
@@ -79,8 +74,6 @@ def pbp_to_features(df: pl.DataFrame) -> np.ndarray:
     Columns required: play_type, down, ydstogo, yardline_100, score_differential,
                       qtr, game_seconds_remaining.
     """
-    import polars as pl
-
     # game_seconds_remaining is full-game seconds; convert to quarter clock
     # Each quarter is 900 seconds (15 min). Remaining clock in the current quarter
     # is game_seconds_remaining mod 900 (with edge case: exactly 0 means 900).

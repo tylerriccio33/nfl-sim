@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.table import Table
 
 from nfl_sim import sim_games
-from nfl_sim.models.context import GameContext
+from nfl_sim.models.context import GameContext, GameFeatures
 
 
 def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
@@ -24,7 +24,7 @@ def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
         game_id="KC_NYJ",
         home="KC",
         away="NYJ",
-        spread=-3.0,
+        features=GameFeatures(spread=-3.0),
     )
 
     # Time just the simulation (no data loading overhead)

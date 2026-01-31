@@ -1,8 +1,6 @@
 """Shared fixtures for NFL sim tests."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import polars as pl
 import polars.selectors as cs
@@ -10,12 +8,9 @@ import pytest
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
 from nfl_sim.engine.api import GameTrace, traces_to_dataframe
-from nfl_sim.models.context import ctx_from_game_id
+from nfl_sim.models.context import GameFeatures, ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # =============================================================================
 # Constants
@@ -105,8 +100,12 @@ def ctx() -> dict[str, GameContext]:
     # TODO: eventaully, when the contexts get more advanced we'll have to auto-generate
     # the stats (spread, epa, etc.)
     games = [
-        GameContext(game_id="2025_02_KC_BUF", home="KC", away="BUF", spread=-3.0),
-        GameContext(game_id="2025_03_BUF_MIA", home="BUF", away="MIA", spread=-7.0),
+        GameContext(
+            game_id="2025_02_KC_BUF", home="KC", away="BUF", features=GameFeatures(spread=-3.0)
+        ),
+        GameContext(
+            game_id="2025_03_BUF_MIA", home="BUF", away="MIA", features=GameFeatures(spread=-7.0)
+        ),
     ]
     return {g.game_id: g for g in games}
 

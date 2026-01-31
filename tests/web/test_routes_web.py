@@ -1,7 +1,5 @@
 """Tests for the web interface."""
 
-from __future__ import annotations
-
 from unittest.mock import patch
 
 import polars as pl

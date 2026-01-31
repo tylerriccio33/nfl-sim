@@ -3,8 +3,6 @@
 Tests the full pipeline: context creation → simulation → understanding.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from nfl_sim import sim_games, understand

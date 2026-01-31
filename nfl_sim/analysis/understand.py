@@ -3,14 +3,9 @@
 Aggregates GameSims (list of PBP DataFrames) into summary statistics.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+import polars as pl
 
 from nfl_sim.analysis.EXPR import GAME_LEVEL_EXPRS, SIM_LEVEL_EXPRS
-
-if TYPE_CHECKING:
-    import polars as pl
 
 
 def understand(sims: pl.DataFrame) -> pl.DataFrame:

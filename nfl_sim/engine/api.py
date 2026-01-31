@@ -27,8 +27,8 @@ from nfl_sim.engine.state import (
     _GameState,
 )
 from nfl_sim.models.backends import load_backend
-from nfl_sim.models.context import GameContext
-from nfl_sim.models.outcomes import DerivedContext, ModelContext, OutcomeModel, outcome_model
+from nfl_sim.models.context import DerivedContext, GameContext, ModelContext
+from nfl_sim.models.outcomes import OutcomeModel, outcome_model
 from nfl_sim.models.policy import Policy, RandomPolicy
 
 
@@ -53,7 +53,7 @@ def _run_game_loop(
     policy: Policy,
     model: OutcomeModel,
     rng: Random,
-    game_context: GameContext | None = None,
+    game_context: GameContext,
 ) -> GameTrace:
     """Core game loop. Runs until terminal state."""
     state = initial_state
@@ -78,15 +78,14 @@ def _run_game_loop(
     return trace
 
 
-def simulate_game(
+def _simulate_game(
     home: str,
     away: str,
     *,
-    # TODO: This is internal, there is no reason for these defaults
-    seed: int | None = None,
-    policy: Policy | None = None,
+    seed: int,
+    policy: Policy,
     model: OutcomeModel,
-    context: GameContext | None = None,
+    context: GameContext,
 ) -> GameResult:
     """Simulate a single game.
 
@@ -103,10 +102,6 @@ def simulate_game(
 
     """
     rng = Random(seed)
-
-    if policy is None:
-        policy = RandomPolicy(rng)
-
     initial_state = _create_initial_state()
     trace = _run_game_loop(initial_state, policy, model, rng, context)
 
@@ -136,10 +131,11 @@ def _run_one_game(
     policy = RandomPolicy(rng) if policy_factory is None else policy_factory(rng)
     traces: list[GameTrace] = []
     for _ in range(n):
-        result = simulate_game(
+        iter_seed = rng.randint(0, 2**31)
+        result = _simulate_game(
             context.home,
             context.away,
-            seed=seed,
+            seed=iter_seed,
             policy=policy,
             model=model,
             context=context,
@@ -147,7 +143,6 @@ def _run_one_game(
         traces.append(result.trace)
 
     return game_id, traces
-    # TODO: Why does this return a game_id?
 
 
 def sim_games(
