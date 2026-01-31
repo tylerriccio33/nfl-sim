@@ -40,6 +40,7 @@ make lint
 - If unsure, throw the error. Don't try to catch and handle everything, let things bubble up unless the author explicitly asks you to except it.
 - Cascades of if statements are usually problematic, especially if there isn't a really, really strong reason for it.
 - Less code is a virtue. Do not solve for functionality/cases we don't explicitly need.
+- Defaults in arguments are usually bad, especially for internal functions. Use env variables instead.
 
 ### Project conventions
 

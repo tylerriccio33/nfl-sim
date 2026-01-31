@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from random import Random
 
     from nfl_sim.models.backends import Backend
+    from nfl_sim.models.context import GameContext
 
 
 class DerivedContext:  # TODO: Feels like overkill?
@@ -36,6 +37,7 @@ class ModelContext:
     state: _GameState
     derived: DerivedContext
     rng: Random
+    game_context: GameContext | None = None
 
 
 type OutcomeModel = Callable[[Action, ModelContext], Outcome]

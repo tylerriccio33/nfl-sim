@@ -53,6 +53,7 @@ def _run_game_loop(
     policy: Policy,
     model: OutcomeModel,
     rng: Random,
+    game_context: GameContext | None = None,
 ) -> GameTrace:
     """Core game loop. Runs until terminal state."""
     state = initial_state
@@ -61,7 +62,7 @@ def _run_game_loop(
     while not is_terminal(state):
         action: Action = policy.choose_action(state)
         derived = DerivedContext(trace)
-        context = ModelContext(state, derived, rng)
+        context = ModelContext(state, derived, rng, game_context)
         outcome = model(action, context)
         new_state = apply_outcome(state, action, outcome)
 
@@ -107,7 +108,7 @@ def simulate_game(
         policy = RandomPolicy(rng)
 
     initial_state = _create_initial_state()
-    trace = _run_game_loop(initial_state, policy, model, rng)
+    trace = _run_game_loop(initial_state, policy, model, rng, context)
 
     # Extract final score from last play
     final_state = trace[-1].state_after

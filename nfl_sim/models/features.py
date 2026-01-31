@@ -13,13 +13,12 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, Action
+
 if TYPE_CHECKING:
     import polars as pl
 
-    from nfl_sim.engine.state import Action
     from nfl_sim.models.outcomes import ModelContext
-
-from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL
 
 # Canonical feature names, in order. Backends can use this for validation.
 FEATURE_NAMES: list[str] = [
@@ -31,6 +30,8 @@ FEATURE_NAMES: list[str] = [
     "quarter",
     "clock",
     "goal_to_go",
+    # Meta (from GameContext):
+    "spread",
 ]
 
 
@@ -40,8 +41,6 @@ def state_to_features(action: Action, context: ModelContext) -> np.ndarray:
     This is the starter set. Additional features (EPA, momentum, etc.) can be
     appended here as long as pbp_to_features is updated in lockstep.
     """
-    from nfl_sim.engine.state import Action
-
     s = context.state
 
     # Score differential from the perspective of the offense
@@ -50,9 +49,15 @@ def state_to_features(action: Action, context: ModelContext) -> np.ndarray:
     else:
         score_diff = s[_SC][1] - s[_SC][0]
 
+    # Meta features from GameContext (default to 0 when absent)
+    gc = context.game_context
+    spread = gc.spread if gc is not None else 0.0
+
     return np.array(
         [
+            # Action:
             float(action == Action.PASS),
+            # Situational:
             s[_DN],
             s[_DIST],
             s[_YL],
@@ -60,6 +65,8 @@ def state_to_features(action: Action, context: ModelContext) -> np.ndarray:
             s[_Q],
             s[_CLK],
             float(s[_DIST] >= s[_YL]),  # goal_to_go
+            # Meta:
+            spread,
         ],
         dtype=np.float32,
     )
@@ -92,6 +99,7 @@ def pbp_to_features(df: pl.DataFrame) -> np.ndarray:
         pl.col("qtr").cast(pl.Float32).alias("quarter"),
         clock_expr.cast(pl.Float32).alias("clock"),
         (pl.col("ydstogo") >= pl.col("yardline_100")).cast(pl.Float32).alias("goal_to_go"),
+        pl.col("spread_line").fill_null(0.0).cast(pl.Float32).alias("spread"),
     )
 
     return features.to_numpy()
