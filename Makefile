@@ -37,7 +37,7 @@ load-dictionaries: ## Download data dictionaries
 time: ## Run performance benchmarks for time
 	@uv run --no-sync bench/time_perf.py
 
-profile: ## Run line profiler on single game
+prof: ## Run line profiler on single game
 	@uv run python bench/profile_time.py > bench/profile_results.txt
 	@echo "Profile results written to bench/profile_results.txt"
 	
@@ -47,8 +47,8 @@ perf: ## Run performance of results against real
 converge: ## Run convergence benchmark
 	@uv run --no-sync bench/convergence_perf.py
 
-train-wp-model: ## Run the model training script for WP model
-	@uv run model/wp_model_train.py
+train-xgb: ## Run model training script
+	@uv run training/train.py xgb
 
 refresh-data: ## Refresh all data files
 	@uv run python data/refresh_data.py

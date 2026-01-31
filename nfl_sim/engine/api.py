@@ -4,11 +4,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from os import cpu_count
 from random import Random
+from typing import Literal
 
 import numpy as np
 import polars as pl
 from rich.progress import Progress
 
+from nfl_sim.const import MODEL_IND
 from nfl_sim.engine.apply import apply_outcome, is_terminal
 from nfl_sim.engine.state import (
     _CLK,
@@ -24,21 +26,22 @@ from nfl_sim.engine.state import (
     TurnoverType,
     _GameState,
 )
+from nfl_sim.models.backends import load_backend
 from nfl_sim.models.context import GameContext
-from nfl_sim.models.outcomes import DerivedContext, ModelContext, OutcomeModel, outcome_model
+from nfl_sim.models.outcomes import DerivedContext, LearnedOutcomeModel, ModelContext, OutcomeModel
 from nfl_sim.models.policy import Policy, RandomPolicy
 
 
-def make_learned_model(backend_name: str = "xgb") -> OutcomeModel:
+def make_learned_model(backend_name: Literal["xgb", "torch", "rng"]) -> OutcomeModel:
     """Load a trained backend and return an OutcomeModel callable.
 
     Slots directly into simulate_game(model=...) or sim_games(model_factory=...).
     """
-    from nfl_sim.models.backends import load_backend
-    from nfl_sim.models.outcomes import LearnedOutcomeModel
-
     backend = load_backend(backend_name)
     return LearnedOutcomeModel(backend)
+
+
+DEFAULT_MODEL = make_learned_model(MODEL_IND())
 
 
 @dataclass(frozen=True)
@@ -92,7 +95,7 @@ def simulate_game(
     *,
     seed: int | None = None,
     policy: Policy | None = None,
-    model: OutcomeModel | None = None,
+    model: OutcomeModel = DEFAULT_MODEL,
     context: GameContext | None = None,
 ) -> GameResult:
     """Simulate a single game.
@@ -113,8 +116,6 @@ def simulate_game(
 
     if policy is None:
         policy = RandomPolicy(rng)
-    if model is None:
-        model = outcome_model
 
     initial_state = _create_initial_state()
     trace = _run_game_loop(initial_state, policy, model, rng)
@@ -138,13 +139,11 @@ def _run_one_game(
     n: int,
     seed: int | None,
     policy_factory: type[Policy] | None,
-    model_factory: type[OutcomeModel] | None,
+    model: OutcomeModel = DEFAULT_MODEL,
 ) -> tuple[str, list[GameTrace]]:
     """Simulate all n iterations of a single game. Unit of parallel work."""
     rng = Random(seed)
     policy = RandomPolicy(rng) if policy_factory is None else policy_factory(rng)
-    model = outcome_model if model_factory is None else model_factory(rng)
-
     traces: list[GameTrace] = []
     for _ in range(n):
         result = simulate_game(
@@ -158,6 +157,7 @@ def _run_one_game(
         traces.append(result.trace)
 
     return game_id, traces
+    # TODO: Why does this return a game_id?
 
 
 def sim_games(
@@ -166,7 +166,7 @@ def sim_games(
     n: int = 100,
     base_seed: int | None = None,
     policy_factory: type[Policy] | None = None,
-    model_factory: type[OutcomeModel] | None = None,
+    model_factory: OutcomeModel = DEFAULT_MODEL,
     max_workers: int | None = None,
 ) -> dict[str, list[GameTrace]]:
     """Simulate multiple games n times each.
