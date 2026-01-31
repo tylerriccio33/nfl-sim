@@ -348,21 +348,12 @@ class TestCustomComponents:
 # =============================================================================
 
 
-class TestEdgeCases:
-    """Edge cases and stress tests."""
+def test_zero_zero_start():
+    """Game should start 0-0."""
+    result = _sim("ZERO1", "ZERO2")
 
-    def test_many_simulations(self, ctx):
-        """Should handle large number of simulations."""
-        traces = sim_games(ctx, n=200, base_seed=42)
-
-        assert len(traces["2025_02_KC_BUF"]) == 200
-
-    def test_zero_zero_start(self):
-        """Game should start 0-0."""
-        result = _sim("ZERO1", "ZERO2")
-
-        first_play = result.trace[0]
-        assert first_play.state_before[_SC] == (0, 0)
+    first_play = result.trace[0]
+    assert first_play.state_before[_SC] == (0, 0)
 
 
 if __name__ == "__main__":

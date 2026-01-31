@@ -1,5 +1,6 @@
 """Module for collecting data relevant to the current game."""
 
+import dataclasses
 from dataclasses import dataclass
 from random import Random
 from typing import Self
@@ -41,15 +42,19 @@ class GameContext:
 
     @classmethod
     def from_row(cls, row: dict) -> Self:
-        """Construct a game context from a row in a dataframe."""
-        # TODO: Probably a way to do this automatically
+        """Construct a game context from a row in a dataframe.
+
+        GameFeatures fields are extracted automatically — column names in the
+        engineered DataFrame must match GameFeatures field names exactly.
+        """
+        game_features = GameFeatures(
+            **{f.name: row[f.name] for f in dataclasses.fields(GameFeatures)}
+        )
         return cls(
             game_id=row["game_id"],
             home=row["home_team"],
             away=row["away_team"],
-            features=GameFeatures(
-                spread=row["spread_line"],
-            ),
+            features=game_features,
         )
 
 
@@ -80,9 +85,15 @@ def ctx_from_game_id(
 
     """
     ## Schedule Features:
+    # Column aliases must match GameFeatures field names exactly.
     sched_features = (
         schedule_data.filter(pl.col("game_id").is_in(game_ids))
-        .select("game_id", "spread_line", "home_team", "away_team")
+        .select(
+            "game_id",
+            "home_team",
+            "away_team",
+            pl.col("spread_line").alias("spread"),
+        )
         .unique()
     )
 

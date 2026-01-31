@@ -53,6 +53,43 @@ make lint
 - We will almost never care about backward compatability.
 - Over-engineering is the devil!
 
+## Adding a New Game-Level Feature
+
+`GameFeatures` in `nfl_sim/models/context.py` is the single source of truth for game-level features. `FEATURE_NAMES`, `state_to_features()`, and `from_row()` all auto-derive from it via `dataclasses.fields()`.
+
+To add a new game-level feature (e.g. `home_epa`):
+
+1. Add the field to `GameFeatures` in `nfl_sim/models/context.py`:
+   ```python
+   @dataclass(frozen=True)
+   class GameFeatures:
+       spread: float
+       home_epa: float  # new
+   ```
+
+2. Add the polars expression in `ctx_from_game_id()` (same file), aliased to match the field name:
+   ```python
+   sched_features = (
+       schedule_data.filter(pl.col("game_id").is_in(game_ids))
+       .select(
+           "game_id", "home_team", "away_team",
+           pl.col("spread_line").alias("spread"),
+           pl.col("some_column").alias("home_epa"),  # new
+       )
+       .unique()
+   )
+   ```
+
+3. If training pbp data has the column under a different name, add a mapping in `_PBP_GAME_FEATURE_ALIASES` in `training/prepare.py`:
+   ```python
+   _PBP_GAME_FEATURE_ALIASES: dict[str, str] = {
+       "spread_line": "spread",
+       "pbp_col_name": "home_epa",  # new (skip if names already match)
+   }
+   ```
+
+That's it. `FEATURE_NAMES`, `state_to_features()`, `from_row()`, and `_pbp_to_features()` all update automatically.
+
 ## Web Interface
 
 Web interface is a flask-based one page app to:

@@ -2,10 +2,12 @@
 
 Usage:
     uv run training/train.py xgb
+    uv run training/train.py xgb --grid
     uv run training/train.py torch
     uv run training/train.py torch --epochs 100
 """
 
+import itertools
 import math
 from pathlib import Path
 from random import Random
@@ -19,6 +21,7 @@ from rich.console import Console
 from rich.table import Table
 
 from nfl_sim.models.backends import Backend
+from nfl_sim.models.features import FEATURE_NAMES
 from training.prepare import prepare
 
 ARTIFACTS_DIR = Path("training/artifacts")
@@ -27,10 +30,163 @@ ARTIFACTS_DIR = Path("training/artifacts")
 N_PERMUTATIONS = 10_000
 N_BOOTSTRAP = 10_000
 
+# Grid search space for XGB hyperparameters
+GRID = {
+    "max_depth": [4, 6, 8],
+    "learning_rate": [0.05, 0.1, 0.2],
+    "n_estimators": [100, 200, 300],
+}
+
+
+def _run_cv_folds(
+    data_features: np.ndarray,
+    data_yards: np.ndarray,
+    data_turnover: np.ndarray,
+    data_time: np.ndarray,
+    seasons: np.ndarray,
+    yards_params: dict[str, object] | None = None,
+    turnover_params: dict[str, object] | None = None,
+) -> list[dict[str, float]]:
+    """Leave-one-season-out CV. Returns per-fold metrics."""
+    from nfl_sim.models.backends.xgb import train_xgb
+
+    unique_seasons = sorted(set(seasons.tolist()))
+    fold_results: list[dict[str, float]] = []
+
+    for held_out in unique_seasons:
+        train_mask = seasons != held_out
+        val_mask = seasons == held_out
+
+        backend = train_xgb(
+            data_features[train_mask],
+            data_yards[train_mask],
+            data_turnover[train_mask],
+            data_time[train_mask],
+            yards_params=yards_params,
+            turnover_params=turnover_params,
+        )
+
+        val_features = data_features[val_mask]
+        val_yards = data_yards[val_mask]
+
+        # Predict yards on validation set (deterministic mean, no sampling)
+        preds = backend.yards_model.predict(val_features)
+        rmse = float(np.sqrt(np.mean((preds - val_yards) ** 2)))
+
+        fold_results.append({"season": held_out, "rmse": rmse, "n": int(val_mask.sum())})
+
+    return fold_results
+
+
+def _print_cv_table(fold_results: list[dict[str, float]], console: Console) -> float:
+    """Print a table of per-fold RMSE and return the mean RMSE."""
+    table = Table(title="Leave-One-Season-Out CV (Yards RMSE)")
+    table.add_column("Season", style="cyan", justify="right")
+    table.add_column("N", style="white", justify="right")
+    table.add_column("RMSE", style="magenta", justify="right")
+
+    for fold in fold_results:
+        table.add_row(
+            str(int(fold["season"])),
+            f"{int(fold['n']):,}",
+            f"{fold['rmse']:.4f}",
+        )
+
+    mean_rmse = float(np.mean([f["rmse"] for f in fold_results]))
+    table.add_section()
+    table.add_row("Mean", "", f"{mean_rmse:.4f}", style="bold green")
+    console.print(table)
+    return mean_rmse
+
+
+def _run_grid_search(
+    data_features: np.ndarray,
+    data_yards: np.ndarray,
+    data_turnover: np.ndarray,
+    data_time: np.ndarray,
+    seasons: np.ndarray,
+    console: Console,
+) -> dict[str, object]:
+    """Exhaustive grid search over GRID, scored by mean CV RMSE.
+
+    Returns the best hyperparameter combo as a dict.
+    """
+    keys = list(GRID.keys())
+    combos = [dict(zip(keys, vals)) for vals in itertools.product(*GRID.values())]
+    logger.info(f"Grid search: {len(combos)} combos")
+
+    results: list[tuple[float, dict]] = []
+
+    for i, combo in enumerate(combos, 1):
+        logger.info(f"[{i}/{len(combos)}] {combo}")
+        folds = _run_cv_folds(
+            data_features,
+            data_yards,
+            data_turnover,
+            data_time,
+            seasons,
+            yards_params=combo,
+            turnover_params=combo,
+        )
+        mean_rmse = float(np.mean([f["rmse"] for f in folds]))
+        results.append((mean_rmse, combo))
+
+    # Sort by mean RMSE ascending (best first)
+    results.sort(key=lambda x: x[0])
+
+    # Print results table
+    table = Table(title="Grid Search Results (sorted by Mean RMSE)")
+    table.add_column("Rank", style="cyan", justify="right")
+    for k in keys:
+        table.add_column(k, justify="right")
+    table.add_column("Mean RMSE", style="magenta", justify="right")
+
+    for rank, (rmse, combo) in enumerate(results[:10], 1):
+        style = "bold green" if rank == 1 else ""
+        table.add_row(
+            str(rank),
+            *[str(combo[k]) for k in keys],
+            f"{rmse:.4f}",
+            style=style,
+        )
+    if len(results) > 10:
+        table.add_row("...", *["..." for _ in keys], "...", style="dim")
+
+    console.print(table)
+
+    best_combo = results[0][1]
+    logger.info(f"Best combo: {best_combo} (RMSE={results[0][0]:.4f})")
+    return best_combo
+
+
+def _plot_feature_importance(trained: Backend, console: Console) -> None:
+    """Plot feature importance bar charts for yards and turnover XGB models."""
+    from nfl_sim.models.backends.xgb import XGBBackend
+
+    if not isinstance(trained, XGBBackend):
+        return
+
+    names = FEATURE_NAMES
+
+    for label, model in [("Yards", trained.yards_model), ("Turnover", trained.turnover_model)]:
+        importances = model.feature_importances_
+        # Sort by importance descending
+        order = np.argsort(importances)[::-1]
+        sorted_names = [names[i] for i in order]
+        sorted_vals = importances[order].tolist()
+
+        plt.clear_figure()
+        plt.theme("dark")
+        plt.plot_size(80, max(15, len(names)))
+        plt.title(f"{label} Model: Feature Importance (Gain)")
+        plt.bar(sorted_names, sorted_vals, orientation="horizontal")
+        plt.xlabel("Importance")
+        plt.show()
+
 
 def train(
     backend: str = "xgb",
-    holdout_season: int = 2023,
+    grid: bool = False,
     epochs: int = 50,
     batch_size: int = 1024,
     lr: float = 1e-3,
@@ -39,46 +195,64 @@ def train(
 
     Args:
         backend: 'xgb' or 'torch'
-        holdout_season: Season to hold out for validation
+        grid: Run grid search for XGB hyperparameters
         epochs: Number of training epochs (torch only)
         batch_size: Batch size (torch only)
         lr: Learning rate (torch only)
 
     """
+    console = Console()
     data = prepare()
 
-    # Split by season
-    train_mask = data.season != holdout_season
-    val_mask = data.season == holdout_season
-    logger.info(f"Train Data: {len(train_mask):,}")
-
-    train_features = data.features[train_mask]
-    train_yards = data.yards[train_mask]
-    train_turnover = data.turnover_type[train_mask]
-    train_time = data.time_elapsed[train_mask]
-
-    val_features = data.features[val_mask]
-    val_yards = data.yards[val_mask]
-    val_turnover = data.turnover_type[val_mask]
-    val_time = data.time_elapsed[val_mask]
-
-    # Train
     artifact_path = ARTIFACTS_DIR / backend
     trained: Backend
 
     if backend == "xgb":
         from nfl_sim.models.backends.xgb import train_xgb
 
-        trained = train_xgb(train_features, train_yards, train_turnover, train_time)
+        best_params: dict[str, object] | None = None
+
+        if grid:
+            # Grid search picks the best hyperparams via leave-one-season-out CV
+            best_params = _run_grid_search(
+                data.features,
+                data.yards,
+                data.turnover_type,
+                data.time_elapsed,
+                data.season,
+                console,
+            )
+        else:
+            # No grid search — just run CV with defaults for diagnostics
+            fold_results = _run_cv_folds(
+                data.features,
+                data.yards,
+                data.turnover_type,
+                data.time_elapsed,
+                data.season,
+            )
+            _print_cv_table(fold_results, console)
+
+        # Final model: train on all data with best (or default) params
+        trained = train_xgb(
+            data.features,
+            data.yards,
+            data.turnover_type,
+            data.time_elapsed,
+            yards_params=best_params,
+            turnover_params=best_params,
+        )
+
+        _plot_feature_importance(trained, console)
 
     elif backend == "torch":
         from nfl_sim.models.backends.torch import train_torch
 
         trained = train_torch(
-            train_features,
-            train_yards,
-            train_turnover,
-            train_time,
+            data.features,
+            data.yards,
+            data.turnover_type,
+            data.time_elapsed,
             epochs=epochs,
             batch_size=batch_size,
             lr=lr,
@@ -90,8 +264,19 @@ def train(
     trained.save(artifact_path)
     logger.success(f"Saved artifacts to {artifact_path}")
 
-    # Diagnostics on validation set
-    _print_diagnostics(trained, val_features, val_yards, val_turnover, val_time)
+    # Diagnostics on a held-out fold (use the last season as a quick check)
+    unique_seasons = sorted(set(data.season.tolist()))
+    last_season = unique_seasons[-1]
+    val_mask = data.season == last_season
+    logger.info(f"Running diagnostics on held-out season {last_season}")
+
+    _print_diagnostics(
+        trained,
+        data.features[val_mask],
+        data.yards[val_mask],
+        data.turnover_type[val_mask],
+        data.time_elapsed[val_mask],
+    )
 
 
 def _rmse(predictions: np.ndarray, actuals: np.ndarray) -> float:

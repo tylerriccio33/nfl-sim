@@ -4,13 +4,15 @@ Loads data/pbp.parquet, filters to real run/pass plays, extracts features
 and targets in a format ready for backend training.
 """
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 
-from nfl_sim.models.features import pbp_to_features
+from nfl_sim.models.context import GameFeatures
+from nfl_sim.models.features import _STATE_FEATURE_NAMES
 
 DATA_PATH = Path("data/pbp.parquet")
 
@@ -29,6 +31,22 @@ REQUIRED_COLS = [
     "season",
 ]
 
+# pbp column name -> GameFeatures field name mapping.
+# When a pbp column has a different name than the GameFeatures field,
+# add the mapping here.
+_PBP_GAME_FEATURE_ALIASES: dict[str, str] = {
+    "spread_line": "spread",
+}
+
+
+def _pbp_col_for_feature(field_name: str) -> str:
+    """Reverse-lookup: given a GameFeatures field name, find the pbp column."""
+    for pbp_col, alias in _PBP_GAME_FEATURE_ALIASES.items():
+        if alias == field_name:
+            return pbp_col
+    # Default: assume pbp column name matches field name
+    return field_name
+
 
 @dataclass
 class TrainingData:
@@ -41,13 +59,60 @@ class TrainingData:
     season: np.ndarray  # (N,) int: for train/val splitting
 
 
+def _pbp_to_features(df: pl.DataFrame) -> np.ndarray:
+    """Extract feature vectors from historical pbp data.
+
+    Produces the same layout as state_to_features():
+      [state_features | game_features]
+
+    State features are built from pbp columns.
+    Game features are derived from GameFeatures fields (auto-updated).
+    """
+    # game_seconds_remaining is full-game seconds; convert to quarter clock.
+    # Each quarter is 900 seconds (15 min). Remaining clock in the current quarter
+    # is game_seconds_remaining mod 900 (with edge case: exactly 0 means 900).
+    clock_expr = (
+        pl.when(pl.col("game_seconds_remaining") % 900 == 0)
+        .then(900)
+        .otherwise(pl.col("game_seconds_remaining") % 900)
+    )
+
+    # State-level features (order must match _STATE_FEATURE_NAMES)
+    state_exprs = [
+        (pl.col("play_type") == "pass").cast(pl.Float32).alias("is_pass"),
+        pl.col("down").cast(pl.Float32),
+        pl.col("ydstogo").cast(pl.Float32).alias("distance"),
+        pl.col("yardline_100").cast(pl.Float32).alias("yardline"),
+        pl.col("score_differential").cast(pl.Float32).alias("score_diff"),
+        pl.col("qtr").cast(pl.Float32).alias("quarter"),
+        clock_expr.cast(pl.Float32).alias("clock"),
+        (pl.col("ydstogo") >= pl.col("yardline_100")).cast(pl.Float32).alias("goal_to_go"),
+    ]
+
+    # Game-level features, auto-derived from GameFeatures fields
+    game_exprs = [
+        pl.col(_pbp_col_for_feature(f.name)).fill_null(0.0).cast(pl.Float32).alias(f.name)
+        for f in dataclasses.fields(GameFeatures)
+    ]
+
+    features = df.select(state_exprs + game_exprs)
+
+    # Sanity check: column order matches FEATURE_NAMES
+    expected = _STATE_FEATURE_NAMES + [f.name for f in dataclasses.fields(GameFeatures)]
+    assert features.columns == expected, (
+        f"Feature column mismatch: {features.columns} != {expected}"
+    )
+
+    return features.to_numpy()
+
+
 def prepare(pbp_path: Path = DATA_PATH) -> TrainingData:
     """Load and prepare training data from pbp parquet.
 
     Steps:
       1. Filter to real run/pass plays in regulation (quarters 1-4)
       2. Drop rows with nulls on key columns
-      3. Extract features via pbp_to_features()
+      3. Extract features via _pbp_to_features()
       4. Extract target columns (yards, turnover, time)
     """
     df = pl.read_parquet(pbp_path)
@@ -62,7 +127,7 @@ def prepare(pbp_path: Path = DATA_PATH) -> TrainingData:
     df = df.drop_nulls(subset=REQUIRED_COLS)
 
     # Extract features
-    features = pbp_to_features(df)
+    features = _pbp_to_features(df)
 
     # Extract targets
     yards = df["yards_gained"].to_numpy().astype(np.int32)

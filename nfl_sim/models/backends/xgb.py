@@ -97,22 +97,38 @@ class XGBBackend:
         )
 
 
+DEFAULT_YARDS_PARAMS: dict[str, object] = {
+    "n_estimators": 200,
+    "max_depth": 6,
+    "learning_rate": 0.1,
+}
+
+DEFAULT_TURNOVER_PARAMS: dict[str, object] = {
+    "n_estimators": 200,
+    "max_depth": 4,
+    "learning_rate": 0.1,
+}
+
+
 def train_xgb(
     features: np.ndarray,
     yards: np.ndarray,
     turnover_type: np.ndarray,
     time_elapsed: np.ndarray,
+    yards_params: dict[str, object] | None = None,
+    turnover_params: dict[str, object] | None = None,
 ) -> XGBBackend:
     """Train the XGBoost backend on prepared data.
 
     Returns a fully trained XGBBackend ready for save() or predict().
     """
+    yp = {**DEFAULT_YARDS_PARAMS, **(yards_params or {})}
+    tp = {**DEFAULT_TURNOVER_PARAMS, **(turnover_params or {})}
+
     # Yards model
     yards_model = xgb.XGBRegressor(  # ty: ignore
-        n_estimators=200,
-        max_depth=6,
-        learning_rate=0.1,
         objective="reg:squarederror",
+        **yp,
     )
     yards_model.fit(features, yards)
     yards_pred = yards_model.predict(features)
@@ -120,11 +136,9 @@ def train_xgb(
 
     # Turnover classifier
     turnover_model = xgb.XGBClassifier(  # ty: ignore
-        n_estimators=200,
-        max_depth=4,
-        learning_rate=0.1,
         objective="multi:softprob",
         num_class=3,
+        **tp,
     )
     turnover_model.fit(features, turnover_type)
 

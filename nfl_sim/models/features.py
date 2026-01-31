@@ -1,21 +1,21 @@
 """Feature extraction for learned outcome models.
 
-Two parallel paths exist:
-  - state_to_features(): runtime extraction from (Action, ModelContext)
-  - pbp_to_features(): training-time extraction from historical pbp DataFrame
+Runtime extraction from (Action, ModelContext) via state_to_features().
+Training-time extraction lives in training/prepare.py.
 
-Both must produce the exact same feature vector layout.
+Both paths must produce the exact same feature vector layout, which is
+enforced by deriving FEATURE_NAMES from GameFeatures automatically.
 """
 
+import dataclasses
+
 import numpy as np
-import polars as pl
 
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, Action
-from nfl_sim.models.context import ModelContext
+from nfl_sim.models.context import GameFeatures, ModelContext
 
-# Canonical feature names, in order. Backends can use this for validation.
-# TODO: Need to auto-generate this from ModelContext
-FEATURE_NAMES: list[str] = [
+# State-level feature names (manually maintained, order matters).
+_STATE_FEATURE_NAMES: list[str] = [
     "is_pass",
     "down",
     "distance",
@@ -24,16 +24,19 @@ FEATURE_NAMES: list[str] = [
     "quarter",
     "clock",
     "goal_to_go",
-    # Meta (from GameContext):
-    "spread",
 ]
+
+# Canonical feature names, in order. Backends use this for validation.
+# Game-level features are auto-derived from GameFeatures fields.
+FEATURE_NAMES: list[str] = _STATE_FEATURE_NAMES + [f.name for f in dataclasses.fields(GameFeatures)]
 
 
 def state_to_features(action: Action, context: ModelContext) -> np.ndarray:
     """Extract feature vector from current game state for model inference.
 
-    This is the starter set. Additional features (EPA, momentum, etc.) can be
-    appended here as long as pbp_to_features is updated in lockstep.
+    State features are built manually from the game state tuple.
+    Game-level features are auto-extracted from GameFeatures via introspection,
+    so adding a new field to GameFeatures automatically flows through here.
     """
     s = context.state
 
@@ -43,56 +46,19 @@ def state_to_features(action: Action, context: ModelContext) -> np.ndarray:
     else:
         score_diff = s[_SC][1] - s[_SC][0]
 
-    # Meta features from GameContext (default to 0 when absent)
-    gc = context.game_context
-    spread = gc.features.spread
+    state_feats: list[float] = [
+        float(action == Action.PASS),
+        s[_DN],
+        s[_DIST],
+        s[_YL],
+        score_diff,
+        s[_Q],
+        s[_CLK],
+        float(s[_DIST] >= s[_YL]),  # goal_to_go
+    ]
 
-    return np.array(
-        [
-            # Action:
-            float(action == Action.PASS),
-            # Situational:
-            s[_DN],
-            s[_DIST],
-            s[_YL],
-            score_diff,
-            s[_Q],
-            s[_CLK],
-            float(s[_DIST] >= s[_YL]),  # goal_to_go
-            # Meta:
-            spread,
-        ],
-        dtype=np.float32,
-    )
+    # Game-level features auto-extracted from GameFeatures
+    gf = context.game_context.features
+    game_feats = [getattr(gf, f.name) for f in dataclasses.fields(gf)]
 
-
-# TODO: This should live outside the package
-def pbp_to_features(df: pl.DataFrame) -> np.ndarray:
-    """Extract the same feature vector from historical pbp data.
-
-    Expects a DataFrame already filtered to run/pass plays with non-null key columns.
-    Columns required: play_type, down, ydstogo, yardline_100, score_differential,
-                      qtr, game_seconds_remaining.
-    """
-    # game_seconds_remaining is full-game seconds; convert to quarter clock
-    # Each quarter is 900 seconds (15 min). Remaining clock in the current quarter
-    # is game_seconds_remaining mod 900 (with edge case: exactly 0 means 900).
-    clock_expr = (
-        pl.when(pl.col("game_seconds_remaining") % 900 == 0)
-        .then(900)
-        .otherwise(pl.col("game_seconds_remaining") % 900)
-    )
-
-    features = df.select(
-        (pl.col("play_type") == "pass").cast(pl.Float32).alias("is_pass"),
-        pl.col("down").cast(pl.Float32),
-        pl.col("ydstogo").cast(pl.Float32).alias("distance"),
-        pl.col("yardline_100").cast(pl.Float32).alias("yardline"),
-        pl.col("score_differential").cast(pl.Float32).alias("score_diff"),
-        pl.col("qtr").cast(pl.Float32).alias("quarter"),
-        clock_expr.cast(pl.Float32).alias("clock"),
-        (pl.col("ydstogo") >= pl.col("yardline_100")).cast(pl.Float32).alias("goal_to_go"),
-        pl.col("spread_line").fill_null(0.0).cast(pl.Float32).alias("spread"),
-    )
-
-    return features.to_numpy()
+    return np.array(state_feats + game_feats, dtype=np.float32)
