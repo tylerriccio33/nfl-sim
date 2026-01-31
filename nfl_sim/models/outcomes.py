@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from nfl_sim.engine.state import _CLK, _YL, Action, GameTrace, Outcome, TurnoverType, _GameState
+from nfl_sim.models.features import state_to_features
 
 if TYPE_CHECKING:
     from random import Random
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from nfl_sim.models.backends import Backend
 
 
-class DerivedContext:
+class DerivedContext:  # TODO: Feels like overkill?
     """Game context; basically features."""
 
     def __init__(self, trace: GameTrace):
@@ -74,8 +75,9 @@ def _rule_based_outcome(action: Action, context: ModelContext) -> Outcome:
     )
 
 
-def outcome_model(action: Action, context: ModelContext) -> Outcome:
+def rand_outcome_model(backend: Backend, action: Action, context: ModelContext) -> Outcome:
     """Hardcoded Gaussian outcome model (default fallback)."""
+    _ = backend  # There is no backend for this
     remaining_clock = context.state[_CLK]
 
     if action == Action.RUN:
@@ -126,28 +128,15 @@ def outcome_model(action: Action, context: ModelContext) -> Outcome:
     )
 
 
-class LearnedOutcomeModel:
-    """Outcome model backed by a trained ML backend.
+def outcome_model(backend: Backend, action: Action, context: ModelContext) -> Outcome:
+    """Predict outcome, delegating RUN/PASS to the backend."""
+    if action in (Action.FIELD_GOAL, Action.PUNT):
+        return _rule_based_outcome(action, context)
 
-    Delegates RUN/PASS to the learned backend and falls back to rule-based
-    logic for FG/PUNT. The engine still detects touchdowns via yardline, so
-    we always set touchdown=False and let apply_outcome handle it.
-    """
+    features = state_to_features(action, context)
+    outcome = backend.predict(features, context.rng)
 
-    def __init__(self, backend: Backend):
-        self.backend = backend
-
-    def __call__(self, action: Action, context: ModelContext) -> Outcome:
-        """Predict outcome, delegating RUN/PASS to the backend."""
-        if action in (Action.FIELD_GOAL, Action.PUNT):
-            return _rule_based_outcome(action, context)
-
-        from nfl_sim.models.features import state_to_features
-
-        features = state_to_features(action, context)
-        outcome = self.backend.predict(features, context.rng)
-
-        # Clamp time to remaining clock
-        outcome.time_elapsed = min(outcome.time_elapsed, context.state[_CLK])
-        outcome.touchdown = False  # engine detects via yardline
-        return outcome
+    # Clamp time to remaining clock
+    outcome.time_elapsed = min(outcome.time_elapsed, context.state[_CLK])
+    outcome.touchdown = False  # engine detects via yardline
+    return outcome

@@ -8,6 +8,7 @@ These tests verify the full simulation pipeline:
 - Multiple simulation aggregation
 """
 
+from functools import partial
 from random import Random
 
 import polars as pl
@@ -20,8 +21,10 @@ from nfl_sim.engine.api import (
     traces_to_dataframe,
 )
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _Q, _SC, _YL, Action
-from nfl_sim.models.outcomes import outcome_model
+from nfl_sim.models.outcomes import rand_outcome_model
 from nfl_sim.models.policy import RandomPolicy
+
+_TEST_MODEL = partial(rand_outcome_model, None)
 
 # =============================================================================
 # Single Game Simulation Tests
@@ -33,7 +36,7 @@ class TestSimulateGame:
 
     def test_game_completes(self):
         """A game should run to completion and return a result."""
-        result = simulate_game("KC", "SF", seed=42)
+        result = simulate_game("KC", "SF", seed=42, model=_TEST_MODEL)
 
         assert isinstance(result, GameResult)
         assert result.home == "KC"
@@ -41,13 +44,13 @@ class TestSimulateGame:
 
     def test_game_has_plays(self):
         """A completed game should have at least some plays."""
-        result = simulate_game("KC", "SF", seed=42)
+        result = simulate_game("KC", "SF", seed=42, model=_TEST_MODEL)
 
         assert len(result.trace) > 0
 
     def test_game_has_valid_final_score(self):
         """Final score should be non-negative integers."""
-        result = simulate_game("BUF", "MIA", seed=123)
+        result = simulate_game("BUF", "MIA", seed=123, model=_TEST_MODEL)
 
         assert result.home_score >= 0
         assert result.away_score >= 0
@@ -56,7 +59,7 @@ class TestSimulateGame:
 
     def test_game_ends_after_four_quarters(self):
         """Game should end when quarter > 4."""
-        result = simulate_game("DAL", "PHI", seed=42)
+        result = simulate_game("DAL", "PHI", seed=42, model=_TEST_MODEL)
 
         # Last play should transition to quarter 5 (terminal)
         final_state = result.trace[-1].state_after
@@ -64,8 +67,8 @@ class TestSimulateGame:
 
     def test_seed_produces_reproducible_results(self):
         """Same seed should produce identical games."""
-        result1 = simulate_game("NE", "NYJ", seed=999)
-        result2 = simulate_game("NE", "NYJ", seed=999)
+        result1 = simulate_game("NE", "NYJ", seed=999, model=_TEST_MODEL)
+        result2 = simulate_game("NE", "NYJ", seed=999, model=_TEST_MODEL)
 
         assert result1.home_score == result2.home_score
         assert result1.away_score == result2.away_score
@@ -73,8 +76,8 @@ class TestSimulateGame:
 
     def test_different_seeds_produce_different_results(self):
         """Different seeds should produce different games (usually)."""
-        result1 = simulate_game("LAR", "SEA", seed=1)
-        result2 = simulate_game("LAR", "SEA", seed=2)
+        result1 = simulate_game("LAR", "SEA", seed=1, model=_TEST_MODEL)
+        result2 = simulate_game("LAR", "SEA", seed=2, model=_TEST_MODEL)
 
         # At least one of these should differ (very unlikely to be identical)
         different = (
@@ -86,7 +89,7 @@ class TestSimulateGame:
 
     def test_no_seed_runs_without_error(self):
         """Game should run without a seed (non-reproducible)."""
-        result = simulate_game("GB", "CHI")
+        result = simulate_game("GB", "CHI", model=_TEST_MODEL)
 
         assert isinstance(result, GameResult)
         assert len(result.trace) > 0
@@ -102,7 +105,7 @@ class TestTraceValidity:
 
     def test_trace_state_continuity(self):
         """Each play's state_after should match next play's state_before."""
-        result = simulate_game("TEN", "IND", seed=42)
+        result = simulate_game("TEN", "IND", seed=42, model=_TEST_MODEL)
 
         for i in range(len(result.trace) - 1):
             current_play = result.trace[i]
@@ -111,7 +114,7 @@ class TestTraceValidity:
 
     def test_trace_has_valid_actions(self):
         """All plays should have valid Action enum values."""
-        result = simulate_game("CIN", "CLE", seed=42)
+        result = simulate_game("CIN", "CLE", seed=42, model=_TEST_MODEL)
 
         for play in result.trace:
             assert isinstance(play.action, Action)
@@ -119,7 +122,7 @@ class TestTraceValidity:
 
     def test_trace_starts_with_initial_state(self):
         """First play should start from standard initial state."""
-        result = simulate_game("MIN", "DET", seed=42)
+        result = simulate_game("MIN", "DET", seed=42, model=_TEST_MODEL)
 
         first_state = result.trace[0].state_before
         assert first_state[_Q] == 1
@@ -131,14 +134,14 @@ class TestTraceValidity:
 
     def test_trace_ends_in_terminal_state(self):
         """Last play should end in a terminal state (quarter > 4)."""
-        result = simulate_game("LAC", "DEN", seed=42)
+        result = simulate_game("LAC", "DEN", seed=42, model=_TEST_MODEL)
 
         final_state = result.trace[-1].state_after
         assert final_state[_Q] > 4
 
     def test_score_only_increases(self):
         """Score should never decrease during a game."""
-        result = simulate_game("ATL", "NO", seed=42)
+        result = simulate_game("ATL", "NO", seed=42, model=_TEST_MODEL)
 
         prev_score = (0, 0)
         for play in result.trace:
@@ -303,7 +306,7 @@ class TestCustomComponents:
         rng = Random(42)
         policy = RandomPolicy(rng)
 
-        result = simulate_game("TEST1", "TEST2", seed=42, policy=policy)
+        result = simulate_game("TEST1", "TEST2", seed=42, policy=policy, model=_TEST_MODEL)
 
         assert isinstance(result, GameResult)
         assert len(result.trace) > 0
@@ -312,7 +315,7 @@ class TestCustomComponents:
         """Custom model should be called during simulation."""
         rng = Random(42)
 
-        result = simulate_game("TEST1", "TEST2", seed=42, model=outcome_model)
+        result = simulate_game("TEST1", "TEST2", seed=42, model=_TEST_MODEL)
 
         assert isinstance(result, GameResult)
         assert len(result.trace) > 0
@@ -334,7 +337,7 @@ class TestEdgeCases:
 
     def test_zero_zero_start(self):
         """Game should start 0-0."""
-        result = simulate_game("ZERO1", "ZERO2", seed=42)
+        result = simulate_game("ZERO1", "ZERO2", seed=42, model=_TEST_MODEL)
 
         first_play = result.trace[0]
         assert first_play.state_before[_SC] == (0, 0)

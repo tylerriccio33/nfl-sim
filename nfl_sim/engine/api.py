@@ -2,9 +2,9 @@
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
+from functools import partial
 from os import cpu_count
 from random import Random
-from typing import Literal
 
 import numpy as np
 import polars as pl
@@ -28,20 +28,8 @@ from nfl_sim.engine.state import (
 )
 from nfl_sim.models.backends import load_backend
 from nfl_sim.models.context import GameContext
-from nfl_sim.models.outcomes import DerivedContext, LearnedOutcomeModel, ModelContext, OutcomeModel
+from nfl_sim.models.outcomes import DerivedContext, ModelContext, OutcomeModel, outcome_model
 from nfl_sim.models.policy import Policy, RandomPolicy
-
-
-def make_learned_model(backend_name: Literal["xgb", "torch", "rng"]) -> OutcomeModel:
-    """Load a trained backend and return an OutcomeModel callable.
-
-    Slots directly into simulate_game(model=...) or sim_games(model_factory=...).
-    """
-    backend = load_backend(backend_name)
-    return LearnedOutcomeModel(backend)
-
-
-DEFAULT_MODEL = make_learned_model(MODEL_IND())
 
 
 @dataclass(frozen=True)
@@ -93,9 +81,10 @@ def simulate_game(
     home: str,
     away: str,
     *,
+    # TODO: This is internal, there is no reason for these defaults
     seed: int | None = None,
     policy: Policy | None = None,
-    model: OutcomeModel = DEFAULT_MODEL,
+    model: OutcomeModel,
     context: GameContext | None = None,
 ) -> GameResult:
     """Simulate a single game.
@@ -139,7 +128,7 @@ def _run_one_game(
     n: int,
     seed: int | None,
     policy_factory: type[Policy] | None,
-    model: OutcomeModel = DEFAULT_MODEL,
+    model: OutcomeModel,
 ) -> tuple[str, list[GameTrace]]:
     """Simulate all n iterations of a single game. Unit of parallel work."""
     rng = Random(seed)
@@ -166,7 +155,7 @@ def sim_games(
     n: int = 100,
     base_seed: int | None = None,
     policy_factory: type[Policy] | None = None,
-    model_factory: OutcomeModel = DEFAULT_MODEL,
+    model_factory: OutcomeModel | None = None,
     max_workers: int | None = None,
 ) -> dict[str, list[GameTrace]]:
     """Simulate multiple games n times each.
@@ -187,6 +176,10 @@ def sim_games(
         Dict mapping game_id to list of GameTrace
 
     """
+    if model_factory is None:
+        backend = load_backend(MODEL_IND())
+        model_factory = partial(outcome_model, backend)
+
     game_items = list(games.items())
 
     # Deterministic per-game seeds so results don't depend on execution order
