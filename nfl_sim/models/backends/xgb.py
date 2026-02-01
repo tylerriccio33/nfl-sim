@@ -110,7 +110,6 @@ DEFAULT_TURNOVER_PARAMS: dict[str, object] = {
 }
 
 
-# TODO: Do we need this?
 def train_xgb(
     features: np.ndarray,
     yards: np.ndarray,
@@ -126,7 +125,7 @@ def train_xgb(
     yp = {**DEFAULT_YARDS_PARAMS, **(yards_params or {})}
     tp = {**DEFAULT_TURNOVER_PARAMS, **(turnover_params or {})}
 
-    # Yards model
+    ## Yards Model:
     yards_model = xgb.XGBRegressor(  # ty: ignore
         objective="reg:squarederror",
         **yp,
@@ -135,7 +134,7 @@ def train_xgb(
     yards_pred = yards_model.predict(features)
     yards_residual_std = float(np.std(yards - yards_pred))
 
-    # Turnover classifier
+    ## Turnover Model:
     turnover_model = xgb.XGBClassifier(  # ty: ignore
         objective="multi:softprob",
         num_class=3,
@@ -143,8 +142,8 @@ def train_xgb(
     )
     turnover_model.fit(features, turnover_type)
 
-    # Time model: simple linear regression on |yards| → time_elapsed
-    # time ≈ intercept + slope * |yards|
+    ## Time model: simple linear regression on |yards| → time_elapsed
+    ## time ≈ intercept + slope * |yards|
     abs_yards = np.abs(yards).astype(np.float64)
     time_f = time_elapsed.astype(np.float64)
 

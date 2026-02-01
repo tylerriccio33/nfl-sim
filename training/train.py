@@ -20,7 +20,7 @@ from sklearn.model_selection import GridSearchCV, RepeatedKFold, train_test_spli
 from xgboost import XGBRegressor
 
 from nfl_sim.models.backends import Backend
-from nfl_sim.models.backends.xgb import XGBBackend
+from nfl_sim.models.backends.xgb import XGBBackend, train_xgb
 from nfl_sim.models.features import _gen_feature_names
 from training.prepare import prepare
 
@@ -318,16 +318,15 @@ def _print_predictions(
 def train() -> None:
     """Train a backend and save artifacts."""
     # TODO: his should be in the training code i think?
-    from nfl_sim.models.backends.xgb import train_xgb
 
     console = Console()
     data = prepare()
 
     artifact_path = ARTIFACTS_DIR / "xgb"
 
-    # -- Train/test split --
-    # We hold out 25% of the data for final evaluation. The remaining 75% is
-    # used for CV (if grid search) and then final refit on the full training set.
+    ## -- Train/test split --
+    ## We hold out 25% of the data for final evaluation. The remaining 75% is
+    ## used for CV (if grid search) and then final refit on the full training set.
     X_train, X_test, y_yards_train, y_yards_test = train_test_split(
         data.features, data.yards, test_size=0.25, random_state=42
     )
@@ -341,9 +340,7 @@ def train() -> None:
 
     logger.info(f"Train: {len(X_train):,} rows | Test: {len(X_test):,} rows")
 
-    best_yards_params: dict[str, object] | None = None
-
-    # GridSearchCV tunes yards model hyperparameters
+    ## GridSearchCV tunes yards model hyperparameters
     cv = RepeatedKFold(n_splits=5, n_repeats=1, random_state=42)
     estimator = XGBRegressor(objective="reg:squarederror")
 

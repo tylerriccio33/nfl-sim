@@ -5,7 +5,6 @@ the specific trained weights: determinism, no leakage, sanity bounds, and
 smooth response to perturbations.
 """
 
-import dataclasses
 from random import Random
 
 import numpy as np
@@ -22,7 +21,14 @@ from nfl_sim.models.context import (
     ModelContext,
     ctx_from_game_id,
 )
-from nfl_sim.models.features import _gen_feature_names, build_features
+from nfl_sim.models.features import (
+    _action_feature_names,
+    _gen_feature_names,
+    _state_feature_names,
+    build_features,
+    features_from_action,
+    features_from_state,
+)
 from nfl_sim.models.outcomes import outcome_model
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -318,20 +324,46 @@ def test_feature_order_matches_canonical():
     expected = {
         "is_pass": 0.0,  # RUN
         "down": 2.0,
-        "distance": 5.0,
+        "dist": 5.0,
         "yardline": 30.0,
         "score_diff": 7.0,  # HOME offense: 14 - 7
         "quarter": 3.0,
         "clock": 600.0,
         "goal_to_go": 0.0,  # distance(5) < yardline(30)
         "spread": -2.5,
-        "epa_home": -1.0,
-        "epa_away": 1.0,
+        "epa": -1.0,
     }
     for i, name in enumerate(_gen_feature_names()):
         assert feats[i] == pytest.approx(expected[name]), (
             f"Feature {name!r} at index {i}: expected {expected[name]}, got {feats[i]}"
         )
+
+
+# ── Feature name / function alignment ────────────────────────────────────
+# Each name list must have exactly as many entries as its corresponding
+# extraction function produces values. This catches drift between the name
+# metadata and the actual feature construction without recreating any
+# extraction logic in the test.
+
+
+def test_feature_name_counts_match_extraction_functions():
+    """Each component's name list length must equal its function output length."""
+    state = _make_state()
+    assert len(_state_feature_names) == len(features_from_state(state))
+    assert len(_action_feature_names) == len(features_from_action(Action.PASS))
+    assert len(_action_feature_names) == len(features_from_action(Action.RUN))
+
+
+def test_gen_feature_names_covers_build_features():
+    """_gen_feature_names() must produce exactly one name per value in build_features()."""
+    ctx = _make_context()
+    feats = build_features(Action.PASS, ctx)
+    names = _gen_feature_names()
+
+    assert len(names) == len(feats), (
+        f"_gen_feature_names() has {len(names)} names but build_features() produced {len(feats)} values"
+    )
+    assert len(names) == len(set(names)), f"Duplicate feature names: {names}"
 
 
 # ── Context building (ctx_from_game_id + GameFeatures) ──────────────────
@@ -340,17 +372,16 @@ def test_feature_order_matches_canonical():
 
 
 def test_game_features_fields_match__gen_feature_names():
-    """Every field in GameFeatures must appear at the tail of _gen_feature_names().
+    """GameFeatures.feature_names must appear at the tail of _gen_feature_names().
 
     This is the contract that keeps build_features, from_row, and
     training/prepare.py in sync. If someone adds a field to GameFeatures
     but forgets to wire it, this test catches it.
     """
-    gf_field_names = [f.name for f in dataclasses.fields(GameFeatures)]
-    tail = _gen_feature_names()[-len(gf_field_names) :]
+    tail = _gen_feature_names()[-len(GameFeatures.feature_names) :]
 
-    assert tail == gf_field_names, (
-        f"_gen_feature_names() tail {tail} does not match GameFeatures fields {gf_field_names}"
+    assert tail == GameFeatures.feature_names, (
+        f"_gen_feature_names() tail {tail} does not match GameFeatures.feature_names {GameFeatures.feature_names}"
     )
 
 

@@ -14,7 +14,6 @@ import numpy as np
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, Action, _GameState
 from nfl_sim.models.context import GameFeatures, ModelContext
 
-# TODO: Create a test that makes sure the state feature names are always in line with these!
 _state_feature_names = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go"]
 
 
@@ -38,7 +37,6 @@ def features_from_state(s: _GameState) -> list[float]:
     ]
 
 
-# TODO: Create a test that makes sure the state feature names are always in line with these!
 _action_feature_names: list[str] = ["is_pass"]
 
 
@@ -55,6 +53,5 @@ def build_features(action: Action, context: ModelContext) -> np.ndarray:
     return np.array(action_feats + state_feats + game_feats, dtype=np.float32)
 
 
-# TODO: We need a test that makes sure ALL the feature names are correctly captured and line up with reality
 def _gen_feature_names():  # pragma: no cover
-    return _state_feature_names + GameFeatures.feature_names + _action_feature_names
+    return _action_feature_names + _state_feature_names + GameFeatures.feature_names
