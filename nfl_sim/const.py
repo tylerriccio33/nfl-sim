@@ -29,8 +29,8 @@ def GAME_SUMMARY() -> str:
     return os.getenv("GAME_SUMMARIZATION", "0")
 
 
-def MODEL_IND() -> Literal["xgb", "torch", "rng"]:
+def MODEL_IND() -> Literal["xgb", "rng"]:
     """Model type."""
     mod = os.getenv("NFL_SIM_MODEL", "xgb")
-    assert mod in {"xgb", "torch", "rng"}  # pragma: no cover
+    assert mod in {"xgb", "rng"}  # pragma: no cover
     return mod  # ty: ignore (can't narrow and don't want to do over-engineer)

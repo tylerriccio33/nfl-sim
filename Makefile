@@ -47,8 +47,8 @@ perf: ## Run performance of results against real
 converge: ## Run convergence benchmark
 	@uv run --no-sync bench/convergence_perf.py
 
-train-xgb: ## Run model training script
-	@uv run training/train.py xgb
+train: ## Run model training script
+	@uv run training/train.py
 
 refresh-data: ## Refresh all data files
 	@uv run python data/refresh_data.py

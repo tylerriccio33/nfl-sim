@@ -19,8 +19,11 @@ class GameFeatures:
     """
 
     spread: float
+    # home_season_epa: float
+    # away_season_epa: float
     # home_season_epa, home_12_week_epa, away_*, etc.
     # features that require schedule/meta and pbp
+    # TODO: Might need a built in pivoter
 
 
 @dataclass
