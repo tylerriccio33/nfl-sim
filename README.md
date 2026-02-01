@@ -42,53 +42,27 @@ make lint
 - Less code is a virtue. Do not solve for functionality/cases we don't explicitly need.
 - Defaults in arguments are usually bad, especially for internal functions. Use env variables instead.
 
+### Testing Philosophy
+
+- I don't like unit tests, you heard that - favor end to end tests of broad functionality over unit testing. The implementation is often arbitrary and maleable, but the high level goals are not.
+- Data for testing lives in @data folder (you can't see because it's not tracked).
+- Everything feeds the web UI, we don't need to test (or write) functionality that does not have the web API in mind.
+- Roundtrip testing os usually unecessary.
+- Favor minimal reusable fixtures over helpers.
+- If you find yourself recreating logic in the source code, it's the wrong test. e.g.
+
 ### Project conventions
 
 - Favor `toml` files for configuration and logic over hardcoding values. Use these for as much as we can and use them to drive logic. These files should ship with the package.
 - Favor dedicated sections for logic instead of inlining it. i.e favor an EXPR.py module holding all data logic and expressions.
 - Use data in the `dictionary` folder for mappings of available columns.
-- Data for testing lives in @data folder (you can't see because it's not tracked).
 - Duplication is the devil, avoid it at all costs. If you find yourself copy/pasting code, stop and rethink your approach, look to centralize it.
-- Everything feeds the web UI, we don't need to test (or write) functionality that does not have the web API in mind.
 - We will almost never care about backward compatability.
 - Over-engineering is the devil!
 
 ## Adding a New Game-Level Feature
 
-`GameFeatures` in `nfl_sim/models/context.py` is the single source of truth for game-level features. `FEATURE_NAMES`, `state_to_features()`, and `from_row()` all auto-derive from it via `dataclasses.fields()`.
-
-To add a new game-level feature (e.g. `home_epa`):
-
-1. Add the field to `GameFeatures` in `nfl_sim/models/context.py`:
-   ```python
-   @dataclass(frozen=True)
-   class GameFeatures:
-       spread: float
-       home_epa: float  # new
-   ```
-
-2. Add the polars expression in `ctx_from_game_id()` (same file), aliased to match the field name:
-   ```python
-   sched_features = (
-       schedule_data.filter(pl.col("game_id").is_in(game_ids))
-       .select(
-           "game_id", "home_team", "away_team",
-           pl.col("spread_line").alias("spread"),
-           pl.col("some_column").alias("home_epa"),  # new
-       )
-       .unique()
-   )
-   ```
-
-3. If training pbp data has the column under a different name, add a mapping in `_PBP_GAME_FEATURE_ALIASES` in `training/prepare.py`:
-   ```python
-   _PBP_GAME_FEATURE_ALIASES: dict[str, str] = {
-       "spread_line": "spread",
-       "pbp_col_name": "home_epa",  # new (skip if names already match)
-   }
-   ```
-
-That's it. `FEATURE_NAMES`, `state_to_features()`, `from_row()`, and `_pbp_to_features()` all update automatically.
+TODO: Harden and fill out this section
 
 ## Web Interface
 

@@ -101,10 +101,16 @@ def ctx() -> dict[str, GameContext]:
     # the stats (spread, epa, etc.)
     games = [
         GameContext(
-            game_id="2025_02_KC_BUF", home="KC", away="BUF", features=GameFeatures(spread=-3.0)
+            game_id="2025_02_KC_BUF",
+            home="KC",
+            away="BUF",
+            features=GameFeatures(spread=-3.0, epa_home=1, epa_away=1),
         ),
         GameContext(
-            game_id="2025_03_BUF_MIA", home="BUF", away="MIA", features=GameFeatures(spread=-7.0)
+            game_id="2025_03_BUF_MIA",
+            home="BUF",
+            away="MIA",
+            features=GameFeatures(spread=-7.0, epa_home=1, epa_away=1),
         ),
     ]
     return {g.game_id: g for g in games}
@@ -199,7 +205,7 @@ def build_comparison_data(
     real_stats_combined = _stats_to_avg_std(real_stats)
 
     ## Run simulations:
-    schedule_filtered = raw_schedules.filter(pl.col("season") > 2024)
+    schedule_filtered = raw_schedules.sample(n=100)
     latest_games: list[str] = schedule_filtered.select("game_id").unique().to_series().to_list()
 
     ## Engineer data for Sims:

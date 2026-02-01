@@ -33,7 +33,7 @@ def _test_ctx(home: str, away: str) -> GameContext:
         game_id=f"{home}_{away}",
         home=home,
         away=away,
-        features=GameFeatures(spread=0.0),
+        features=GameFeatures(spread=0.0, epa_home=1, epa_away=1),
     )
 
 

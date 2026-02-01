@@ -118,6 +118,7 @@ def _simulate_game(
     )
 
 
+# TODO: Why does this exist and _simulate_game does? Document at least
 def _run_one_game(
     game_id: str,
     context: GameContext,
@@ -178,6 +179,7 @@ def sim_games(
 
     game_items = list(games.items())
 
+    # TODO: This needs to be simplified
     # Deterministic per-game seeds so results don't depend on execution order
     seeds = [None if base_seed is None else base_seed + 77 + i for i in range(len(game_items))]
 

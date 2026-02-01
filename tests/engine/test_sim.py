@@ -11,6 +11,9 @@ These tests verify the core game logic:
 
 from dataclasses import replace
 
+import pytest
+
+from nfl_sim import place_sim_results_at_db
 from nfl_sim.engine.apply import apply_outcome, is_terminal
 from nfl_sim.engine.state import (
     _CLK,
@@ -510,3 +513,11 @@ class TestActionTypeIndependence:
         pass_result = apply_outcome(state, Action.PASS, outcome)
 
         assert run_result == pass_result
+
+
+def test_end_to_end_no_error(override_const):
+    place_sim_results_at_db()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-sv", "-k", "test_end_to_end_no_error"])

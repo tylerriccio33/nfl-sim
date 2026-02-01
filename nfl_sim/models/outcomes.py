@@ -5,7 +5,7 @@ from collections.abc import Callable
 from nfl_sim.engine.state import _CLK, _YL, Action, Outcome, TurnoverType
 from nfl_sim.models.backends import Backend
 from nfl_sim.models.context import ModelContext
-from nfl_sim.models.features import state_to_features
+from nfl_sim.models.features import build_features
 
 type OutcomeModel = Callable[[Action, ModelContext], Outcome]
 
@@ -102,7 +102,7 @@ def outcome_model(backend: Backend, action: Action, context: ModelContext) -> Ou
     if action in (Action.FIELD_GOAL, Action.PUNT):
         return _rule_based_outcome(action, context)
 
-    features = state_to_features(action, context)
+    features = build_features(action, context)
     outcome = backend.predict(features, context.rng)
 
     # Clamp time to remaining clock

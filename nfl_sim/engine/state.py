@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
-type TeamId = str
+type TeamId = Literal["HOME", "AWAY"]
 
 # ---------------------------------------------------------------------------
 # _GameState: plain tuple used in the hot loop for zero-overhead construction.

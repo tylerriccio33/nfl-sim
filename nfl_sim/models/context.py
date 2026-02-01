@@ -3,27 +3,39 @@
 import dataclasses
 from dataclasses import dataclass
 from random import Random
-from typing import Self
+from typing import ClassVar, Literal, Self
 
 import polars as pl
 
 from nfl_sim.engine.state import GameTrace, _GameState
 
 
+# TODO: Right now there are a lot tests with this that should get auto generated in a fixture
 @dataclass(frozen=True)
 class GameFeatures:
-    """Little container for all features at the game level.
-
-    Easier to track and keep a source of truth, also easier to generate meta-programming
-    downstream.
-    """
+    """Little container for all features at the game level."""
 
     spread: float
-    # home_season_epa: float
-    # away_season_epa: float
+    ## THESE MUST BE IN ORDER ##
+    epa_home: float
+    epa_away: float
     # home_season_epa, home_12_week_epa, away_*, etc.
     # features that require schedule/meta and pbp
-    # TODO: Might need a built in pivoter
+
+    feature_names: ClassVar[list[str]] = ["spread", "epa"]
+    """For logging feature metadata later on."""
+
+    def get(self, key: Literal["HOME", "AWAY"]) -> list[int | float]:
+        """Get the home or away features in order."""
+        ## Pull game-level features, but we use the state to determine which ones to select.
+        ## The GameFeatures come with two stats for Home/Away, so we need to pass the correct
+        ## one to the model. E.g. if offense is currently HOME, we pass the home epa, and if
+        ## offense were away, we would pass the away epa.
+        # TODO: Don't love how this works, would like more type safety in the return
+        # TODO: This really should be auto generated but it's ok for now
+        if key == "HOME":
+            return [self.spread, self.epa_home]
+        return [-self.spread, self.epa_away]
 
 
 @dataclass
@@ -101,9 +113,32 @@ def ctx_from_game_id(
     )
 
     ## <FEATURE ENGINEERING GOES HERE> ##
+    ids = ["posteam", "season", "week", "game_id"]
+    lookup = pbp.drop_nulls(ids).group_by(ids).agg(epa=pl.col("epa").mean())
+    # TODO: Need to check things are not null, i've seen null epas
+
+    shifted = (
+        lookup.sort(ids)
+        .with_columns(pl.all().exclude(ids).shift(1).over("posteam"))
+        .drop("season", "week")
+    )
+
+    pbp_feats: list[str] = [c for c in shifted.columns if c not in ids]
+
+    ## JOIN DATA BACK TO SCHEDULES AS HOME AND AWAY ##
+    lookup_keys = ["game_id", "posteam"]
+    joined = sched_features.join(
+        shifted.select(*lookup_keys, pl.col(pbp_feats).name.suffix("_home")),
+        left_on=("game_id", "home_team"),
+        right_on=("game_id", "posteam"),
+    ).join(
+        shifted.select(*lookup_keys, pl.col(pbp_feats).name.suffix("_away")),
+        left_on=("game_id", "away_team"),
+        right_on=("game_id", "posteam"),
+    )
 
     assert len(sched_features) > 0, "No games found in filter."
-    return _rows_to_contexts(sched_features)
+    return _rows_to_contexts(joined)
 
 
 class DerivedContext:

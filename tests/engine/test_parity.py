@@ -46,4 +46,7 @@ def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str):
 
 
 if __name__ == "__main__":
+    import os
+
+    os.environ["NFL_SIM_PARITY"] = "1"
     pytest.main([__file__, "-sv"])

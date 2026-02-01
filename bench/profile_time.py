@@ -55,7 +55,7 @@ def main() -> None:
         game_id="KC_NYJ",
         home="KC",
         away="NYJ",
-        features=GameFeatures(spread=-3.0),
+        features=GameFeatures(spread=-3.0, epa_home=1, epa_away=-1),
     )
 
     # Profile N simulations

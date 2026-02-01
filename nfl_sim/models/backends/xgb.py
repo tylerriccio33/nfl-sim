@@ -18,7 +18,7 @@ import numpy as np
 import xgboost as xgb
 
 from nfl_sim.engine.state import Outcome, TurnoverType
-from nfl_sim.models.features import FEATURE_NAMES
+from nfl_sim.models.features import _gen_feature_names
 
 
 @dataclass
@@ -68,7 +68,7 @@ class XGBBackend:
         self.turnover_model.save_model(path / "turnover.json")
 
         meta = {
-            "feature_names": FEATURE_NAMES,
+            "feature_names": _gen_feature_names(),
             "yards_residual_std": self.yards_residual_std,
             "time_intercept": self.time_intercept,
             "time_slope": self.time_slope,
@@ -110,6 +110,7 @@ DEFAULT_TURNOVER_PARAMS: dict[str, object] = {
 }
 
 
+# TODO: Do we need this?
 def train_xgb(
     features: np.ndarray,
     yards: np.ndarray,

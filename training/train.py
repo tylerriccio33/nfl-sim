@@ -20,7 +20,8 @@ from sklearn.model_selection import GridSearchCV, RepeatedKFold, train_test_spli
 from xgboost import XGBRegressor
 
 from nfl_sim.models.backends import Backend
-from nfl_sim.models.features import FEATURE_NAMES
+from nfl_sim.models.backends.xgb import XGBBackend
+from nfl_sim.models.features import _gen_feature_names
 from training.prepare import prepare
 
 ARTIFACTS_DIR = Path("training/artifacts")
@@ -28,7 +29,7 @@ ARTIFACTS_DIR = Path("training/artifacts")
 # Grid search space for XGB hyperparameters (yards model only)
 GRID = {
     "max_depth": [4, 6, 8],
-    "learning_rate": [0.05, 0.1, 0.2],
+    "learning_rate": [0.01, 0.05, 0.1, 0.2],
     "n_estimators": [100, 200, 300],
 }
 
@@ -37,14 +38,9 @@ def _rmse(predictions: np.ndarray, actuals: np.ndarray) -> float:
     return float(np.sqrt(np.mean((predictions - actuals) ** 2)))
 
 
-def _plot_feature_importance(trained: Backend, console: Console) -> None:
+def _plot_feature_importance(trained: XGBBackend, console: Console) -> None:
     """Plot feature importance bar charts for yards and turnover XGB models."""
-    from nfl_sim.models.backends.xgb import XGBBackend
-
-    if not isinstance(trained, XGBBackend):
-        return
-
-    names = FEATURE_NAMES
+    names = _gen_feature_names()
 
     for label, model in [("Yards", trained.yards_model), ("Turnover", trained.turnover_model)]:
         importances = model.feature_importances_
@@ -92,7 +88,7 @@ def _print_grid_results(grid_cv: GridSearchCV, console: Console) -> None:
 
 
 def _print_metrics(
-    trained: Backend,
+    trained: XGBBackend,
     X_test: np.ndarray,
     y_test_yards: np.ndarray,
     y_test_turnover: np.ndarray,
@@ -319,26 +315,15 @@ def _print_predictions(
     console.print(table)
 
 
-def train(
-    backend: str = "xgb",
-    grid: bool = False,
-) -> None:
-    """Train a backend and save artifacts.
-
-    Args:
-        backend: 'xgb' only
-        grid: Run GridSearchCV for XGB hyperparameters
-
-    """
-    if backend != "xgb":
-        raise ValueError(f"Unknown backend: {backend!r}. Only 'xgb' is supported.")
-
+def train() -> None:
+    """Train a backend and save artifacts."""
+    # TODO: his should be in the training code i think?
     from nfl_sim.models.backends.xgb import train_xgb
 
     console = Console()
     data = prepare()
 
-    artifact_path = ARTIFACTS_DIR / backend
+    artifact_path = ARTIFACTS_DIR / "xgb"
 
     # -- Train/test split --
     # We hold out 25% of the data for final evaluation. The remaining 75% is
@@ -358,53 +343,25 @@ def train(
 
     best_yards_params: dict[str, object] | None = None
 
-    if grid:
-        # GridSearchCV tunes yards model hyperparameters
-        cv = RepeatedKFold(n_splits=5, n_repeats=1, random_state=42)
-        estimator = XGBRegressor(objective="reg:squarederror")
+    # GridSearchCV tunes yards model hyperparameters
+    cv = RepeatedKFold(n_splits=5, n_repeats=1, random_state=42)
+    estimator = XGBRegressor(objective="reg:squarederror")
 
-        grid_cv = GridSearchCV(
-            estimator=estimator,
-            param_grid=GRID,
-            scoring="neg_root_mean_squared_error",
-            cv=cv,
-            n_jobs=-1,
-            verbose=2,
-        )
-        grid_cv.fit(X_train, y_yards_train)
+    grid_cv = GridSearchCV(
+        estimator=estimator,
+        param_grid=GRID,
+        scoring="neg_root_mean_squared_error",
+        cv=cv,
+        n_jobs=-1,
+        verbose=2,
+    )
+    grid_cv.fit(X_train, y_yards_train)
 
-        _print_grid_results(grid_cv, console)
+    _print_grid_results(grid_cv, console)
 
-        best_yards_params = grid_cv.best_params_
-        logger.info(f"Best yards params: {best_yards_params}")
-        logger.info(f"Best CV RMSE: {-grid_cv.best_score_:.4f}")
-    else:
-        # Simple CV eval with defaults for diagnostics
-        cv = RepeatedKFold(n_splits=5, n_repeats=1, random_state=42)
-        estimator = XGBRegressor(
-            objective="reg:squarederror", n_estimators=200, max_depth=6, learning_rate=0.1
-        )
-
-        from sklearn.model_selection import cross_val_score
-
-        scores = cross_val_score(
-            estimator,
-            X_train,
-            y_yards_train,
-            scoring="neg_root_mean_squared_error",
-            cv=cv,
-            n_jobs=-1,
-        )
-        rmses = -scores
-        table = Table(title="5-Fold CV (Yards RMSE)")
-        table.add_column("Fold", style="cyan", justify="right")
-        table.add_column("RMSE", style="magenta", justify="right")
-        for i, rmse in enumerate(rmses, 1):
-            table.add_row(str(i), f"{rmse:.4f}")
-        table.add_section()
-        table.add_row("Mean", f"{rmses.mean():.4f}", style="bold green")
-        table.add_row("Std", f"{rmses.std():.4f}", style="dim")
-        console.print(table)
+    best_yards_params = grid_cv.best_params_
+    logger.info(f"Best yards params: {best_yards_params}")
+    logger.info(f"Best CV RMSE: {-grid_cv.best_score_:.4f}")
 
     # -- Final refit on full training set --
     trained = train_xgb(

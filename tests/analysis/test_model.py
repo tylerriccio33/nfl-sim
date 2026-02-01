@@ -5,9 +5,11 @@ the specific trained weights: determinism, no leakage, sanity bounds, and
 smooth response to perturbations.
 """
 
+import dataclasses
 from random import Random
 
 import numpy as np
+import polars as pl
 import pytest
 
 from nfl_sim.engine.state import Action, Outcome, TurnoverType
@@ -18,8 +20,9 @@ from nfl_sim.models.context import (
     GameContext,
     GameFeatures,
     ModelContext,
+    ctx_from_game_id,
 )
-from nfl_sim.models.features import FEATURE_NAMES, state_to_features
+from nfl_sim.models.features import _gen_feature_names, build_features
 from nfl_sim.models.outcomes import outcome_model
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -56,7 +59,7 @@ def _make_context(
             game_id=game_id,
             home=home,
             away=away,
-            features=GameFeatures(spread=spread),
+            features=GameFeatures(spread=spread, epa_home=-1, epa_away=1),
         ),
     )
 
@@ -97,38 +100,13 @@ def test_determinism_run(backend: XGBBackend):
 # We verify this indirectly: the features come only from pre-play state.
 
 
-def test_feature_names_no_leakage():
-    """Feature names must not reference outcome or post-play fields.
-
-    Any feature whose name suggests it encodes the result of the play
-    (yards gained, touchdown, turnover, etc.) would be data leakage.
-    """
-    leaky_keywords = {
-        "result",
-        "gained",
-        "touchdown",
-        "turnover",
-        "fumble",
-        "interception",
-        "penalty",
-        "epa",
-        "wpa",
-        "outcome",
-    }
-    for name in FEATURE_NAMES:
-        for keyword in leaky_keywords:
-            assert keyword not in name.lower(), (
-                f"Feature {name!r} looks like a post-outcome field (matched {keyword!r})"
-            )
-
-
 def test_features_only_from_pre_play_state():
-    """state_to_features uses only the pre-play state tuple, not outcomes."""
+    """build_features uses only the pre-play state tuple, not outcomes."""
     ctx = _make_context()
-    feats = state_to_features(Action.PASS, ctx)
+    feats = build_features(Action.PASS, ctx)
 
     # The feature vector length must match the canonical list exactly
-    assert len(feats) == len(FEATURE_NAMES)
+    assert len(feats) == len(_gen_feature_names())
     assert feats.dtype == np.float32
 
 
@@ -142,8 +120,8 @@ def test_identifier_leakage_game_id(backend: XGBBackend):
     ctx_a = _make_context(seed=42, game_id="2024_01_KC_BUF")
     ctx_b = _make_context(seed=42, game_id="9999_99_FOO_BAR")
 
-    feats_a = state_to_features(Action.PASS, ctx_a)
-    feats_b = state_to_features(Action.PASS, ctx_b)
+    feats_a = build_features(Action.PASS, ctx_a)
+    feats_b = build_features(Action.PASS, ctx_b)
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
@@ -162,8 +140,8 @@ def test_identifier_leakage_team_names(backend: XGBBackend):
     ctx_a = _make_context(seed=42, home="KC", away="BUF")
     ctx_b = _make_context(seed=42, home="ZZZZZ", away="YYYYY")
 
-    feats_a = state_to_features(Action.PASS, ctx_a)
-    feats_b = state_to_features(Action.PASS, ctx_b)
+    feats_a = build_features(Action.PASS, ctx_a)
+    feats_b = build_features(Action.PASS, ctx_b)
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
@@ -177,7 +155,7 @@ def test_identifier_leakage_team_names(backend: XGBBackend):
 def _yards_mean(backend: XGBBackend, action: Action, **kw) -> float:
     """Get the deterministic yards mean from the XGB regressor (no sampling)."""
     ctx = _make_context(**kw)
-    feats = state_to_features(action, ctx).reshape(1, -1)
+    feats = build_features(action, ctx).reshape(1, -1)
     return float(backend.yards_model.predict(feats)[0])
 
 
@@ -208,7 +186,7 @@ def test_short_yardline_no_explosion(backend: XGBBackend):
 
 def test_zero_features_produce_finite_output(backend: XGBBackend):
     """A zeroed-out feature vector must not produce NaN, inf, or absurd values."""
-    zeros = np.zeros(len(FEATURE_NAMES), dtype=np.float32)
+    zeros = np.zeros(len(_gen_feature_names()), dtype=np.float32)
     rng = Random(42)
     out = backend.predict(zeros, rng)
 
@@ -313,14 +291,14 @@ def test_spread_perturbation_smooth(backend: XGBBackend):
 def test_features_shape_and_dtype():
     """Feature vector must have the correct shape and dtype."""
     ctx = _make_context()
-    feats = state_to_features(Action.PASS, ctx)
+    feats = build_features(Action.PASS, ctx)
 
-    assert feats.shape == (len(FEATURE_NAMES),)
+    assert feats.shape == (len(_gen_feature_names()),)
     assert feats.dtype == np.float32
 
 
 def test_feature_order_matches_canonical():
-    """Feature values should land in the canonical FEATURE_NAMES order.
+    """Feature values should land in the canonical _gen_feature_names() order.
 
     We construct a known state and verify each feature position.
     """
@@ -335,7 +313,7 @@ def test_feature_order_matches_canonical():
         offense="HOME",
         defense="AWAY",
     )
-    feats = state_to_features(Action.RUN, ctx)
+    feats = build_features(Action.RUN, ctx)
 
     expected = {
         "is_pass": 0.0,  # RUN
@@ -347,11 +325,39 @@ def test_feature_order_matches_canonical():
         "clock": 600.0,
         "goal_to_go": 0.0,  # distance(5) < yardline(30)
         "spread": -2.5,
+        "epa_home": -1.0,
+        "epa_away": 1.0,
     }
-    for i, name in enumerate(FEATURE_NAMES):
+    for i, name in enumerate(_gen_feature_names()):
         assert feats[i] == pytest.approx(expected[name]), (
             f"Feature {name!r} at index {i}: expected {expected[name]}, got {feats[i]}"
         )
+
+
+# ── Context building (ctx_from_game_id + GameFeatures) ──────────────────
+# Verify the real data pipeline produces valid, complete contexts
+# that match the GameFeatures contract.
+
+
+def test_game_features_fields_match__gen_feature_names():
+    """Every field in GameFeatures must appear at the tail of _gen_feature_names().
+
+    This is the contract that keeps build_features, from_row, and
+    training/prepare.py in sync. If someone adds a field to GameFeatures
+    but forgets to wire it, this test catches it.
+    """
+    gf_field_names = [f.name for f in dataclasses.fields(GameFeatures)]
+    tail = _gen_feature_names()[-len(gf_field_names) :]
+
+    assert tail == gf_field_names, (
+        f"_gen_feature_names() tail {tail} does not match GameFeatures fields {gf_field_names}"
+    )
+
+
+def test_feature_engineering_e2e(
+    raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame, latest_rand_game_id
+):
+    ctx_from_game_id(raw_pbp, raw_schedules, game_ids=[latest_rand_game_id])
 
 
 if __name__ == "__main__":

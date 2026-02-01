@@ -22,7 +22,7 @@ class Backend(Protocol):
         """Sample a play outcome from learned distributions.
 
         Args:
-            features: 1-D feature vector from state_to_features().
+            features: 1-D feature vector from build_features().
             rng: Random source for stochastic sampling.
 
         """
