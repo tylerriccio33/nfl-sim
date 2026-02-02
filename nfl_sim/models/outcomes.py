@@ -1,111 +1,101 @@
-"""Game outcome modeling lies here; all intelligence is controlled via these models."""
+"""Game outcome modeling lies here; all intelligence is controlled via these models.
+
+The model jointly predicts both the action (run/pass/fg/punt) and the outcome
+via the token classifier. There is no separate policy — the model decides
+what teams do and what happens.
+"""
 
 from collections.abc import Callable
 
-from nfl_sim.engine.state import _CLK, _YL, Action, Outcome, TurnoverType
+from nfl_sim.engine.state import _CLK, Action, Outcome, TurnoverType
 from nfl_sim.models.backends import Backend
 from nfl_sim.models.context import ModelContext
 from nfl_sim.models.features import build_features
+from nfl_sim.models.tokens import token_to_outcome
 
-type OutcomeModel = Callable[[Action, ModelContext], Outcome]
+type OutcomeModel = Callable[[ModelContext], tuple[Action, Outcome]]
 
 
-def _rule_based_outcome(action: Action, context: ModelContext) -> Outcome:
-    """Handle FG and PUNT with simple rule-based logic.
+def rand_outcome_model(backend: Backend, context: ModelContext) -> tuple[Action, Outcome]:
+    """Hardcoded Gaussian outcome model (default fallback).
 
-    Shared between the hardcoded model and the learned model so both use
-    identical special-teams behavior.
+    Randomly picks an action, then generates a simple outcome. Used when no
+    trained model is available.
     """
+    _ = backend  # There is no backend for this
     remaining_clock = context.state[_CLK]
+    rng = context.rng
 
-    if action == Action.FIELD_GOAL:
-        success_prob = max(0.3, 1.0 - (context.state[_YL] / 100))
-        time_elapsed = min(5, remaining_clock)
-        if context.rng.random() < success_prob:
-            return Outcome(
-                yards=context.state[_YL],
-                turnover_type=TurnoverType.NONE,
-                touchdown=False,
-                time_elapsed=time_elapsed,
+    # Randomly decide action: 4th down logic, otherwise 50/50 run/pass
+    from nfl_sim.engine.state import _DN, _YL
+
+    state = context.state
+    if state[_DN] == 4:
+        if state[_YL] <= 35:
+            action = Action.FIELD_GOAL
+            success_prob = max(0.3, 1.0 - (state[_YL] / 100))
+            time_elapsed = min(5, remaining_clock)
+            if rng.random() < success_prob:
+                return action, Outcome(
+                    yards=state[_YL],
+                    turnover_type=TurnoverType.NONE,
+                    touchdown=False,
+                    time_elapsed=time_elapsed,
+                )
+            return action, Outcome(
+                yards=0, turnover_type=TurnoverType.NONE, touchdown=False, time_elapsed=time_elapsed
             )
-        return Outcome(
+        action = Action.PUNT
+        return action, Outcome(
             yards=0,
             turnover_type=TurnoverType.NONE,
             touchdown=False,
-            time_elapsed=time_elapsed,
+            time_elapsed=min(10, remaining_clock),
         )
 
-    # PUNT
-    return Outcome(
-        yards=0,
-        turnover_type=TurnoverType.NONE,
-        touchdown=False,
-        time_elapsed=min(10, remaining_clock),
-    )
-
-
-def rand_outcome_model(backend: Backend, action: Action, context: ModelContext) -> Outcome:
-    """Hardcoded Gaussian outcome model (default fallback)."""
-    _ = backend  # There is no backend for this
-    remaining_clock = context.state[_CLK]
+    action = rng.choice([Action.RUN, Action.PASS])
 
     if action == Action.RUN:
-        yards = context.rng.gauss(4, 3)
+        yards = rng.gauss(4, 3)
         yards = int(max(-5, min(20, yards)))
-        turnover_type = TurnoverType.FUMBLE if context.rng.random() < 0.02 else TurnoverType.NONE
-        time_elapsed = min(context.rng.randint(15, 35), remaining_clock)
-        return Outcome(
-            yards=yards,
-            turnover_type=turnover_type,
-            touchdown=False,
-            time_elapsed=time_elapsed,
+        turnover_type = TurnoverType.FUMBLE if rng.random() < 0.02 else TurnoverType.NONE
+        time_elapsed = min(rng.randint(15, 35), remaining_clock)
+        return action, Outcome(
+            yards=yards, turnover_type=turnover_type, touchdown=False, time_elapsed=time_elapsed
         )
 
-    if action == Action.PASS:
-        if context.rng.random() < 0.35:
-            return Outcome(
-                yards=0,
-                turnover_type=TurnoverType.NONE,
-                touchdown=False,
-                time_elapsed=min(5, remaining_clock),
-            )
-        if context.rng.random() < 0.03:
-            return Outcome(
-                yards=0,
-                turnover_type=TurnoverType.INTERCEPTION,
-                touchdown=False,
-                time_elapsed=min(15, remaining_clock),
-            )
-        yards = context.rng.gauss(8, 8)
-        yards = int(max(-5, min(40, yards)))
-        time_elapsed = min(context.rng.randint(10, 35), remaining_clock)
-        return Outcome(
-            yards=yards,
+    # PASS
+    if rng.random() < 0.35:
+        return action, Outcome(
+            yards=0,
             turnover_type=TurnoverType.NONE,
             touchdown=False,
-            time_elapsed=time_elapsed,
+            time_elapsed=min(5, remaining_clock),
         )
-
-    if action in (Action.FIELD_GOAL, Action.PUNT):
-        return _rule_based_outcome(action, context)
-
-    return Outcome(
-        yards=0,
-        turnover_type=TurnoverType.NONE,
-        touchdown=False,
-        time_elapsed=min(27, remaining_clock),
+    if rng.random() < 0.03:
+        return action, Outcome(
+            yards=0,
+            turnover_type=TurnoverType.INTERCEPTION,
+            touchdown=False,
+            time_elapsed=min(15, remaining_clock),
+        )
+    yards = rng.gauss(8, 8)
+    yards = int(max(-5, min(40, yards)))
+    time_elapsed = min(rng.randint(10, 35), remaining_clock)
+    return action, Outcome(
+        yards=yards, turnover_type=TurnoverType.NONE, touchdown=False, time_elapsed=time_elapsed
     )
 
 
-def outcome_model(backend: Backend, action: Action, context: ModelContext) -> Outcome:
-    """Predict outcome, delegating RUN/PASS to the backend."""
-    if action in (Action.FIELD_GOAL, Action.PUNT):
-        return _rule_based_outcome(action, context)
+def outcome_model(backend: Backend, context: ModelContext) -> tuple[Action, Outcome]:
+    """Predict action and outcome jointly via the token classifier."""
+    features = build_features(context)
+    token, _time_fallback = backend.predict(features, context.rng)
 
-    features = build_features(action, context)
-    outcome = backend.predict(features, context.rng)
+    # Convert token to (Action, Outcome) with yard sampling
+    action, outcome = token_to_outcome(token, context.rng, context.state)
 
     # Clamp time to remaining clock
     outcome.time_elapsed = min(outcome.time_elapsed, context.state[_CLK])
     outcome.touchdown = False  # engine detects via yardline
-    return outcome
+    return action, outcome

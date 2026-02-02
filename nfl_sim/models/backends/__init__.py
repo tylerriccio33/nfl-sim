@@ -6,20 +6,20 @@ from typing import Literal, Protocol, Self, overload
 
 import numpy as np
 
-from nfl_sim.engine.state import Outcome
 from nfl_sim.models.backends.xgb import XGBBackend
+from nfl_sim.models.tokens import PlayToken
 
 
 class Backend(Protocol):
     """Interface that all learned backends must satisfy.
 
-    A backend owns the full prediction pipeline: given a feature vector and
-    an RNG source, it returns a sampled Outcome (yards, turnover, time).
-    Correlations between outputs are the backend's responsibility.
+    A backend owns the token prediction pipeline: given a feature vector and
+    an RNG source, it returns a sampled PlayToken and time estimate.
+    The caller converts the token into (Action, Outcome) via token_to_outcome().
     """
 
-    def predict(self, features: np.ndarray, rng: Random) -> Outcome:
-        """Sample a play outcome from learned distributions.
+    def predict(self, features: np.ndarray, rng: Random) -> tuple[PlayToken, int]:
+        """Sample a play token and time from learned distributions.
 
         Args:
             features: 1-D feature vector from build_features().

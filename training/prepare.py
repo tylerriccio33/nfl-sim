@@ -1,6 +1,6 @@
 """Prepare training data from play-by-play parquet.
 
-Loads data/pbp.parquet, filters to real run/pass plays, extracts features
+Loads data/pbp.parquet, filters to real plays, extracts features
 and targets in a format ready for backend training.
 
 Uses the same code paths as runtime inference (build_features + ctx_from_game_id)
@@ -14,14 +14,15 @@ from random import Random
 import numpy as np
 import polars as pl
 
-from nfl_sim.engine.state import Action, GameState, _GameState
+from nfl_sim.engine.state import GameState, _GameState
 from nfl_sim.models.context import DerivedContext, GameContext, ModelContext, ctx_from_game_id
 from nfl_sim.models.features import build_features
+from nfl_sim.models.tokens import tokenize_row
 
 DATA_PATH = Path("data/pbp.parquet")
 SCHEDULE_PATH = Path("data/schedules.parquet")
 
-# Columns we need from pbp to extract features + targets
+# Columns we need from pbp to extract features + targets + tokenization
 REQUIRED_COLS = [
     "play_type",
     "down",
@@ -42,6 +43,13 @@ REQUIRED_COLS = [
     "time",
     "turnover_type",
     "time_elapsed",
+    # Token-specific columns
+    "sack",
+    "qb_scramble",
+    "air_yards",
+    "yards_after_catch",
+    "complete_pass",
+    "field_goal_result",
 ]
 
 
@@ -50,8 +58,7 @@ class TrainingData:
     """Container for prepared training arrays."""
 
     features: np.ndarray  # (N, num_features)
-    yards: np.ndarray  # (N,) int
-    turnover_type: np.ndarray  # (N,) int: 0=none, 1=interception, 2=fumble
+    token: np.ndarray  # (N,) int: PlayToken ordinal
     time_elapsed: np.ndarray  # (N,) float: estimated seconds per play
 
 
@@ -89,11 +96,12 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
     """Load and prepare training data from pbp parquet.
 
     Steps:
-      1. Filter to real run/pass plays in regulation (quarters 1-4)
+      1. Filter to real plays in regulation (quarters 1-4) — includes run, pass,
+         punt, field_goal, qb_kneel
       2. Drop rows with nulls on key columns
       3. Engineer game-level features via ctx_from_game_id (same code path as runtime)
       4. Build per-row feature vectors via build_features (same code path as runtime)
-      5. Extract target columns (yards, turnover, time)
+      5. Tokenize each row and extract time target
     """
     df = (
         pl.scan_parquet(pbp_path)
@@ -108,10 +116,27 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
             .otherwise(0),
         )
         .filter(
-            pl.col("play_type").is_in(["run", "pass"]),
+            pl.col("play_type").is_in(["run", "pass", "punt", "field_goal", "qb_kneel"]),
             pl.col("qtr").is_in([1, 2, 3, 4]),
         )
-        .drop_nulls(subset=REQUIRED_COLS)
+        .drop_nulls(
+            subset=[
+                "play_type",
+                "down",
+                "ydstogo",
+                "yardline_100",
+                "qtr",
+                "game_seconds_remaining",
+                "yards_gained",
+                "game_id",
+                "posteam",
+                "defteam",
+                "posteam_type",
+                "total_home_score",
+                "total_away_score",
+                "time_elapsed",
+            ]
+        )
         .collect()
     )
     schedule_data = pl.read_parquet(schedule_path)
@@ -120,28 +145,22 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
     game_ids = df["game_id"].unique().to_list()
     contexts: dict[str, GameContext] = ctx_from_game_id(df, schedule_data, game_ids)
 
-    ## Build the feature vector is the same(!) code path as the engineering pipeline
-    ## in the production simulation code.
+    ## Build the feature vector using the same(!) code path as the production simulation.
     ## This is rather slow because we have no vectorization but it's most correct.
-    rows = df.select(REQUIRED_COLS).to_dicts()
+    all_cols = [c for c in REQUIRED_COLS if c in df.columns]
+    rows = df.select(all_cols).to_dicts()
     feats: list[np.ndarray] = []
-    target_yards: list[float] = []
+    target_token: list[int] = []
     target_time: list[float] = []
-    target_turnover: list[int] = []
+
     for row in rows:
         game_id = row["game_id"]
-        if row["play_type"] == "pass":
-            action = Action.PASS
-        else:
-            action = Action.RUN
+        if game_id not in contexts:
+            continue
 
         state = GameState(
-            # TODO: I'm almost CERTAIN some of this is wrong, need to keep consistence
-            # - there's an argument to be named the naming conventions must be IDENTICAL between
-            # pbp and the sim code.
             quarter=row["qtr"],
             clock=row["game_seconds_remaining"],
-            # TODO: Shouldn't this be home and away?
             offense=row["posteam"],
             defense=row["defteam"],
             down=row["down"],
@@ -153,48 +172,26 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
 
         model_context = ModelContext(
             state=state,
-            derived=DerivedContext([]),  # there is no derived... for now
+            derived=DerivedContext([]),
             rng=Random(1),
             game_context=contexts[game_id],
         )
 
-        feat_vec = build_features(action, model_context)
+        feat_vec = build_features(model_context)
         feats.append(feat_vec)
 
-        # Targets:
-        target_yards.append(row["yards_gained"])
-        target_time.append(row["time_elapsed"])
-        target_turnover.append(row["turnover_type"])
+        # Token target from tokenization
+        token = tokenize_row(row)
+        target_token.append(int(token))
+
+        # Time target
+        time_val = row.get("time_elapsed")
+        target_time.append(float(time_val) if time_val is not None else 25.0)
 
     feat_mat = np.stack(feats)
 
     return TrainingData(
         features=feat_mat,
-        yards=np.asarray(target_yards),
-        turnover_type=np.asarray(target_turnover),
+        token=np.asarray(target_token),
         time_elapsed=np.asarray(target_time),
     )
-
-
-def _estimate_time_elapsed(df: pl.DataFrame) -> np.ndarray:
-    """Estimate per-play time elapsed from game clock deltas.
-
-    Within each game, time_elapsed = previous_game_seconds_remaining - current.
-    Plays that cross quarter boundaries or have negative deltas get a default of 25s.
-    """
-    deltas = (
-        df.with_columns(
-            (
-                pl.col("game_seconds_remaining").shift(1).over("game_id")
-                - pl.col("game_seconds_remaining")
-            ).alias("time_delta")
-        )["time_delta"]
-        .to_numpy(allow_copy=True)
-        .astype(np.float32)
-    )
-
-    # Clamp to reasonable range [1, 45] and fill NaN/invalid with 25
-    deltas = np.where(np.isnan(deltas), 25.0, deltas)
-    deltas = np.clip(deltas, 1.0, 45.0)
-
-    return deltas

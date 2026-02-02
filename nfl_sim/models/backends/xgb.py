@@ -1,11 +1,11 @@
 """XGBoost backend for learned outcome model.
 
-Internally uses three models but exposes a single predict → Outcome interface:
-  - Yards: XGBRegressor → Gaussian(mean, residual_std)
-  - Turnover: XGBClassifier (3 classes) → categorical sample
-  - Time: Linear regression on yards → Gaussian(mean, residual_std)
+Uses a 2-headed architecture:
+  - Token: XGBClassifier (~29 classes) → categorical sample of PlayToken
+  - Time: Linear regression on |yards| → Gaussian(mean, residual_std)
 
-Correlations: yards prediction feeds into time sampling (longer plays → more time).
+The token classifier jointly predicts action type + yard bucket + turnover type.
+Post-processing (token_to_outcome) converts the predicted token into (Action, Outcome).
 """
 
 import json
@@ -17,59 +17,51 @@ from typing import Self
 import numpy as np
 import xgboost as xgb
 
-from nfl_sim.engine.state import Outcome, TurnoverType
 from nfl_sim.models.features import _gen_feature_names
+from nfl_sim.models.tokens import NUM_TOKENS, PlayToken
 
 
 @dataclass
 class XGBBackend:
-    """XGBoost-based outcome backend."""
+    """XGBoost-based outcome backend with token classifier."""
 
-    yards_model: xgb.XGBRegressor  # ty: ignore
-    turnover_model: xgb.XGBClassifier  # ty: ignore
-    yards_residual_std: float
+    token_model: xgb.XGBClassifier  # ty: ignore
     time_intercept: float
     time_slope: float
     time_residual_std: float
 
-    def predict(self, features: np.ndarray, rng: Random) -> Outcome:
-        """Sample a play outcome from the learned XGBoost models."""
+    def predict(self, features: np.ndarray, rng: Random) -> tuple[PlayToken, int]:
+        """Predict a PlayToken and time_elapsed from a feature vector.
+
+        Returns (token, time_elapsed) — the caller is responsible for
+        converting the token into (Action, Outcome) via token_to_outcome().
+        """
         features_2d = features.reshape(1, -1)
 
-        # Yards: predict mean, sample from Gaussian
-        yards_mean = float(self.yards_model.predict(features_2d)[0])
-        yards = round(rng.gauss(yards_mean, self.yards_residual_std))
-        yards = max(-10, min(99, yards))
+        # Token: predict class probabilities, sample
+        token_probs = self.token_model.predict_proba(features_2d)[0]
+        token_val = _sample_categorical(token_probs, rng)
+        token = PlayToken(token_val)
 
-        # Turnover: predict class probabilities, sample
-        turnover_probs = self.turnover_model.predict_proba(features_2d)[0]
-        turnover_val = _sample_categorical(turnover_probs, rng)
-        turnover_type = [TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FUMBLE][
-            turnover_val
-        ]
-
-        # Time: linear model conditioned on yards, with noise
-        time_mean = self.time_intercept + self.time_slope * abs(yards)
+        # Time: linear model, with noise
+        # We don't know yards yet (that comes from token post-processing),
+        # so we use a baseline time estimate. The token_to_outcome() function
+        # will set the actual time based on play type heuristics.
+        time_mean = self.time_intercept + self.time_slope * 5.0  # ~average |yards|
         time_elapsed = round(rng.gauss(time_mean, self.time_residual_std))
         time_elapsed = max(1, min(45, time_elapsed))
 
-        return Outcome(
-            yards=yards,
-            turnover_type=turnover_type,
-            touchdown=False,
-            time_elapsed=time_elapsed,
-        )
+        return token, time_elapsed
 
     def save(self, path: Path) -> None:
         """Save all model artifacts to a directory."""
         path.mkdir(parents=True, exist_ok=True)
 
-        self.yards_model.save_model(path / "yards.json")
-        self.turnover_model.save_model(path / "turnover.json")
+        self.token_model.save_model(path / "token.json")
 
         meta = {
             "feature_names": _gen_feature_names(),
-            "yards_residual_std": self.yards_residual_std,
+            "num_tokens": NUM_TOKENS,
             "time_intercept": self.time_intercept,
             "time_slope": self.time_slope,
             "time_residual_std": self.time_residual_std,
@@ -79,85 +71,59 @@ class XGBBackend:
     @classmethod
     def load(cls, path: Path) -> Self:
         """Load a trained XGBoost backend from disk."""
-        yards_model = xgb.XGBRegressor()  # ty: ignore
-        yards_model.load_model(path / "yards.json")
-
-        turnover_model = xgb.XGBClassifier()  # ty: ignore
-        turnover_model.load_model(path / "turnover.json")
+        token_model = xgb.XGBClassifier()  # ty: ignore
+        token_model.load_model(path / "token.json")
 
         meta = json.loads((path / "meta.json").read_text())
 
         return cls(
-            yards_model=yards_model,
-            turnover_model=turnover_model,
-            yards_residual_std=meta["yards_residual_std"],
+            token_model=token_model,
             time_intercept=meta["time_intercept"],
             time_slope=meta["time_slope"],
             time_residual_std=meta["time_residual_std"],
         )
 
 
-DEFAULT_YARDS_PARAMS: dict[str, object] = {
+DEFAULT_TOKEN_PARAMS: dict[str, object] = {
     "n_estimators": 200,
     "max_depth": 6,
-    "learning_rate": 0.1,
-}
-
-DEFAULT_TURNOVER_PARAMS: dict[str, object] = {
-    "n_estimators": 200,
-    "max_depth": 4,
     "learning_rate": 0.1,
 }
 
 
 def train_xgb(
     features: np.ndarray,
-    yards: np.ndarray,
-    turnover_type: np.ndarray,
+    token: np.ndarray,
     time_elapsed: np.ndarray,
-    yards_params: dict[str, object] | None = None,
-    turnover_params: dict[str, object] | None = None,
+    token_params: dict[str, object] | None = None,
 ) -> XGBBackend:
     """Train the XGBoost backend on prepared data.
 
     Returns a fully trained XGBBackend ready for save() or predict().
     """
-    yp = {**DEFAULT_YARDS_PARAMS, **(yards_params or {})}
-    tp = {**DEFAULT_TURNOVER_PARAMS, **(turnover_params or {})}
+    tp = {**DEFAULT_TOKEN_PARAMS, **(token_params or {})}
 
-    ## Yards Model:
-    yards_model = xgb.XGBRegressor(  # ty: ignore
-        objective="reg:squarederror",
-        **yp,
-    )
-    yards_model.fit(features, yards)
-    yards_pred = yards_model.predict(features)
-    yards_residual_std = float(np.std(yards - yards_pred))
-
-    ## Turnover Model:
-    turnover_model = xgb.XGBClassifier(  # ty: ignore
+    ## Token classifier: multi-class softprob
+    token_model = xgb.XGBClassifier(  # ty: ignore
         objective="multi:softprob",
-        num_class=3,
+        num_class=NUM_TOKENS,
         **tp,
     )
-    turnover_model.fit(features, turnover_type)
+    token_model.fit(features, token)
 
     ## Time model: simple linear regression on |yards| → time_elapsed
-    ## time ≈ intercept + slope * |yards|
-    abs_yards = np.abs(yards).astype(np.float64)
+    ## We use a dummy yards proxy (mean of ~5) for the linear model since
+    ## yards are now implicit in the token. We fit on actual time data.
     time_f = time_elapsed.astype(np.float64)
 
-    # Least squares fit
-    a_mat = np.vstack([abs_yards, np.ones(len(abs_yards))]).T
-    result = np.linalg.lstsq(a_mat, time_f, rcond=None)
-    time_slope, time_intercept = float(result[0][0]), float(result[0][1])
-    time_pred = time_intercept + time_slope * abs_yards
-    time_residual_std = float(np.std(time_f - time_pred))
+    # Fit time as intercept-only since we don't have yards as input anymore.
+    # The token_to_outcome() handles per-token time heuristics; this is a fallback.
+    time_intercept = float(np.mean(time_f))
+    time_slope = 0.0
+    time_residual_std = float(np.std(time_f))
 
     return XGBBackend(
-        yards_model=yards_model,
-        turnover_model=turnover_model,
-        yards_residual_std=yards_residual_std,
+        token_model=token_model,
         time_intercept=time_intercept,
         time_slope=time_slope,
         time_residual_std=time_residual_std,

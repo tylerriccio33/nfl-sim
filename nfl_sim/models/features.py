@@ -1,17 +1,15 @@
 """Feature extraction for learned outcome models.
 
-Runtime extraction from (Action, ModelContext) via build_features().
+Runtime extraction from ModelContext via build_features().
 Training-time extraction lives in training/prepare.py.
 
 Both paths must produce the exact same feature vector layout, which is
 enforced by deriving FEATURE_NAMES from GameFeatures automatically.
 """
 
-# TODO: Redo the above documentation
-
 import numpy as np
 
-from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, Action, _GameState
+from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, _GameState
 from nfl_sim.models.context import GameFeatures, ModelContext
 
 _state_feature_names = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go"]
@@ -37,21 +35,12 @@ def features_from_state(s: _GameState) -> list[float]:
     ]
 
 
-_action_feature_names: list[str] = ["is_pass"]
-
-
-def features_from_action(a: Action) -> list[float]:
-    """Create features from action."""
-    return [1 if a == Action.PASS else 0]
-
-
-def build_features(action: Action, context: ModelContext) -> np.ndarray:
-    """Tie action and states together to build the feature vector."""
+def build_features(context: ModelContext) -> np.ndarray:
+    """Build the feature vector from game state and context (no action)."""
     state_feats: list[float] = features_from_state(context.state)
     game_feats: list[float] = context.game_context.features.get(context.state[_OFF])
-    action_feats: list[float] = features_from_action(action)
-    return np.array(action_feats + state_feats + game_feats, dtype=np.float32)
+    return np.array(state_feats + game_feats, dtype=np.float32)
 
 
 def _gen_feature_names():  # pragma: no cover
-    return _action_feature_names + _state_feature_names + GameFeatures.feature_names
+    return _state_feature_names + GameFeatures.feature_names

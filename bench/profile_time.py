@@ -21,7 +21,6 @@ from nfl_sim.engine.api import (
 from nfl_sim.engine.apply import apply_outcome
 from nfl_sim.models.context import GameContext, GameFeatures
 from nfl_sim.models.outcomes import outcome_model
-from nfl_sim.models.policy import RandomPolicy
 
 FUNCTIONS = (
     ## High-level API:
@@ -30,9 +29,8 @@ FUNCTIONS = (
     _run_game_loop,
     ## State transitions:
     apply_outcome,
-    ## Models and policy:
+    ## Models:
     outcome_model,
-    RandomPolicy.choose_action,
     ## DataFrame conversion:
     traces_to_dataframe,
     _event_from_play,

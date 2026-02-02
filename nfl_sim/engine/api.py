@@ -29,7 +29,6 @@ from nfl_sim.engine.state import (
 from nfl_sim.models.backends import load_backend
 from nfl_sim.models.context import DerivedContext, GameContext, ModelContext
 from nfl_sim.models.outcomes import OutcomeModel, outcome_model
-from nfl_sim.models.policy import Policy, RandomPolicy
 
 
 @dataclass(frozen=True)
@@ -50,7 +49,6 @@ def _create_initial_state() -> _GameState:
 
 def _run_game_loop(
     initial_state: _GameState,
-    policy: Policy,
     model: OutcomeModel,
     rng: Random,
     game_context: GameContext,
@@ -60,10 +58,9 @@ def _run_game_loop(
     trace: GameTrace = []
 
     while not is_terminal(state):
-        action: Action = policy.choose_action(state)
         derived = DerivedContext(trace)
         context = ModelContext(state, derived, rng, game_context)
-        outcome = model(action, context)
+        action, outcome = model(context)
         new_state = apply_outcome(state, action, outcome)
 
         # Engine detects TDs by yardline - reflect this in the outcome for consumers
@@ -83,7 +80,6 @@ def _simulate_game(
     away: str,
     *,
     seed: int,
-    policy: Policy,
     model: OutcomeModel,
     context: GameContext,
 ) -> GameResult:
@@ -93,9 +89,8 @@ def _simulate_game(
         home: Home team identifier
         away: Away team identifier
         seed: Random seed for reproducibility
-        policy: Custom policy (defaults to RandomPolicy)
-        model: Custom outcome model (defaults to SimpleOutcomeModel)
-        context: GameContext with spread and other features (for future model use)
+        model: Outcome model that jointly predicts action + outcome
+        context: GameContext with spread and other features
 
     Returns:
         GameResult with final score and full play trace
@@ -103,7 +98,7 @@ def _simulate_game(
     """
     rng = Random(seed)
     initial_state = _create_initial_state()
-    trace = _run_game_loop(initial_state, policy, model, rng, context)
+    trace = _run_game_loop(initial_state, model, rng, context)
 
     # Extract final score from last play
     final_state = trace[-1].state_after
@@ -118,18 +113,15 @@ def _simulate_game(
     )
 
 
-# TODO: Why does this exist and _simulate_game does? Document at least
 def _run_one_game(
     game_id: str,
     context: GameContext,
     n: int,
     seed: int | None,
-    policy_factory: type[Policy] | None,
     model: OutcomeModel,
 ) -> tuple[str, list[GameTrace]]:
     """Simulate all n iterations of a single game. Unit of parallel work."""
     rng = Random(seed)
-    policy = RandomPolicy(rng) if policy_factory is None else policy_factory(rng)
     traces: list[GameTrace] = []
     for _ in range(n):
         iter_seed = rng.randint(0, 2**31)
@@ -137,7 +129,6 @@ def _run_one_game(
             context.home,
             context.away,
             seed=iter_seed,
-            policy=policy,
             model=model,
             context=context,
         )
@@ -151,7 +142,6 @@ def sim_games(
     *,
     n: int = 100,
     base_seed: int | None = None,
-    policy_factory: type[Policy] | None = None,
     model_factory: OutcomeModel | None = None,
     max_workers: int | None = None,
 ) -> dict[str, list[GameTrace]]:
@@ -164,8 +154,7 @@ def sim_games(
         games: Dict mapping game_id to GameContext
         n: Number of simulations per game
         base_seed: Base seed (each game derives a deterministic seed)
-        policy_factory: Policy class to instantiate per worker
-        model_factory: Model class to instantiate per worker
+        model_factory: Model callable (defaults to trained XGB outcome model)
         max_workers: Process count. Defaults to min(num_games, cpu_count).
             Set to 1 to force sequential execution.
 
@@ -179,14 +168,13 @@ def sim_games(
 
     game_items = list(games.items())
 
-    # TODO: This needs to be simplified
     # Deterministic per-game seeds so results don't depend on execution order
     seeds = [None if base_seed is None else base_seed + 77 + i for i in range(len(game_items))]
 
     workers = max_workers or min(len(game_items), cpu_count() or 1)
 
     def _submit(gid: str, ctx: GameContext, seed: int | None) -> tuple[str, list[GameTrace]]:
-        return _run_one_game(gid, ctx, n, seed, policy_factory, model_factory)
+        return _run_one_game(gid, ctx, n, seed, model_factory)
 
     # Skip process overhead when it can't help
     if workers <= 1 or len(game_items) <= 1:
@@ -198,7 +186,7 @@ def sim_games(
 
         with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = {
-                pool.submit(_run_one_game, gid, ctx, n, seed, policy_factory, model_factory): gid
+                pool.submit(_run_one_game, gid, ctx, n, seed, model_factory): gid
                 for (gid, ctx), seed in zip(game_items, seeds)
             }
             for future in as_completed(futures):
