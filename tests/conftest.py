@@ -9,12 +9,13 @@ import pytest
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
 from nfl_sim.engine.api import GameTrace, traces_to_dataframe
+from nfl_sim.models.backends import load_backend
 from nfl_sim.models.context import GameFeatures, ctx_from_game_id
-from nfl_sim.models.outcomes import rand_outcome_model
+from nfl_sim.models.outcomes import outcome_model
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
 
-_TEST_MODEL = partial(rand_outcome_model, None)
+_TEST_MODEL = partial(outcome_model, load_backend("xgb"))
 
 # =============================================================================
 # Constants
