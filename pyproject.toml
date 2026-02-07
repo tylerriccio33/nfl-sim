@@ -14,6 +14,8 @@ dependencies = [
     "polars-ds>=0.10.4",
     "rich>=14.2.0",
     "scikit-learn>=1.8.0",
+    "tl2cgen>=1.0.0",
+    "treelite>=4.6.1",
     "ty>=0.0.14",
 ]
 

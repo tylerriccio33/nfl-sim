@@ -19,6 +19,7 @@ from nfl_sim.engine.api import (
     traces_to_dataframe,
 )
 from nfl_sim.engine.apply import apply_outcome
+from nfl_sim.models.backends.rf import RFBackend
 from nfl_sim.models.context import GameContext, GameFeatures
 from nfl_sim.models.outcomes import outcome_model
 
@@ -32,6 +33,7 @@ FUNCTIONS = (
     apply_outcome,
     ## Models:
     outcome_model,
+    RFBackend.predict,
     ## DataFrame conversion:
     traces_to_dataframe,
     _event_from_play,
@@ -58,13 +60,9 @@ def main() -> None:
     )
 
     # Profile N simulations
-    n_sims = 10
+    n_sims = 1
     print(f"Profiling {context.home} vs {context.away} ({n_sims} simulations)...")
-    res = profiler.runcall(
-        sim_games,
-        {context.game_id: context},
-        n=n_sims,
-    )
+    res = profiler.runcall(sim_games, {context.game_id: context}, n=n_sims, max_workers=1)
     profiler.runcall(traces_to_dataframe, res)
 
     # Save results to file

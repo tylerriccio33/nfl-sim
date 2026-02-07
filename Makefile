@@ -20,7 +20,7 @@ test: ## Run tests
 		--durations 10
 
 test-train: ## Run training tests
-	@uv run pytest -sv tests/analysis/test_training.py
+	@NFL_SIM_TRAIN_TEST=1 v run pytest -sv tests/analysis/test_training.py
 
 parity: ## Run parity tests
 	@NFL_SIM_PARITY=1 uv run pytest tests/engine/test_parity.py

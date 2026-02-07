@@ -99,9 +99,9 @@ def _grid_search(
 ) -> RandomizedSearchCV:
     """Run GridSearchCV over depth/leaf/estimator knobs and return the best model."""
     param_grid = {
-        "n_estimators": [200, 300],
-        "max_depth": [3, 8, 15],
-        "min_samples_leaf": [5, 10, 20],
+        "n_estimators": [100, 300],
+        "max_depth": [3, 5],
+        "min_samples_leaf": [5, 10],
     }
     base = RandomForestClassifier(random_state=42, n_jobs=-1)
     gs = RandomizedSearchCV(
@@ -185,8 +185,8 @@ def train(save: bool = True) -> RFBackend:
     time_residual_std = float(np.std(time_f))
 
     # -- Create backend --
-    trained = RFBackend(
-        model=model,
+    trained = RFBackend.from_sklearn(
+        model,
         time_intercept=time_intercept,
         time_slope=time_slope,
         time_residual_std=time_residual_std,

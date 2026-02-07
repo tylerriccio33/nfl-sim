@@ -590,6 +590,8 @@ dependencies = [
     { name = "polars-ds" },
     { name = "rich" },
     { name = "scikit-learn" },
+    { name = "tl2cgen" },
+    { name = "treelite" },
     { name = "ty" },
 ]
 
@@ -621,6 +623,8 @@ requires-dist = [
     { name = "polars-ds", specifier = ">=0.10.4" },
     { name = "rich", specifier = ">=14.2.0" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
+    { name = "tl2cgen", specifier = ">=1.0.0" },
+    { name = "treelite", specifier = ">=4.6.1" },
     { name = "ty", specifier = ">=0.0.14" },
 ]
 
@@ -1222,6 +1226,24 @@ wheels = [
 ]
 
 [[package]]
+name = "tl2cgen"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "scipy" },
+    { name = "treelite" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2d/f4/119d4df8ed975a37688d6f5a705f20c46e0b4b253143e183e1ee8baa8f27/tl2cgen-1.0.0.tar.gz", hash = "sha256:c4db8d404388f562b6b9420bb08fc1b735c0b14c695722c40d9d6d8f1543eef3", size = 64324, upload-time = "2024-03-06T18:11:07.066Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/a3/a44a8232a9d24cb4f5feb41ed535144fcdb77cd9b334b54da2430f579d61/tl2cgen-1.0.0-py3-none-macosx_10_15_x86_64.macosx_11_0_x86_64.macosx_12_0_x86_64.whl", hash = "sha256:0d1ef581e58c8ea9e9ab69e7650a09bc4deb01a561bf6e82e3b30fe36c2efe9c", size = 534710, upload-time = "2024-03-06T18:10:59.843Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/8d/d7fc38634353c2b5c94e25793db968a7d7d431d5916f3e31490af9ce9150/tl2cgen-1.0.0-py3-none-macosx_12_0_arm64.whl", hash = "sha256:119cd5fa61ac02607de5ab15e173dbce8f7b140fa53945238b016b4ef3a3fa6d", size = 471123, upload-time = "2024-03-06T18:11:01.66Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/18/a69563a5b97ce982ef30ad4225f82840e34f26bb2f86622f09b6d4fa5696/tl2cgen-1.0.0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:b81c760bd3924c4d8dcb2073c3c9f178905582aeabae27bbf19f49d4fa9e4da1", size = 774824, upload-time = "2024-03-06T18:11:03.515Z" },
+    { url = "https://files.pythonhosted.org/packages/41/d5/32304f21e3691e3a65ce4cf6b77c71e6e474d5a09cfc3306b2a84a67170b/tl2cgen-1.0.0-py3-none-win_amd64.whl", hash = "sha256:11b49aff22d0c2722c5c6fbedb98d87502768bb3e6effd406abe69c5dc34b182", size = 385199, upload-time = "2024-03-06T18:11:05.674Z" },
+]
+
+[[package]]
 name = "tomli"
 version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1267,6 +1289,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/09/a9/6ba95a270c6f1fbcd8dac228323f2777d886cb206987444e4bce66338dd4/tqdm-4.67.3.tar.gz", hash = "sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb", size = 169598, upload-time = "2026-02-03T17:35:53.048Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/16/e1/3079a9ff9b8e11b846c6ac5c8b5bfb7ff225eee721825310c91b3b50304f/tqdm-4.67.3-py3-none-any.whl", hash = "sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf", size = 78374, upload-time = "2026-02-03T17:35:50.982Z" },
+]
+
+[[package]]
+name = "treelite"
+version = "4.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/97/a6/2be2f9c76c37692b0386d5a8803f2c7587b2d85b19ade667a4c222fb0670/treelite-4.6.1.tar.gz", hash = "sha256:dbd4ea594a868150e2cf816aaf89987c95eaf6cc74391287d1d0a8c38d4fe51d", size = 107483, upload-time = "2025-11-12T22:07:48.991Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a1/af/8c4b9267b149529e0fd637c9112ffac23739145adf5dc027af5b2e51f31b/treelite-4.6.1-py3-none-macosx_10_15_x86_64.macosx_11_0_x86_64.macosx_12_0_x86_64.whl", hash = "sha256:af0998a0cfd76bfb9c57e63f8f98d28e92ac029d2a86bea07c15f722dcc00322", size = 440873, upload-time = "2025-11-12T22:07:41.94Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/53/3b991b152ac514713b1f907c82382c7c637d2cd204238af2b0a9528faf2a/treelite-4.6.1-py3-none-macosx_12_0_arm64.whl", hash = "sha256:e308a26f0044f4aa34557b50b9343f275930cb2c60bb102a98faf5378f414367", size = 410647, upload-time = "2025-11-12T22:07:43.564Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/9b/7a0a5dcd3779be65d85bbe3b85d78cccde28746de995972f2f8b49c4f564/treelite-4.6.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:cc30572ca3c71751d00b67c114fc520dd6e3ade49574ecc38b75bf014df63be3", size = 922239, upload-time = "2025-11-12T22:07:45.019Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/5e/85dcba563c41c55d17ad49d7a4950409d394cbcf941e02c22d7908948bc4/treelite-4.6.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:627d2789d7c4fc290de15da16e2946b36247c762004f28aed11847011f42cddd", size = 939304, upload-time = "2025-11-12T22:07:46.435Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/11/f6d4983f3db0ce06fec8137136c796b471af4e6f530a6a41ab5b3192d77b/treelite-4.6.1-py3-none-win_amd64.whl", hash = "sha256:d0ced35bc1941d5a6eba39903af54dbe97d557288463edfc4b69634c52e075df", size = 511147, upload-time = "2025-11-12T22:07:47.58Z" },
 ]
 
 [[package]]
