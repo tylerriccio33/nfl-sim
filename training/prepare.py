@@ -90,7 +90,6 @@ def _row_to_state(row: dict) -> _GameState:
         int(row["ydstogo"]),  # distance
         int(row["yardline_100"]),  # yardline
         (int(row["total_home_score"]), int(row["total_away_score"])),  # score
-        0,  # possession_id (unused by feature extraction)
     )
 
 
@@ -172,7 +171,6 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
             distance=row["ydstogo"],
             yardline=row["yardline_100"],
             score=(row["total_home_score"], row["total_away_score"]),
-            possession_id=-1,
         )
 
         model_context = ModelContext(

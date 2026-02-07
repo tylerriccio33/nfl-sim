@@ -15,7 +15,7 @@ type TeamId = Literal["HOME", "AWAY"]
 # _GameState: plain tuple used in the hot loop for zero-overhead construction.
 #
 # Layout (index constants below):
-#   (quarter, clock, offense, defense, down, distance, yardline, score, possession_id)
+#   (quarter, clock, offense, defense, down, distance, yardline, score)
 #
 # GameState (NamedTuple) is the public API; _GameState is the internal
 # representation returned by apply_outcome and consumed by the game loop.
@@ -29,9 +29,8 @@ _DN = 4  # down
 _DIST = 5  # distance
 _YL = 6  # yardline (yards from endzone)
 _SC = 7  # score  (home, away)
-_PID = 8  # possession_id
 
-type _GameState = tuple[int, int, TeamId, TeamId, int, int, int, tuple[int, int], int]
+type _GameState = tuple[int, int, TeamId, TeamId, int, int, int, tuple[int, int]]
 
 
 class GameState(NamedTuple):
@@ -52,7 +51,6 @@ class GameState(NamedTuple):
     distance: int
     yardline: int  # yards from endzone
     score: tuple[int, int]
-    possession_id: int  # TODO: Unlikely we need this
 
 
 class Action(Enum):
@@ -91,7 +89,7 @@ class Outcome:
         return self.turnover_type != TurnoverType.NONE
 
 
-@dataclass  # TODO: Frozen?
+@dataclass(frozen=True)
 class PlayEvent:
     """Log of the play that took place.
 

@@ -41,9 +41,8 @@ def _make_state(
     distance: int = 7,
     yardline: int = 45,
     score: tuple[int, int] = (10, 7),
-    possession_id: int = 5,
 ):
-    return (quarter, clock, offense, defense, down, distance, yardline, score, possession_id)
+    return (quarter, clock, offense, defense, down, distance, yardline, score)
 
 
 def _make_context(

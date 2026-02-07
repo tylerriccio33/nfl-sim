@@ -6,7 +6,6 @@ from nfl_sim.engine.state import (
     _DIST,
     _DN,
     _OFF,
-    _PID,
     _Q,
     _SC,
     _YL,
@@ -43,7 +42,7 @@ def apply_outcome(state: _GameState, action: Action, outcome: Outcome) -> _GameS
             offense_idx = 0 if state[_OFF] == "HOME" else 1
             score = (score[0] + 3, score[1]) if offense_idx == 0 else (score[0], score[1] + 3)
         # After FG attempt (made or missed), other team gets ball at their 25
-        return (new_quarter, new_clock, state[_DEF], state[_OFF], 1, 10, 75, score, state[_PID] + 1)
+        return (new_quarter, new_clock, state[_DEF], state[_OFF], 1, 10, 75, score)
 
     # Handle punt (intentional possession change)
     if action == Action.PUNT:
@@ -65,7 +64,6 @@ def apply_outcome(state: _GameState, action: Action, outcome: Outcome) -> _GameS
             min(10, receiving_yardline),
             receiving_yardline,
             state[_SC],
-            state[_PID] + 1,
         )
 
     # Handle touchdown (yardline reached endzone)
@@ -74,7 +72,7 @@ def apply_outcome(state: _GameState, action: Action, outcome: Outcome) -> _GameS
         sc = state[_SC]
         score = (sc[0] + 7, sc[1]) if offense_idx == 0 else (sc[0], sc[1] + 7)
         # Reset after TD - other team gets ball at their 25
-        return (new_quarter, new_clock, state[_DEF], state[_OFF], 1, 10, 75, score, state[_PID] + 1)
+        return (new_quarter, new_clock, state[_DEF], state[_OFF], 1, 10, 75, score)
 
     # Handle turnover (interception/fumble from outcome model)
     if outcome.turnover:
@@ -88,7 +86,6 @@ def apply_outcome(state: _GameState, action: Action, outcome: Outcome) -> _GameS
             min(10, flipped_yardline),
             flipped_yardline,
             state[_SC],
-            state[_PID] + 1,
         )
 
     # Handle first down
@@ -102,7 +99,6 @@ def apply_outcome(state: _GameState, action: Action, outcome: Outcome) -> _GameS
             min(10, new_yardline),
             new_yardline,
             state[_SC],
-            state[_PID],
         )
 
     # Handle turnover on downs
@@ -117,7 +113,6 @@ def apply_outcome(state: _GameState, action: Action, outcome: Outcome) -> _GameS
             min(10, flipped_yardline),
             flipped_yardline,
             state[_SC],
-            state[_PID] + 1,
         )
 
     # Normal play - advance down
@@ -130,7 +125,6 @@ def apply_outcome(state: _GameState, action: Action, outcome: Outcome) -> _GameS
         state[_DIST] - outcome.yards,
         new_yardline,
         state[_SC],
-        state[_PID],
     )
 
 

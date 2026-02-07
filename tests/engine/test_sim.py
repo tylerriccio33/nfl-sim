@@ -21,7 +21,6 @@ from nfl_sim.engine.state import (
     _DIST,
     _DN,
     _OFF,
-    _PID,
     _Q,
     _SC,
     _YL,
@@ -45,7 +44,6 @@ def make_state(**kwargs) -> _GameState:
         distance=10,
         yardline=75,
         score=(0, 0),
-        possession_id=1,
     )
     return default._replace(**kwargs)
 
@@ -210,7 +208,6 @@ class TestTurnoverOnDowns:
         assert result[_DN] == 1
         assert result[_DIST] == 10
         assert result[_YL] == 52  # 100 - 48
-        assert result[_PID] == 2
 
     def test_fourth_down_incomplete_pass(self):
         """Incomplete pass on 4th down → turnover."""
@@ -245,7 +242,6 @@ class TestTurnovers:
         assert result[_DN] == 1
         assert result[_DIST] == 10
         assert result[_YL] == 55  # 100 - 45 (spot of fumble)
-        assert result[_PID] == 2
 
     def test_interception_changes_possession(self):
         """Interception → defense gets ball."""
@@ -258,15 +254,6 @@ class TestTurnovers:
         assert result[_DEF] == "AWAY"
         assert result[_DN] == 1
         assert result[_YL] == 60  # 100 - 40
-
-    def test_turnover_increments_possession_id(self):
-        """Each turnover should increment possession_id."""
-        state = make_state(possession_id=3)
-        outcome = make_outcome(turnover=True)
-
-        result = apply_outcome(state, Action.RUN, outcome)
-
-        assert result[_PID] == 4
 
 
 # =============================================================================
@@ -307,15 +294,6 @@ class TestTouchdowns:
         assert result[_DN] == 1
         assert result[_DIST] == 10
         assert result[_YL] == 75  # Their 25 = 75 from opponent endzone
-
-    def test_touchdown_increments_possession_id(self):
-        """TD changes possession → increments possession_id."""
-        state = make_state(yardline=3, possession_id=5)
-        outcome = make_outcome(yards=5)
-
-        result = apply_outcome(state, Action.RUN, outcome)
-
-        assert result[_PID] == 6
 
     def test_long_touchdown_run(self):
         """75+ yard TD run from own 25."""
@@ -472,24 +450,22 @@ class TestPossessionContinuity:
 
     def test_normal_play_keeps_possession(self):
         """Normal plays don't change possession."""
-        state = make_state(offense="HOME", defense="AWAY", possession_id=1)
+        state = make_state(offense="HOME", defense="AWAY")
         outcome = make_outcome(yards=5)
 
         result = apply_outcome(state, Action.RUN, outcome)
 
         assert result[_OFF] == "HOME"
         assert result[_DEF] == "AWAY"
-        assert result[_PID] == 1
 
     def test_first_down_keeps_possession(self):
         """Getting first down keeps same possession."""
-        state = make_state(down=3, distance=4, offense="AWAY", possession_id=2)
+        state = make_state(down=3, distance=4, offense="AWAY")
         outcome = make_outcome(yards=6)
 
         result = apply_outcome(state, Action.PASS, outcome)
 
         assert result[_OFF] == "AWAY"
-        assert result[_PID] == 2
 
 
 # =============================================================================

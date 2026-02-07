@@ -8,7 +8,6 @@ from nfl_sim.engine.state import (
     _DIST,
     _DN,
     _OFF,
-    _PID,
     _Q,
     _SC,
     _YL,
@@ -27,17 +26,17 @@ def _all_states(trace: GameTrace):
 
 
 def _drives(trace: GameTrace) -> list[list[PlayEvent]]:
-    """Group plays by possession_id (drive)."""
+    """Group plays into drives by detecting possession changes (RLE on offense)."""
     if not trace:
         return []
     result: list[list[PlayEvent]] = []
     current_drive: list[PlayEvent] = []
-    current_id = trace[0].state_before[_PID]
+    current_off = trace[0].state_before[_OFF]
     for event in trace:
-        if event.state_before[_PID] != current_id:
+        if event.state_before[_OFF] != current_off:
             result.append(current_drive)
             current_drive = []
-            current_id = event.state_before[_PID]
+            current_off = event.state_before[_OFF]
         current_drive.append(event)
     if current_drive:
         result.append(current_drive)

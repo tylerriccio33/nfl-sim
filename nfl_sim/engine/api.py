@@ -43,7 +43,7 @@ class GameResult:
 
 def _create_initial_state() -> _GameState:
     """Standard kickoff state."""
-    return (1, 900, "HOME", "AWAY", 1, 10, 75, (0, 0), 1)
+    return (1, 900, "HOME", "AWAY", 1, 10, 75, (0, 0))
 
 
 def _run_game_loop(

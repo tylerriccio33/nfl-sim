@@ -10,6 +10,7 @@ Usage:
     uv run training/train.py
 """
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +28,8 @@ from nfl_sim.models.tokens import NUM_TOKENS
 from training.prepare import prepare
 
 ARTIFACTS_DIR = Path("training/artifacts")
+
+warnings.filterwarnings("ignore")  # sklearn is very loud
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
