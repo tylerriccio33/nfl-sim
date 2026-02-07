@@ -18,6 +18,7 @@ from nfl_sim.models.tokens import token_to_outcome
 type OutcomeModel = Callable[[ModelContext], tuple[ActionToken, Action, Outcome]]
 
 
+# TODO: Will want to remove this code
 def rand_outcome_model(
     backend: Backend, context: ModelContext
 ) -> tuple[ActionToken, Action, Outcome]:

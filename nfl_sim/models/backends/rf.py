@@ -16,8 +16,11 @@ import numpy as np
 import tl2cgen
 from sklearn.ensemble import RandomForestClassifier
 
+from nfl_sim.models.action_tokens import ActionToken, Route, route_from_action_token
 from nfl_sim.models.features import _gen_feature_names
 from nfl_sim.models.tokens import NUM_TOKENS, PlayToken
+
+NUM_ACTION_TOKENS = len(ActionToken)
 
 # Platform-appropriate shared library extension
 _LIB_EXT = ".dylib"
@@ -174,3 +177,133 @@ def _sample_categorical(probs: np.ndarray, rng: Random) -> int:
         if r < cumulative:
             return i
     return len(probs) - 1
+
+
+# ── Sub-model names matching Route enum ──────────────────────────────────
+_ROUTE_NAMES: dict[Route, str] = {
+    Route.RUN: "run",
+    Route.PASS: "pass",
+    Route.ST: "st",
+}
+
+
+@dataclass
+class SplitRFBackend:
+    """Two-stage backend: action model -> route -> outcome sub-model.
+
+    Stage 1: Predict ActionToken (9 classes) from features.
+    Stage 2: Derive Route from the sampled ActionToken, then predict
+             PlayToken from the corresponding route-specific sub-model.
+    """
+
+    time_intercept: float
+    time_slope: float
+    time_residual_std: float
+    _action: RFBackend
+    _sub_models: dict[Route, RFBackend]
+
+    # ------------------------------------------------------------------
+    # Construction
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_parts(
+        cls,
+        *,
+        action: RFBackend,
+        sub_models: dict[Route, RFBackend],
+        time_intercept: float,
+        time_slope: float,
+        time_residual_std: float,
+    ) -> Self:
+        """Construct from pre-trained action + route sub-models."""
+        return cls(
+            time_intercept=time_intercept,
+            time_slope=time_slope,
+            time_residual_std=time_residual_std,
+            _action=action,
+            _sub_models=sub_models,
+        )
+
+    # ------------------------------------------------------------------
+    # Predict
+    # ------------------------------------------------------------------
+
+    def predict(self, features: np.ndarray, rng: Random) -> tuple[PlayToken, int]:
+        """Two-stage prediction: ActionToken -> Route -> PlayToken."""
+        row = features.reshape(1, -1)
+
+        # Stage 1: sample an ActionToken
+        action_proba = self._action._predict_proba(row)
+        action_probs = np.zeros(NUM_ACTION_TOKENS, dtype=np.float64)
+        for i, cls in enumerate(self._action._classes):
+            action_probs[int(cls)] = action_proba[i]
+        total = action_probs.sum()
+        if total > 0:
+            action_probs /= total
+        action_val = _sample_categorical(action_probs, rng)
+        action_token = ActionToken(action_val)
+
+        # Stage 2: route to sub-model, sample a PlayToken
+        route = route_from_action_token(action_token)
+        sub = self._sub_models[route]
+        play_proba = sub._predict_proba(row)
+        token_probs = np.zeros(NUM_TOKENS, dtype=np.float64)
+        for i, cls in enumerate(sub._classes):
+            token_probs[int(cls)] = play_proba[i]
+        total = token_probs.sum()
+        if total > 0:
+            token_probs /= total
+        token_val = _sample_categorical(token_probs, rng)
+        token = PlayToken(token_val)
+
+        # Time: intercept-only linear model with Gaussian noise
+        time_mean = self.time_intercept + self.time_slope * 5.0
+        time_elapsed = round(rng.gauss(time_mean, self.time_residual_std))
+        time_elapsed = max(1, min(45, time_elapsed))
+
+        return token, time_elapsed
+
+    # ------------------------------------------------------------------
+    # Save / Load
+    # ------------------------------------------------------------------
+
+    def save(self, path: Path) -> None:
+        """Save split backend: top-level meta + sub-directory per model."""
+        path.mkdir(parents=True, exist_ok=True)
+
+        # Top-level meta.json
+        meta = {
+            "type": "split",
+            "feature_names": _gen_feature_names(),
+            "time_intercept": self.time_intercept,
+            "time_slope": self.time_slope,
+            "time_residual_std": self.time_residual_std,
+        }
+        (path / "meta.json").write_text(json.dumps(meta, indent=2))
+
+        # Action sub-model
+        self._action.save(path / "action")
+
+        # Route outcome sub-models
+        for route, backend in self._sub_models.items():
+            backend.save(path / _ROUTE_NAMES[route])
+
+    @classmethod
+    def load(cls, path: Path) -> Self:
+        """Load a split RF backend from disk."""
+        meta = json.loads((path / "meta.json").read_text())
+
+        action = RFBackend.load(path / "action")
+
+        sub_models: dict[Route, RFBackend] = {}
+        for route, name in _ROUTE_NAMES.items():
+            sub_models[route] = RFBackend.load(path / name)
+
+        return cls(
+            time_intercept=meta["time_intercept"],
+            time_slope=meta["time_slope"],
+            time_residual_std=meta["time_residual_std"],
+            _action=action,
+            _sub_models=sub_models,
+        )

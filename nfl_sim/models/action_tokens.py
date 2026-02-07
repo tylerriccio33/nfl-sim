@@ -44,6 +44,7 @@ class Route(IntEnum):
 # Ordering must match the TOML key order (verified by assertion below).
 
 
+# TODO: Don't love how action token and action are sort of weirdly named
 class ActionToken(IntEnum):
     """High-level offensive decision. Each value maps to action_tokens.toml."""
 
