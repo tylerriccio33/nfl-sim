@@ -159,7 +159,7 @@ def _filter_preds(
         for key, criterion in filters.items():
             val = row.get(key)
             if callable(criterion):
-                if not criterion(val):
+                if not criterion(val):  # ty:ignore[call-top-callable]
                     match = False
                     break
             elif isinstance(criterion, (set, list, tuple)):
@@ -190,20 +190,22 @@ def _event_rate(df: pl.DataFrame, event_set: set[str]) -> float:
 # ═════════════════════════════════════════════════════════════════════════
 
 
-def test_no_punts_on_early_downs(predictions):
-    """Punts on 1st/2nd/3rd down are almost never real — model shouldn't predict them."""
+def test_no_sp_on_early_downs(predictions):
+    """Model should never predict these."""
     early = _filter_preds(predictions, down={1, 2, 3})
     assert len(early) > 50
-    rate = _token_rate(early, _PUNT_TOKENS)
-    assert rate < 0.05, f"PUNT rate on early downs is {rate:.1%}, expected < 5%"
 
+    punt_rate = _token_rate(early, _PUNT_TOKENS)
+    fg_rate = _token_rate(early, _FG_TOKENS)
 
-def test_no_field_goals_on_early_downs(predictions):
-    """Field goals on 1st/2nd down essentially never happen."""
-    early = _filter_preds(predictions, down={1, 2})
-    assert len(early) > 50
-    rate = _token_rate(early, _FG_TOKENS)
-    assert rate < 0.05, f"FG rate on 1st/2nd down is {rate:.1%}, expected < 5%"
+    threshold = 0.0001
+
+    assert punt_rate < threshold, (
+        f"PUNT rate on early downs is {punt_rate:.1%}, expected < {threshold * 100:.2f}%"
+    )
+    assert fg_rate < threshold, (
+        f"FG rate on early downs is {fg_rate:.1%}, expected < {threshold * 100:.2f}%"
+    )
 
 
 def test_no_kneels_outside_garbage_time(predictions):

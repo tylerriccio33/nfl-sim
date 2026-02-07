@@ -34,6 +34,7 @@ FUNCTIONS = (
     ## Models:
     outcome_model,
     RFBackend.predict,
+    RFBackend._predict_proba,
     ## DataFrame conversion:
     traces_to_dataframe,
     _event_from_play,

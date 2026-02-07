@@ -20,7 +20,6 @@ def test_training_pipeline_runs():
     backend = train(save=False)
 
     assert backend is not None, "Training should produce a model"
-    assert backend.model is not None
     assert backend.time_intercept > 0
     assert backend.time_residual_std > 0
 

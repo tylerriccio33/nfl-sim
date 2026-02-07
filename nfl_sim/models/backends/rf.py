@@ -13,13 +13,14 @@ from random import Random
 from typing import Self
 
 import numpy as np
+import tl2cgen
 from sklearn.ensemble import RandomForestClassifier
 
 from nfl_sim.models.features import _gen_feature_names
 from nfl_sim.models.tokens import NUM_TOKENS, PlayToken
 
 # Platform-appropriate shared library extension
-_LIB_EXT = ".dylib" if sys.platform == "darwin" else ".so"
+_LIB_EXT = ".dylib"
 
 
 @dataclass
@@ -43,8 +44,9 @@ class RFBackend:
     # Exactly one of these is populated:
     #   _sklearn_model  → training time (save compiles it)
     #   _compiled       → inference time (load restores it)
+    # TODO: Why are these even able to be None
     _sklearn_model: RandomForestClassifier | None = field(default=None, repr=False)
-    _compiled: object | None = field(default=None, repr=False)  # tl2cgen.Predictor
+    _compiled: tl2cgen.Predictor | None = field(default=None, repr=False)
 
     # ------------------------------------------------------------------
     # Construction helpers
@@ -108,16 +110,10 @@ class RFBackend:
         Uses the compiled tl2cgen predictor when available (fast path),
         falls back to sklearn for training-time validation.
         """
-        if self._compiled is not None:
-            import tl2cgen
-
-            dmat = tl2cgen.DMatrix(row.astype(np.float32))
-            out = self._compiled.predict(dmat)
-            # tl2cgen returns shape (N, 1, C) → squeeze to (N, C) → take first row
-            return out.reshape(out.shape[0], -1)[0]
-
-        assert self._sklearn_model is not None
-        return self._sklearn_model.predict_proba(row)[0]
+        dmat = tl2cgen.DMatrix(row.astype(np.float32))
+        out = self._compiled.predict(dmat)  # ty:ignore[possibly-missing-attribute]
+        # tl2cgen returns shape (N, 1, C) → squeeze to (N, C) → take first row
+        return out.reshape(out.shape[0], -1)[0]
 
     # ------------------------------------------------------------------
     # Save / Load
@@ -125,7 +121,6 @@ class RFBackend:
 
     def save(self, path: Path) -> None:
         """Compile sklearn model to native code and save to disk."""
-        import tl2cgen
         import treelite.sklearn
 
         assert self._sklearn_model is not None, "Nothing to save — no sklearn model"
@@ -157,8 +152,6 @@ class RFBackend:
     @classmethod
     def load(cls, path: Path) -> Self:
         """Load a compiled RF backend from disk."""
-        import tl2cgen
-
         meta = json.loads((path / "meta.json").read_text())
 
         predictor = tl2cgen.Predictor(str(path / f"model{_LIB_EXT}"), nthread=1)
