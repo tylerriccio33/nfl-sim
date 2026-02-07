@@ -82,7 +82,7 @@ def test_determinism(backend: Backend):
     results = []
     for _ in range(3):
         ctx = _make_context(seed=99)
-        action, out = outcome_model(backend, ctx)
+        _at, action, out = outcome_model(backend, ctx)
         results.append((action, out.yards, out.turnover_type, out.time_elapsed))
 
     assert results[0] == results[1] == results[2]
@@ -92,8 +92,8 @@ def test_determinism_different_seeds(backend: Backend):
     """Different seeds produce different outcomes (usually)."""
     ctx1 = _make_context(seed=1)
     ctx2 = _make_context(seed=2)
-    a1, out1 = outcome_model(backend, ctx1)
-    a2, out2 = outcome_model(backend, ctx2)
+    _at1, a1, out1 = outcome_model(backend, ctx1)
+    _at2, a2, out2 = outcome_model(backend, ctx2)
 
     # At least something should differ
     different = (
@@ -134,8 +134,8 @@ def test_identifier_leakage_game_id(backend: Backend):
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
-    act_a, out_a = outcome_model(backend, ctx_a)
-    act_b, out_b = outcome_model(backend, ctx_b)
+    _at_a, act_a, out_a = outcome_model(backend, ctx_a)
+    _at_b, act_b, out_b = outcome_model(backend, ctx_b)
     assert act_a == act_b
     assert out_a.yards == out_b.yards
     assert out_a.turnover_type == out_b.turnover_type
@@ -182,7 +182,7 @@ def test_neutral_state_produces_sane_output(backend: Backend):
         score=(0, 0),
         spread=0.0,
     )
-    action, out = outcome_model(backend, ctx)
+    _at, action, out = outcome_model(backend, ctx)
 
     assert isinstance(action, Action)
     assert -15 <= out.yards <= 99
@@ -216,7 +216,7 @@ def test_neutral_state_produces_sane_output(backend: Backend):
 def test_edge_inputs_no_nan(backend: Backend, kw: dict):
     """Edge-case game states must produce finite, bounded predictions."""
     ctx = _make_context(seed=42, **kw)
-    action, out = outcome_model(backend, ctx)
+    _at, action, out = outcome_model(backend, ctx)
 
     assert isinstance(action, Action)
     assert np.isfinite(out.yards), f"yards is not finite: {out.yards}"

@@ -1,8 +1,13 @@
 """State variables that determine the settings of the game are here."""
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
+
+if TYPE_CHECKING:
+    from nfl_sim.models.action_tokens import ActionToken
 
 type TeamId = Literal["HOME", "AWAY"]
 
@@ -97,6 +102,7 @@ class PlayEvent:
     action: Action
     outcome: Outcome
     state_after: _GameState
+    action_token: ActionToken | None = field(default=None, repr=False)
 
 
 GameTrace = list[PlayEvent]

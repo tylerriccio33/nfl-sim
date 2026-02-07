@@ -2,17 +2,34 @@
 
 A play-by-play NFL game simulation engine.
 
-Definitions: - Policy -> Choosing the `Action`; basically the coach. - State -> The game as of now; determines legal choices. - Outcome -> The of the play (yards, td, etc.). - OutcomeModel -> State + Context = Outcome. This is the intelligence layer.
+**The key section of game logic:**
+- Trace: All plays up to this point
+- State: The state of the game right now
+- Game Context: Details about the teams and game.
+- Action: The type of play the team will run (token).
+- Outcome: The outcome of said play (token).
+```{python}
+derived = DerivedContext(trace)
+context = ModelContext(state, derived, rng, game_context)
+action, outcome = model(context) # Completely abstracted from game logic.
+new_state = apply_outcome(state, action, outcome)
+```
 
-Why this works (and scales) - Monte Carlo friendly → state copies are cheap - Parallelizable → no shared mutation - Testable → freeze randomness, test transitions - Composable → swap policy or model independently - Explainable → log (state, action, outcome) triples
+![alt text](docs/image.png)
 
-What I would not do - Visitor pattern → overkill - Deep inheritance hierarchies → pain - "Play" objects with logic → leaky - Mutating GameState everywhere → debugging hell
+**Model Logic:**
+1. Action model ingests context and produces a set of possible tokens.
+- Examples include `RUN_INSIDE`, `SCREEN_WR`, `FG_ATT` or `MED_PASS`.
+2. Depending on action, run, pass or st model is selected.
+3. Outcome is produced and both are sent back to the game.
+
+![alt text](docs/image-2.png)
 
 ## Code Style and Conventions
 
 ### Helpful Commands
 
-Everything non-uv is a make command, everything else is UV standards. you should never be running something like `python ...` or `pytest ...` directly. Cargo commands can be run directly if need be however, but we do have `make build` which compiles the extensions.
+Everything non-uv is a make command, everything else is UV standards. you should never be running something like `python ...` or `pytest ...` directly.
 
 ```bash
 # Run all objective tests (tests are really fast)

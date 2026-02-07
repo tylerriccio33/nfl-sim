@@ -59,7 +59,7 @@ def _run_game_loop(
     while not is_terminal(state):
         derived = DerivedContext(trace)
         context = ModelContext(state, derived, rng, game_context)
-        action, outcome = model(context)
+        action_token, action, outcome = model(context)
         new_state = apply_outcome(state, action, outcome)
 
         # Engine detects TDs by yardline - reflect this in the outcome for consumers
@@ -68,7 +68,7 @@ def _run_game_loop(
             if new_yardline <= 0:
                 outcome.touchdown = True
 
-        trace.append(PlayEvent(state, action, outcome, new_state))
+        trace.append(PlayEvent(state, action, outcome, new_state, action_token=action_token))
         state = new_state
 
     return trace
