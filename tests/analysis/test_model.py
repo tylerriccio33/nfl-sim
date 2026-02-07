@@ -12,8 +12,7 @@ import polars as pl
 import pytest
 
 from nfl_sim.engine.state import Action, TurnoverType
-from nfl_sim.models.backends import load_backend
-from nfl_sim.models.backends.xgb import XGBBackend
+from nfl_sim.models.backends import Backend, load_backend
 from nfl_sim.models.context import (
     DerivedContext,
     GameContext,
@@ -70,15 +69,15 @@ def _make_context(
 
 
 @pytest.fixture
-def backend() -> XGBBackend:
-    return load_backend("xgb")
+def backend() -> Backend:
+    return load_backend("rf")
 
 
 # ── 1. Determinism ──────────────────────────────────────────────────────
 # Same payload + same RNG seed must produce identical predictions.
 
 
-def test_determinism(backend: XGBBackend):
+def test_determinism(backend: Backend):
     """Identical inputs and seed produce identical outcomes."""
     results = []
     for _ in range(3):
@@ -89,7 +88,7 @@ def test_determinism(backend: XGBBackend):
     assert results[0] == results[1] == results[2]
 
 
-def test_determinism_different_seeds(backend: XGBBackend):
+def test_determinism_different_seeds(backend: Backend):
     """Different seeds produce different outcomes (usually)."""
     ctx1 = _make_context(seed=1)
     ctx2 = _make_context(seed=2)
@@ -125,7 +124,7 @@ def test_features_only_from_pre_play_state():
 # because IDs are not in the feature vector.
 
 
-def test_identifier_leakage_game_id(backend: XGBBackend):
+def test_identifier_leakage_game_id(backend: Backend):
     """Changing game_id must not affect predictions."""
     ctx_a = _make_context(seed=42, game_id="2024_01_KC_BUF")
     ctx_b = _make_context(seed=42, game_id="9999_99_FOO_BAR")
@@ -143,7 +142,7 @@ def test_identifier_leakage_game_id(backend: XGBBackend):
     assert out_a.time_elapsed == out_b.time_elapsed
 
 
-def test_identifier_leakage_team_names(backend: XGBBackend):
+def test_identifier_leakage_team_names(backend: Backend):
     """Changing home/away team names must not affect predictions.
 
     Team names appear in GameContext but should never leak into features.
@@ -161,7 +160,7 @@ def test_identifier_leakage_team_names(backend: XGBBackend):
 # All-zero (or neutral) features should produce finite, non-extreme output.
 
 
-def test_zero_features_produce_finite_output(backend: XGBBackend):
+def test_zero_features_produce_finite_output(backend: Backend):
     """A zeroed-out feature vector must not produce NaN, inf, or absurd values."""
     zeros = np.zeros(len(_gen_feature_names()), dtype=np.float32)
     rng = Random(42)
@@ -171,7 +170,7 @@ def test_zero_features_produce_finite_output(backend: XGBBackend):
     assert 1 <= time_est <= 45
 
 
-def test_neutral_state_produces_sane_output(backend: XGBBackend):
+def test_neutral_state_produces_sane_output(backend: Backend):
     """A typical mid-game state should produce reasonable output."""
     ctx = _make_context(
         seed=42,
@@ -214,7 +213,7 @@ def test_neutral_state_produces_sane_output(backend: XGBBackend):
         "huge_neg_spread",
     ],
 )
-def test_edge_inputs_no_nan(backend: XGBBackend, kw: dict):
+def test_edge_inputs_no_nan(backend: Backend, kw: dict):
     """Edge-case game states must produce finite, bounded predictions."""
     ctx = _make_context(seed=42, **kw)
     action, out = outcome_model(backend, ctx)

@@ -15,7 +15,7 @@ from nfl_sim.models.outcomes import outcome_model
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
 
-_TEST_MODEL = partial(outcome_model, load_backend("xgb"))
+_TEST_MODEL = partial(outcome_model, load_backend("rf"))
 
 # =============================================================================
 # Constants

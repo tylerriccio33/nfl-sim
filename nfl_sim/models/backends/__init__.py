@@ -2,11 +2,11 @@
 
 from pathlib import Path
 from random import Random
-from typing import Literal, Protocol, Self, overload
+from typing import Literal, Protocol, Self
 
 import numpy as np
 
-from nfl_sim.models.backends.xgb import XGBBackend
+from nfl_sim.models.backends.rf import RFBackend
 from nfl_sim.models.tokens import PlayToken
 
 
@@ -41,25 +41,16 @@ class Backend(Protocol):
 ARTIFACTS_DIR = Path("training/artifacts")
 
 
-@overload
-def load_backend(name: Literal["xgb"], artifacts_dir: Path | str = ARTIFACTS_DIR) -> XGBBackend: ...
-
-
-@overload
-def load_backend(name: Literal["rng"], artifacts_dir: Path | str = ARTIFACTS_DIR) -> XGBBackend: ...
-
-
-def load_backend(name: Literal["xgb", "rng"], artifacts_dir: Path | str = ARTIFACTS_DIR) -> Backend:
-    """Load a trained backend by name ('xgb').
+def load_backend(name: Literal["rf", "rng"], artifacts_dir: Path | str = ARTIFACTS_DIR) -> Backend:
+    """Load a trained backend by name.
 
     Resolves the backend module, then calls its .load() with the appropriate
     artifact subdirectory.
     """
     artifacts_dir = Path(artifacts_dir)
-    path = artifacts_dir / name
 
-    if name == "xgb":
-        return XGBBackend.load(path)
+    if name == "rf":
+        return RFBackend.load(artifacts_dir / "rf")
 
-    msg = f"Unknown backend: {name!r}. Expected 'xgb'."
+    msg = f"Unknown backend: {name!r}. Expected 'rf'."
     raise ValueError(msg)

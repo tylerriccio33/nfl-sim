@@ -10,10 +10,10 @@ from pathlib import Path
 from line_profiler import LineProfiler
 from loguru import logger
 
-## Profile these functions from the new engine API:
 from nfl_sim.engine.api import (
     _event_from_play,
     _run_game_loop,
+    _run_one_game,
     _simulate_game,
     sim_games,
     traces_to_dataframe,
@@ -27,6 +27,7 @@ FUNCTIONS = (
     sim_games,
     _simulate_game,
     _run_game_loop,
+    _run_one_game,
     ## State transitions:
     apply_outcome,
     ## Models:

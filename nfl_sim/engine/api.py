@@ -1,9 +1,9 @@
 """Public API for the simulation engine."""
 
+import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import partial
-from os import cpu_count
 from random import Random
 
 import numpy as np
@@ -140,7 +140,7 @@ def _run_one_game(
 def sim_games(
     games: dict[str, GameContext],
     *,
-    n: int = 100,
+    n: int = 1,
     base_seed: int | None = None,
     model_factory: OutcomeModel | None = None,
     max_workers: int | None = None,
@@ -154,7 +154,7 @@ def sim_games(
         games: Dict mapping game_id to GameContext
         n: Number of simulations per game
         base_seed: Base seed (each game derives a deterministic seed)
-        model_factory: Model callable (defaults to trained XGB outcome model)
+        model_factory: Model callable (defaults to trained outcome model)
         max_workers: Process count. Defaults to min(num_games, cpu_count).
             Set to 1 to force sequential execution.
 
@@ -171,7 +171,7 @@ def sim_games(
     # Deterministic per-game seeds so results don't depend on execution order
     seeds = [None if base_seed is None else base_seed + 77 + i for i in range(len(game_items))]
 
-    workers = max_workers or min(len(game_items), cpu_count() or 1)
+    workers = max_workers or min(len(game_items), (os.cpu_count() or 1))
 
     def _submit(gid: str, ctx: GameContext, seed: int | None) -> tuple[str, list[GameTrace]]:
         return _run_one_game(gid, ctx, n, seed, model_factory)

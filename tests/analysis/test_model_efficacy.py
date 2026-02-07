@@ -1,4 +1,4 @@
-"""Situational sanity checks for the trained XGB model.
+"""Situational sanity checks for the trained outcome model.
 
 Two layers of validation:
   1. Token-level — run the model against real PBP situations and check that
@@ -14,8 +14,7 @@ import pytest
 
 from nfl_sim.engine.api import GameTrace, traces_to_dataframe
 from nfl_sim.engine.state import GameState
-from nfl_sim.models.backends import load_backend
-from nfl_sim.models.backends.xgb import XGBBackend
+from nfl_sim.models.backends import Backend, load_backend
 from nfl_sim.models.context import (
     DerivedContext,
     ModelContext,
@@ -44,13 +43,13 @@ _SPECIAL_EVENTS = _PUNT_EVENTS | _FG_EVENTS
 
 
 @pytest.fixture(scope="session")
-def backend() -> XGBBackend:
-    return load_backend("xgb")
+def backend() -> Backend:
+    return load_backend("rf")
 
 
 @pytest.fixture(scope="session")
 def predictions(
-    backend: XGBBackend, raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame
+    backend: Backend, raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame
 ) -> list[tuple[dict, PlayToken]]:
     """Build features from real PBP rows and collect (row, predicted_token) pairs.
 
@@ -131,7 +130,7 @@ def predictions(
     return results
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session")  # TODO: Why is this here
 def sim_pbp(sims: dict[str, list[GameTrace]]) -> pl.DataFrame:
     """Convert end-to-end simulation traces into a PBP dataframe."""
     return traces_to_dataframe(sims)
@@ -300,3 +299,7 @@ def test_sim_special_teams_dont_dominate(sim_pbp: pl.DataFrame):
     """In simulated games, special teams events should be a small fraction."""
     rate = _event_rate(sim_pbp, _SPECIAL_EVENTS)
     assert rate < 0.30, f"Sim special teams rate is {rate:.1%}, expected < 30%"
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-sv"])
