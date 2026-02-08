@@ -1,7 +1,6 @@
 """Constants and data locations."""
 
 import os
-from typing import Literal
 
 
 def SCHEDULES_DATA() -> str:
@@ -27,10 +26,3 @@ def FUTURE_GAMES() -> str:
 def GAME_SUMMARY() -> str:
     """Location to push/pull the simulation's game summarization data."""
     return os.getenv("GAME_SUMMARIZATION", "0")
-
-
-def MODEL_IND() -> Literal["rf", "rng"]:
-    """Model type."""
-    mod = os.getenv("NFL_SIM_MODEL", "rf")
-    assert mod in {"rf", "rng"}  # pragma: no cover
-    return mod  # ty: ignore (can't narrow and don't want to do over-engineer)

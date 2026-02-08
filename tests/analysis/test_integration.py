@@ -9,9 +9,11 @@ import pytest
 
 from nfl_sim import sim_games, understand
 from nfl_sim.engine.api import traces_to_dataframe
-from nfl_sim.models.outcomes import rand_outcome_model
+from nfl_sim.models.backends import load_models
+from nfl_sim.models.outcomes import outcome_model
 
-_TEST_MODEL = partial(rand_outcome_model, None)
+_intent_fn, _outcome_fns = load_models()
+_TEST_MODEL = partial(outcome_model, _intent_fn, _outcome_fns)
 
 
 def test_full_pipeline_completes(ctx):
@@ -22,8 +24,6 @@ def test_full_pipeline_completes(ctx):
 
     # 2 games (from ctx fixture)
     assert len(game_stats) == 2
-
-    # TODO: this is suchhhhh a weird test. Probably should just hypothesis this and call it a day?
 
     # Verify home_*/away_* team stats are present
     schema = game_stats.collect_schema()

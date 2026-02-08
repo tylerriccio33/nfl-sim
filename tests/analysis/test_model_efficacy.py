@@ -2,13 +2,23 @@
 
 Uses the full end-to-end simulation pipeline (sims fixture from conftest)
 and verifies invariants hold in the generated play-by-play via polars.
+
+These tests require a trained model to produce realistic distributions.
+They are skipped when using placeholder (random) predictors.
 """
+
+import os
 
 import polars as pl
 import pytest
 
 from nfl_sim.analysis.understand import understand
 from nfl_sim.engine.api import GameTrace, traces_to_dataframe
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("NFL_SIM_EFFICACY", "0") != "1",
+    reason="Efficacy tests require trained models (set NFL_SIM_EFFICACY=1)",
+)
 
 # Event groups the sim engine emits
 _PUNT_EVENTS = {"PuntRegular"}

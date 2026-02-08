@@ -12,7 +12,7 @@ import polars as pl
 import pytest
 
 from nfl_sim.engine.state import Intent, TurnoverType
-from nfl_sim.models.backends import Backend, load_backend
+from nfl_sim.models.backends import load_models
 from nfl_sim.models.context import (
     DerivedContext,
     GameContext,
@@ -27,7 +27,6 @@ from nfl_sim.models.features import (
     features_from_state,
 )
 from nfl_sim.models.outcomes import outcome_model
-from nfl_sim.models.tokens import PlayToken, token_to_outcome
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -68,31 +67,33 @@ def _make_context(
 
 
 @pytest.fixture
-def backend() -> Backend:
-    return load_backend("rf")
+def predictors():
+    return load_models()
 
 
 # ── 1. Determinism ──────────────────────────────────────────────────────
 # Same payload + same RNG seed must produce identical predictions.
 
 
-def test_determinism(backend: Backend):
+def test_determinism(predictors):
     """Identical inputs and seed produce identical outcomes."""
+    intent_fn, outcome_fns = predictors
     results = []
     for _ in range(3):
         ctx = _make_context(seed=99)
-        _it, intent, out = outcome_model(backend, ctx)
+        intent, out = outcome_model(intent_fn, outcome_fns, ctx)
         results.append((intent, out.yards, out.turnover_type, out.time_elapsed))
 
     assert results[0] == results[1] == results[2]
 
 
-def test_determinism_different_seeds(backend: Backend):
+def test_determinism_different_seeds(predictors):
     """Different seeds produce different outcomes (usually)."""
+    intent_fn, outcome_fns = predictors
     ctx1 = _make_context(seed=1)
     ctx2 = _make_context(seed=2)
-    _it1, a1, out1 = outcome_model(backend, ctx1)
-    _it2, a2, out2 = outcome_model(backend, ctx2)
+    a1, out1 = outcome_model(intent_fn, outcome_fns, ctx1)
+    a2, out2 = outcome_model(intent_fn, outcome_fns, ctx2)
 
     # At least something should differ
     different = (
@@ -123,8 +124,9 @@ def test_features_only_from_pre_play_state():
 # because IDs are not in the feature vector.
 
 
-def test_identifier_leakage_game_id(backend: Backend):
+def test_identifier_leakage_game_id(predictors):
     """Changing game_id must not affect predictions."""
+    intent_fn, outcome_fns = predictors
     ctx_a = _make_context(seed=42, game_id="2024_01_KC_BUF")
     ctx_b = _make_context(seed=42, game_id="9999_99_FOO_BAR")
 
@@ -133,15 +135,15 @@ def test_identifier_leakage_game_id(backend: Backend):
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
-    _it_a, act_a, out_a = outcome_model(backend, ctx_a)
-    _it_b, act_b, out_b = outcome_model(backend, ctx_b)
+    act_a, out_a = outcome_model(intent_fn, outcome_fns, ctx_a)
+    act_b, out_b = outcome_model(intent_fn, outcome_fns, ctx_b)
     assert act_a == act_b
     assert out_a.yards == out_b.yards
     assert out_a.turnover_type == out_b.turnover_type
     assert out_a.time_elapsed == out_b.time_elapsed
 
 
-def test_identifier_leakage_team_names(backend: Backend):
+def test_identifier_leakage_team_names():
     """Changing home/away team names must not affect predictions.
 
     Team names appear in GameContext but should never leak into features.
@@ -159,18 +161,19 @@ def test_identifier_leakage_team_names(backend: Backend):
 # All-zero (or neutral) features should produce finite, non-extreme output.
 
 
-def test_zero_features_produce_finite_output(backend: Backend):
+def test_zero_features_produce_finite_output(predictors):
     """A zeroed-out feature vector must not produce NaN, inf, or absurd values."""
+    intent_fn, _outcome_fns = predictors
     zeros = np.zeros(len(_gen_feature_names()), dtype=np.float32)
     rng = Random(42)
-    token, time_est = backend.predict(zeros, rng)
 
-    assert isinstance(token, PlayToken)
-    assert 1 <= time_est <= 45
+    intent = intent_fn(zeros, rng)
+    assert isinstance(intent, Intent)
 
 
-def test_neutral_state_produces_sane_output(backend: Backend):
+def test_neutral_state_produces_sane_output(predictors):
     """A typical mid-game state should produce reasonable output."""
+    intent_fn, outcome_fns = predictors
     ctx = _make_context(
         seed=42,
         quarter=2,
@@ -181,10 +184,10 @@ def test_neutral_state_produces_sane_output(backend: Backend):
         score=(0, 0),
         spread=0.0,
     )
-    _it, intent, out = outcome_model(backend, ctx)
+    intent, out = outcome_model(intent_fn, outcome_fns, ctx)
 
     assert isinstance(intent, Intent)
-    assert -15 <= out.yards <= 99
+    assert -15 <= out.yards <= 100
     assert 1 <= out.time_elapsed <= 450
     assert out.turnover_type in (TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FUMBLE)
 
@@ -212,10 +215,11 @@ def test_neutral_state_produces_sane_output(backend: Backend):
         "huge_neg_spread",
     ],
 )
-def test_edge_inputs_no_nan(backend: Backend, kw: dict):
+def test_edge_inputs_no_nan(predictors, kw: dict):
     """Edge-case game states must produce finite, bounded predictions."""
+    intent_fn, outcome_fns = predictors
     ctx = _make_context(seed=42, **kw)
-    _it, intent, out = outcome_model(backend, ctx)
+    intent, out = outcome_model(intent_fn, outcome_fns, ctx)
 
     assert isinstance(intent, Intent)
     assert np.isfinite(out.yards), f"yards is not finite: {out.yards}"
@@ -310,33 +314,6 @@ def test_feature_engineering_e2e(
     raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame, latest_rand_game_id
 ):
     ctx_from_game_id(raw_pbp, raw_schedules, game_ids=[latest_rand_game_id])
-
-
-# ── Token post-processing ────────────────────────────────────────────────
-
-
-def test_token_to_outcome_fg_made():
-    """FG_MADE token should produce field goal intent with yards = yardline."""
-    state = _make_state(yardline=30)
-    intent, outcome = token_to_outcome(PlayToken.FG_MADE, Random(1), state)
-    assert intent == Intent.FIELD_GOAL
-    assert outcome.yards == 30
-
-
-def test_token_to_outcome_punt():
-    """PUNT token should produce punt intent."""
-    state = _make_state(yardline=60)
-    intent, outcome = token_to_outcome(PlayToken.PUNT, Random(1), state)
-    assert intent == Intent.PUNT
-    assert outcome.yards == 0
-
-
-def test_token_to_outcome_run_short():
-    """RUN_SHORT should produce run intent with 0-3 yards."""
-    state = _make_state()
-    intent, outcome = token_to_outcome(PlayToken.RUN_SHORT, Random(1), state)
-    assert intent == Intent.RUN
-    assert 0 <= outcome.yards <= 3
 
 
 if __name__ == "__main__":

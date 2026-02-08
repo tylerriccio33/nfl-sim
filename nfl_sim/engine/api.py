@@ -9,7 +9,6 @@ import numpy as np
 import polars as pl
 from rich.progress import Progress
 
-from nfl_sim.const import MODEL_IND
 from nfl_sim.engine.apply import apply_outcome, is_terminal
 from nfl_sim.engine.state import (
     _CLK,
@@ -25,7 +24,7 @@ from nfl_sim.engine.state import (
     TurnoverType,
     _GameState,
 )
-from nfl_sim.models.backends import load_backend
+from nfl_sim.models.backends import load_models
 from nfl_sim.models.context import DerivedContext, GameContext, ModelContext
 from nfl_sim.models.outcomes import OutcomeModel, outcome_model
 
@@ -59,7 +58,7 @@ def _run_game_loop(
     while not is_terminal(state):
         derived = DerivedContext(trace)
         context = ModelContext(state, derived, rng, game_context)
-        intent_token, intent, outcome = model(context)
+        intent, outcome = model(context)
         new_state = apply_outcome(state, intent, outcome)
 
         # Engine detects TDs by yardline - reflect this in the outcome for consumers
@@ -68,7 +67,7 @@ def _run_game_loop(
             if new_yardline <= 0:
                 outcome.touchdown = True
 
-        trace.append(PlayEvent(state, intent, outcome, new_state, intent_token=intent_token))
+        trace.append(PlayEvent(state, intent, outcome, new_state))
         state = new_state
 
     return trace
@@ -162,8 +161,8 @@ def sim_games(
 
     """
     if model_factory is None:
-        backend = load_backend(MODEL_IND())
-        model_factory = partial(outcome_model, backend)
+        intent_fn, outcome_fns = load_models()
+        model_factory = partial(outcome_model, intent_fn, outcome_fns)
 
     game_items = list(games.items())
 

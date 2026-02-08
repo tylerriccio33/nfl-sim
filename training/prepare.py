@@ -14,16 +14,14 @@ from random import Random
 import numpy as np
 import polars as pl
 
-from nfl_sim.engine.state import GameState, _GameState
+from nfl_sim.engine.state import GameState, Intent, _GameState
 from nfl_sim.models.context import DerivedContext, GameContext, ModelContext, ctx_from_game_id
 from nfl_sim.models.features import build_features
-from nfl_sim.models.intent_tokens import PLAY_TOKEN_TO_INTENT_TOKEN, route_from_intent_token
-from nfl_sim.models.tokens import tokenize_row
 
 DATA_PATH = Path("data/pbp.parquet")
 SCHEDULE_PATH = Path("data/schedules.parquet")
 
-# Columns we need from pbp to extract features + targets + tokenization
+# Columns we need from pbp to extract features + targets
 REQUIRED_COLS = [
     "play_type",
     "down",
@@ -44,14 +42,16 @@ REQUIRED_COLS = [
     "time",
     "turnover_type",
     "time_elapsed",
-    # Token-specific columns
-    "sack",
-    "qb_scramble",
-    "air_yards",
-    "yards_after_catch",
-    "complete_pass",
-    "field_goal_result",
 ]
+
+# Map play_type string → Intent enum
+_PLAY_TYPE_TO_INTENT: dict[str, Intent] = {
+    "run": Intent.RUN,
+    "pass": Intent.PASS,
+    "qb_kneel": Intent.RUN,
+    "punt": Intent.PUNT,
+    "field_goal": Intent.FIELD_GOAL,
+}
 
 
 @dataclass
@@ -59,9 +59,8 @@ class TrainingData:
     """Container for prepared training arrays."""
 
     features: np.ndarray  # (N, num_features)
-    token: np.ndarray  # (N,) int: PlayToken ordinal
-    intent_token: np.ndarray  # (N,) int: IntentToken ordinal
-    route: np.ndarray  # (N,) int: Route ordinal
+    intent: np.ndarray  # (N,) int: Intent ordinal
+    yards: np.ndarray  # (N,) int: yards gained
     time_elapsed: np.ndarray  # (N,) float: estimated seconds per play
 
 
@@ -103,7 +102,7 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
       2. Drop rows with nulls on key columns
       3. Engineer game-level features via ctx_from_game_id (same code path as runtime)
       4. Build per-row feature vectors via build_features (same code path as runtime)
-      5. Tokenize each row and extract time target
+      5. Extract intent + yards + time targets
     """
     df = (
         pl.scan_parquet(pbp_path)
@@ -152,14 +151,17 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
     all_cols = [c for c in REQUIRED_COLS if c in df.columns]
     rows = df.select(all_cols).to_dicts()
     feats: list[np.ndarray] = []
-    target_token: list[int] = []
     target_intent: list[int] = []
-    target_route: list[int] = []
+    target_yards: list[int] = []
     target_time: list[float] = []
 
     for row in rows:
         game_id = row["game_id"]
         if game_id not in contexts:
+            continue
+
+        play_type = row["play_type"]
+        if play_type not in _PLAY_TYPE_TO_INTENT:
             continue
 
         state = GameState(
@@ -183,14 +185,12 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
         feat_vec = build_features(model_context)
         feats.append(feat_vec)
 
-        # Token target from tokenization
-        token = tokenize_row(row)
-        target_token.append(int(token))
+        # Intent target from play_type
+        intent = _PLAY_TYPE_TO_INTENT[play_type]
+        target_intent.append(int(intent.value))
 
-        # Derive intent token and route from play token
-        intent_tok = PLAY_TOKEN_TO_INTENT_TOKEN[token]
-        target_intent.append(int(intent_tok))
-        target_route.append(int(route_from_intent_token(intent_tok)))
+        # Yards target
+        target_yards.append(int(row["yards_gained"]))
 
         # Time target
         time_val = row.get("time_elapsed")
@@ -200,8 +200,7 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
 
     return TrainingData(
         features=feat_mat,
-        token=np.asarray(target_token),
-        intent_token=np.asarray(target_intent),
-        route=np.asarray(target_route),
+        intent=np.asarray(target_intent),
+        yards=np.asarray(target_yards),
         time_elapsed=np.asarray(target_time),
     )

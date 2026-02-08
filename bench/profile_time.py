@@ -19,7 +19,6 @@ from nfl_sim.engine.api import (
     traces_to_dataframe,
 )
 from nfl_sim.engine.apply import apply_outcome
-from nfl_sim.models.backends.rf import RFBackend
 from nfl_sim.models.context import GameContext, GameFeatures
 from nfl_sim.models.outcomes import outcome_model
 
@@ -33,8 +32,6 @@ FUNCTIONS = (
     apply_outcome,
     ## Models:
     outcome_model,
-    RFBackend.predict,
-    RFBackend._predict_proba,
     ## DataFrame conversion:
     traces_to_dataframe,
     _event_from_play,

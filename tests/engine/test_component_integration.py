@@ -20,10 +20,12 @@ from nfl_sim.engine.api import (
     traces_to_dataframe,
 )
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _Q, _SC, _YL, Intent
+from nfl_sim.models.backends import load_models
 from nfl_sim.models.context import GameContext, GameFeatures
-from nfl_sim.models.outcomes import rand_outcome_model
+from nfl_sim.models.outcomes import outcome_model
 
-_TEST_MODEL = partial(rand_outcome_model, None)
+_intent_fn, _outcome_fns = load_models()
+_TEST_MODEL = partial(outcome_model, _intent_fn, _outcome_fns)
 
 
 def _test_ctx(home: str, away: str) -> GameContext:
