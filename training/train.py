@@ -16,106 +16,211 @@ from pathlib import Path
 import numpy as np
 from loguru import logger
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, log_loss, roc_auc_score
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
 
-from nfl_sim.models.action_tokens import Route
+from nfl_sim.models.action_tokens import ActionToken, Route
 from nfl_sim.models.backends.rf import NUM_ACTION_TOKENS, RFBackend, SplitRFBackend
 from nfl_sim.models.features import _gen_feature_names
-from nfl_sim.models.tokens import NUM_TOKENS
+from nfl_sim.models.tokens import NUM_TOKENS, PlayToken
 from training.prepare import prepare
 
 ARTIFACTS_DIR = Path("training/artifacts")
+BEST_MODELS_PATH = Path("training/bestmodels")
 
 warnings.filterwarnings("ignore")  # sklearn is very loud
+
+_FEATURE_NAMES = _gen_feature_names()
+_ACTION_TOKEN_NAMES = [t.name for t in ActionToken]
+_PLAY_TOKEN_NAMES = [t.name for t in PlayToken]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _print_metrics(
+def _full_proba(
     model: RandomForestClassifier,
+    X: np.ndarray,
+    num_classes: int,
+) -> np.ndarray:
+    """Probability matrix aligned to [0, num_classes), handling unseen classes."""
+    proba = model.predict_proba(X)
+    full = np.zeros((len(X), num_classes), dtype=np.float64)
+    for i, cls in enumerate(model.classes_):
+        full[:, int(cls)] = proba[:, i]
+    row_sums = full.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1.0
+    full /= row_sums
+    return full
+
+
+def _brier_multi(y_true: np.ndarray, proba: np.ndarray, num_classes: int) -> float:
+    """Multi-class Brier score (lower is better, random baseline = (K-1)/K)."""
+    one_hot = np.zeros_like(proba)
+    one_hot[np.arange(len(y_true)), y_true.astype(int)] = 1.0
+    return float(np.mean(np.sum((proba - one_hot) ** 2, axis=1)))
+
+
+def _eval_model(
+    model: RandomForestClassifier,
+    X_train: np.ndarray,
     X_test: np.ndarray,
+    y_train: np.ndarray,
     y_test: np.ndarray,
     num_classes: int,
-    model_name: str,
-) -> None:
-    """Print logloss, accuracy, and multiclass ROC AUC on the test set."""
+    name: str,
+    token_names: list[str],
+    console: Console,
+    *,
+    is_main: bool = False,
+) -> float:
+    """Full evaluation for one model: checks, metrics, varimp, examples. Returns logloss."""
+    # ── Sanity checks ─────────────────────────────────────────────────
+    assert not np.any(np.isnan(y_train.astype(float))), f"[{name}] NaN found in train targets"
+    assert not np.any(np.isnan(y_test.astype(float))), f"[{name}] NaN found in test targets"
+
+    # ── Header ────────────────────────────────────────────────────────
+    shape_info = (
+        f"Train: {X_train.shape[0]:,} rows x {X_train.shape[1]} features  |  "
+        f"Test: {X_test.shape[0]:,} rows"
+    )
+    if is_main:
+        console.print(
+            Panel(
+                f"[bold white]{name.upper()} MODEL[/bold white]\n{shape_info}",
+                title="[bold yellow]>>> MAIN MODEL <<<[/bold yellow]",
+                border_style="bold yellow",
+                padding=(1, 2),
+            )
+        )
+    else:
+        console.print(
+            Panel(
+                f"[bold]{name} model[/bold]  --  {shape_info}",
+                border_style="dim",
+            )
+        )
+
+    # ── Token catalog ─────────────────────────────────────────────────
+    # Which classes actually show up in training data and how often.
+    present = sorted(set(y_train.astype(int)))
+    tok_table = Table(title=f"Token catalog ({len(present)}/{num_classes} classes present)")
+    tok_table.add_column("Idx", style="cyan", justify="right")
+    tok_table.add_column("Token", style="green")
+    tok_table.add_column("Train N", justify="right")
+    tok_table.add_column("Train %", justify="right")
+    for cls in present:
+        n = int((y_train == cls).sum())
+        tok_table.add_row(str(cls), token_names[cls], f"{n:,}", f"{n / len(y_train) * 100:.1f}%")
+    console.print(tok_table)
+
+    # ── Metrics ───────────────────────────────────────────────────────
     y_pred = model.predict(X_test)
-    proba = model.predict_proba(X_test)
-
-    # Build full probability matrix so metrics work even when the model
-    # hasn't seen every class.
-    full_proba = np.zeros((len(y_test), num_classes), dtype=np.float64)
-    for i, cls in enumerate(model.classes_):
-        full_proba[:, int(cls)] = proba[:, i]
-    row_sums = full_proba.sum(axis=1, keepdims=True)
-    row_sums[row_sums == 0] = 1.0
-    full_proba /= row_sums
-
+    proba = _full_proba(model, X_test, num_classes)
     all_labels = list(range(num_classes))
 
-    ll = log_loss(y_test, full_proba, labels=all_labels)
     acc = accuracy_score(y_test, y_pred)
-    auc = roc_auc_score(y_test, full_proba, multi_class="ovr", labels=all_labels)
+    ll = log_loss(y_test, proba, labels=all_labels)
 
-    print(f"\n{'=' * 60}")
-    print(f"TEST SET PERFORMANCE — {model_name}")
-    print(f"{'=' * 60}")
-    print(f"Log Loss:    {ll:.4f}")
-    print(f"Accuracy:    {acc:.4f}")
-    print(f"ROC AUC:     {auc:.4f}")
+    brier = _brier_multi(y_test, proba, num_classes)
+    brier_random = (num_classes - 1) / num_classes
 
+    # ROC AUC only over labels that actually appear in the test set — sub-models
+    # only see a subset of the full token space so unseen classes produce NaN.
+    test_labels = sorted(set(y_test.astype(int)))
+    assert len(test_labels) >= 2, f"[{name}] Need >=2 classes in test set, got {len(test_labels)}"
+    test_proba = proba[:, test_labels]
+    auc = roc_auc_score(y_test, test_proba, multi_class="ovr", labels=test_labels)
+    assert not np.isnan(auc), f"[{name}] ROC AUC came back NaN — check class coverage"
 
-def _print_variable_importance(
-    model: RandomForestClassifier,
-    console: Console,
-    model_name: str,
-) -> None:
-    """Print a Rich table of feature importances and save a bar chart."""
-    import matplotlib as mpl
+    met = Table(title="Test Metrics")
+    met.add_column("Metric", style="bold")
+    met.add_column("Value", justify="right")
+    met.add_column("Note", style="dim")
+    met.add_row("Accuracy", f"{acc:.4f}", "")
+    met.add_row("Log Loss", f"{ll:.4f}", "lower is better")
+    met.add_row("Brier Score", f"{brier:.4f}", f"random = {brier_random:.4f}")
+    met.add_row(
+        "Brier vs Random", f"{(1 - brier / brier_random) * 100:+.1f}%", "improvement over uniform"
+    )
+    met.add_row("ROC AUC (OVR)", f"{auc:.4f}", f"over {len(test_labels)} present classes")
+    console.print(met)
 
-    mpl.use("Agg")
-    import matplotlib.pyplot as plt
-
-    feature_names = _gen_feature_names()
+    # ── Variable importance ───────────────────────────────────────────
     importances = model.feature_importances_
-
     order = np.argsort(importances)[::-1]
 
-    table = Table(title=f"Variable Importance — {model_name}")
-    table.add_column("Rank", style="cyan", justify="right")
-    table.add_column("Feature", style="green")
-    table.add_column("Importance", style="magenta", justify="right")
-
+    vi = Table(title="Variable Importance")
+    vi.add_column("#", style="cyan", justify="right")
+    vi.add_column("Feature", style="green")
+    vi.add_column("Importance", style="magenta", justify="right")
     for rank, idx in enumerate(order):
-        table.add_row(str(rank + 1), feature_names[idx], f"{importances[idx]:.4f}")
+        vi.add_row(str(rank + 1), _FEATURE_NAMES[idx], f"{importances[idx]:.4f}")
+    console.print(vi)
 
-    console.print(table)
+    # ── Example predictions ───────────────────────────────────────────
+    # 20 random test rows showing features, true/pred tokens, and confidence.
+    rng = np.random.default_rng(42)
+    sample = rng.choice(len(X_test), size=min(20, len(X_test)), replace=False)
+    sample.sort()
 
-    # Save bar chart
-    fig, ax = plt.subplots(figsize=(8, max(4, len(feature_names) * 0.4)))
-    sorted_names = [feature_names[i] for i in order]
-    sorted_vals = importances[order]
-    ax.barh(sorted_names[::-1], sorted_vals[::-1])
-    ax.set_xlabel("Importance")
-    ax.set_title(f"Feature Importance — {model_name}")
-    fig.tight_layout()
+    ex = Table(title=f"Example Predictions (n={len(sample)})")
+    for fn in _FEATURE_NAMES:
+        ex.add_column(fn, justify="right", style="dim")
+    ex.add_column("True", style="green")
+    ex.add_column("Pred", style="yellow")
+    ex.add_column("Conf", justify="right")
+    ex.add_column("", style="bold")
 
-    out_path = ARTIFACTS_DIR / "rf" / model_name / f"feature_importance_{model_name}.png"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    logger.info(f"Saved feature importance plot to {out_path}")
+    for i in sample:
+        feats = [f"{X_test[i, j]:.1f}" for j in range(X_test.shape[1])]
+        true_tok = token_names[int(y_test[i])]
+        pred_tok = token_names[int(y_pred[i])]
+        conf = f"{proba[i, int(y_pred[i])]:.2f}"
+        mark = "OK" if int(y_test[i]) == int(y_pred[i]) else "X"
+        ex.add_row(*feats, true_tok, pred_tok, conf, mark)
+    console.print(ex)
+
+    return ll
+
+
+def _read_best_models() -> dict[str, float]:
+    """Parse the bestmodels file into {name: logloss}."""
+    if not BEST_MODELS_PATH.exists():
+        return {}
+    best = {}
+    for line in BEST_MODELS_PATH.read_text().strip().splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            best[parts[0]] = float(parts[1])
+    return best
+
+
+def _maybe_update_best(name: str, ll: float, console: Console) -> None:
+    """Update bestmodels file if this run beats the previous best logloss."""
+    best = _read_best_models()
+    prev = best.get(name)
+    if prev is not None and ll >= prev:
+        console.print(
+            f"  [dim]{name}: logloss {ll:.4f} >= previous best {prev:.4f}, skipping[/dim]"
+        )
+        return
+    best[name] = ll
+    BEST_MODELS_PATH.write_text("\n".join(f"{k} {v:.4f}" for k, v in sorted(best.items())) + "\n")
+    if prev is None:
+        console.print(f"  [green]{name}: first record, logloss {ll:.4f}[/green]")
+    else:
+        console.print(f"  [green]{name}: new best logloss {ll:.4f} (was {prev:.4f})[/green]")
 
 
 def _grid_search(
     X_train: np.ndarray,
     y_train: np.ndarray,
 ) -> RandomizedSearchCV:
-    """Run GridSearchCV over depth/leaf/estimator knobs and return the best model."""
+    """Run RandomizedSearchCV over RF hyperparameters."""
     param_grid = {
         "n_estimators": [100, 300],
         "max_depth": [3, 5],
@@ -133,32 +238,14 @@ def _grid_search(
     return gs
 
 
-def _print_grid_results(gs: RandomizedSearchCV, console: Console, model_name: str) -> None:
-    """Print top 5 grid search results as a Rich table."""
-    results = gs.cv_results_
-    indices = np.argsort(results["rank_test_score"])[:5]
-
-    table = Table(title=f"Grid Search Results (Top 5) — {model_name}")
-    table.add_column("Rank", style="cyan", justify="right")
-    table.add_column("max_depth", justify="right")
-    table.add_column("min_samples_leaf", justify="right")
-    table.add_column("n_estimators", justify="right")
-    table.add_column("Mean Score", style="magenta", justify="right")
-    table.add_column("Std", style="dim", justify="right")
-
-    for idx in indices:
-        params = results["params"][idx]
-        mean_score = -results["mean_test_score"][idx]
-        std_score = results["std_test_score"][idx]
-        table.add_row(
-            str(results["rank_test_score"][idx]),
-            str(params["max_depth"]),
-            str(params["min_samples_leaf"]),
-            str(params["n_estimators"]),
-            f"{mean_score:.4f}",
-            f"{std_score:.4f}",
-        )
-
+def _print_best_params(gs: RandomizedSearchCV, console: Console, name: str) -> None:
+    """Show the winning hyperparameter combo from grid search."""
+    table = Table(title=f"Best Hyperparameters -- {name}")
+    table.add_column("Parameter", style="bold")
+    table.add_column("Value", justify="right")
+    for k, v in sorted(gs.best_params_.items()):
+        table.add_row(k, str(v))
+    table.add_row("CV Score", f"{gs.best_score_:.4f}", style="green")
     console.print(table)
 
 
@@ -169,23 +256,35 @@ def _train_one_model(
     y_test: np.ndarray,
     num_classes: int,
     name: str,
+    token_names: list[str],
     console: Console,
+    *,
+    is_main: bool = False,
 ) -> RFBackend:
-    """Train a single RF model: grid search -> metrics -> varimp -> compile.
+    """Train a single RF model: grid search -> eval suite -> wrap.
 
     Returns an RFBackend wrapping the sklearn model (not yet saved to disk).
     """
-    logger.info(f"[{name}] Training on {len(X_train):,} rows, testing on {len(X_test):,} rows")
+    logger.info(f"[{name}] Starting grid search...")
 
-    gs = _grid_search(X_train, y_train)
-    model = gs.best_estimator_
-    logger.info(f"[{name}] Best params: {gs.best_params_}")
-    _print_grid_results(gs, console, name)
-    _print_metrics(model, X_test, y_test, num_classes, name)
-    _print_variable_importance(model, console, name)
+    gs: RandomizedSearchCV = _grid_search(X_train, y_train)
+    model: RandomForestClassifier = gs.best_estimator_
 
-    # Wrap in RFBackend (time params are set at the top level, not per-model,
-    # so we use dummy values here — SplitRFBackend owns the real ones).
+    _print_best_params(gs, console, name)
+    ll = _eval_model(
+        model,
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        num_classes,
+        name,
+        token_names,
+        console,
+        is_main=is_main,
+    )
+    _maybe_update_best(name, ll, console)
+
     return RFBackend.from_sklearn(
         model,
         time_intercept=0.0,
@@ -235,7 +334,9 @@ def train(save: bool = True) -> SplitRFBackend:
         y_action_test,
         num_classes=NUM_ACTION_TOKENS,
         name="action",
+        token_names=_ACTION_TOKEN_NAMES,
         console=console,
+        is_main=True,
     )
 
     # -- Train per-route outcome models --
@@ -253,6 +354,7 @@ def train(save: bool = True) -> SplitRFBackend:
             y_token_test[mask_test],
             num_classes=NUM_TOKENS,
             name=name,
+            token_names=_PLAY_TOKEN_NAMES,
             console=console,
         )
 
@@ -270,7 +372,13 @@ def train(save: bool = True) -> SplitRFBackend:
         trained.save(artifact_path)
         logger.success(f"Saved split artifacts to {artifact_path}")
 
-    print(f"\nTime Model: mean={time_intercept:.1f}s, std={time_residual_std:.1f}s")
+    console.print(
+        Panel(
+            f"Time Model: mean={time_intercept:.1f}s, std={time_residual_std:.1f}s",
+            title="Time Model (intercept-only)",
+            border_style="blue",
+        )
+    )
 
     return trained
 
