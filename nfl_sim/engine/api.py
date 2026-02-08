@@ -2,7 +2,6 @@
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from functools import partial
 from random import Random
 
 import numpy as np
@@ -24,9 +23,8 @@ from nfl_sim.engine.state import (
     TurnoverType,
     _GameState,
 )
-from nfl_sim.models.backends import load_models
 from nfl_sim.models.context import DerivedContext, GameContext, ModelContext
-from nfl_sim.models.outcomes import OutcomeModel, outcome_model
+from nfl_sim.models.outcomes import outcome_model
 
 
 @dataclass(frozen=True)
@@ -47,7 +45,6 @@ def _create_initial_state() -> _GameState:
 
 def _run_game_loop(
     initial_state: _GameState,
-    model: OutcomeModel,
     rng: Random,
     game_context: GameContext,
 ) -> GameTrace:
@@ -58,7 +55,7 @@ def _run_game_loop(
     while not is_terminal(state):
         derived = DerivedContext(trace)
         context = ModelContext(state, derived, rng, game_context)
-        intent, outcome = model(context)
+        intent, outcome = outcome_model(context)
         new_state = apply_outcome(state, intent, outcome)
 
         # Engine detects TDs by yardline - reflect this in the outcome for consumers
@@ -78,7 +75,6 @@ def _simulate_game(
     away: str,
     *,
     seed: int,
-    model: OutcomeModel,
     context: GameContext,
 ) -> GameResult:
     """Simulate a single game.
@@ -87,7 +83,6 @@ def _simulate_game(
         home: Home team identifier
         away: Away team identifier
         seed: Random seed for reproducibility
-        model: Outcome model that jointly predicts intent + outcome
         context: GameContext with spread and other features
 
     Returns:
@@ -96,7 +91,7 @@ def _simulate_game(
     """
     rng = Random(seed)
     initial_state = _create_initial_state()
-    trace = _run_game_loop(initial_state, model, rng, context)
+    trace = _run_game_loop(initial_state, rng, context)
 
     # Extract final score from last play
     final_state = trace[-1].state_after
@@ -116,7 +111,6 @@ def _run_one_game(
     context: GameContext,
     n: int,
     seed: int | None,
-    model: OutcomeModel,
 ) -> tuple[str, list[GameTrace]]:
     """Simulate all n iterations of a single game. Unit of parallel work."""
     rng = Random(seed)
@@ -127,7 +121,6 @@ def _run_one_game(
             context.home,
             context.away,
             seed=iter_seed,
-            model=model,
             context=context,
         )
         traces.append(result.trace)
@@ -140,7 +133,6 @@ def sim_games(
     *,
     n: int = 1,
     base_seed: int | None = None,
-    model_factory: OutcomeModel | None = None,
     max_workers: int | None = None,
 ) -> dict[str, list[GameTrace]]:
     """Simulate multiple games n times each.
@@ -152,7 +144,6 @@ def sim_games(
         games: Dict mapping game_id to GameContext
         n: Number of simulations per game
         base_seed: Base seed (each game derives a deterministic seed)
-        model_factory: Model callable (defaults to trained outcome model)
         max_workers: Process count. Defaults to min(num_games, cpu_count).
             Set to 1 to force sequential execution.
 
@@ -160,20 +151,16 @@ def sim_games(
         Dict mapping game_id to list of GameTrace
 
     """
-    if model_factory is None:
-        intent_fn, outcome_fns = load_models()
-        model_factory = partial(outcome_model, intent_fn, outcome_fns)
-
     game_items = list(games.items())
 
     # Deterministic per-game seeds so results don't depend on execution order
     seeds = [None if base_seed is None else base_seed + 77 + i for i in range(len(game_items))]
 
-    workers = 1
+    workers = 1  # TODO: Figure this one out
     # workers = max_workers or min(len(game_items), (os.cpu_count() or 1))
 
     def _submit(gid: str, ctx: GameContext, seed: int | None) -> tuple[str, list[GameTrace]]:
-        return _run_one_game(gid, ctx, n, seed, model_factory)
+        return _run_one_game(gid, ctx, n, seed)
 
     # Skip process overhead when it can't help
     if workers <= 1 or len(game_items) <= 1:
@@ -185,7 +172,7 @@ def sim_games(
 
         with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = {
-                pool.submit(_run_one_game, gid, ctx, n, seed, model_factory): gid
+                pool.submit(_run_one_game, gid, ctx, n, seed): gid
                 for (gid, ctx), seed in zip(game_items, seeds)
             }
             for future in as_completed(futures):

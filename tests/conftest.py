@@ -1,6 +1,5 @@
 """Shared fixtures for NFL sim tests."""
 
-from functools import partial
 from pathlib import Path
 
 import polars as pl
@@ -9,14 +8,9 @@ import pytest
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
 from nfl_sim.engine.api import GameTrace, traces_to_dataframe
-from nfl_sim.models.backends import load_models
 from nfl_sim.models.context import GameFeatures, ctx_from_game_id
-from nfl_sim.models.outcomes import outcome_model
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
-
-_intent_fn, _outcome_fns = load_models()
-_TEST_MODEL = partial(outcome_model, _intent_fn, _outcome_fns)
 
 # =============================================================================
 # Constants
@@ -124,7 +118,7 @@ def ctx() -> dict[str, GameContext]:
 
 @pytest.fixture(scope="session")
 def sims(ctx: dict[str, GameContext]) -> dict[str, list[GameTrace]]:
-    return sim_games(ctx, model_factory=_TEST_MODEL)
+    return sim_games(ctx)
 
 
 # =============================================================================
@@ -220,7 +214,7 @@ def build_comparison_data(
     )
 
     ## Sim Data:
-    traces = sim_games(ctx, n=2, model_factory=_TEST_MODEL)
+    traces = sim_games(ctx, n=2)
     sim_pbp: pl.DataFrame = traces_to_dataframe(traces)
     sim_stats = understand(sim_pbp)
     sim_stats_combined = _stats_to_avg_std(sim_stats)

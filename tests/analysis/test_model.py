@@ -12,7 +12,6 @@ import polars as pl
 import pytest
 
 from nfl_sim.engine.state import Intent, TurnoverType
-from nfl_sim.models.backends import load_models
 from nfl_sim.models.context import (
     DerivedContext,
     GameContext,
@@ -66,34 +65,27 @@ def _make_context(
     )
 
 
-@pytest.fixture
-def predictors():
-    return load_models()
-
-
 # ── 1. Determinism ──────────────────────────────────────────────────────
 # Same payload + same RNG seed must produce identical predictions.
 
 
-def test_determinism(predictors):
+def test_determinism():
     """Identical inputs and seed produce identical outcomes."""
-    intent_fn, outcome_fns = predictors
     results = []
     for _ in range(3):
         ctx = _make_context(seed=99)
-        intent, out = outcome_model(intent_fn, outcome_fns, ctx)
+        intent, out = outcome_model(ctx)
         results.append((intent, out.yards, out.turnover_type, out.time_elapsed))
 
     assert results[0] == results[1] == results[2]
 
 
-def test_determinism_different_seeds(predictors):
+def test_determinism_different_seeds():
     """Different seeds produce different outcomes (usually)."""
-    intent_fn, outcome_fns = predictors
     ctx1 = _make_context(seed=1)
     ctx2 = _make_context(seed=2)
-    a1, out1 = outcome_model(intent_fn, outcome_fns, ctx1)
-    a2, out2 = outcome_model(intent_fn, outcome_fns, ctx2)
+    a1, out1 = outcome_model(ctx1)
+    a2, out2 = outcome_model(ctx2)
 
     # At least something should differ
     different = (
@@ -124,9 +116,8 @@ def test_features_only_from_pre_play_state():
 # because IDs are not in the feature vector.
 
 
-def test_identifier_leakage_game_id(predictors):
+def test_identifier_leakage_game_id():
     """Changing game_id must not affect predictions."""
-    intent_fn, outcome_fns = predictors
     ctx_a = _make_context(seed=42, game_id="2024_01_KC_BUF")
     ctx_b = _make_context(seed=42, game_id="9999_99_FOO_BAR")
 
@@ -135,8 +126,8 @@ def test_identifier_leakage_game_id(predictors):
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
-    act_a, out_a = outcome_model(intent_fn, outcome_fns, ctx_a)
-    act_b, out_b = outcome_model(intent_fn, outcome_fns, ctx_b)
+    act_a, out_a = outcome_model(ctx_a)
+    act_b, out_b = outcome_model(ctx_b)
     assert act_a == act_b
     assert out_a.yards == out_b.yards
     assert out_a.turnover_type == out_b.turnover_type
@@ -161,19 +152,16 @@ def test_identifier_leakage_team_names():
 # All-zero (or neutral) features should produce finite, non-extreme output.
 
 
-def test_zero_features_produce_finite_output(predictors):
-    """A zeroed-out feature vector must not produce NaN, inf, or absurd values."""
-    intent_fn, _outcome_fns = predictors
-    zeros = np.zeros(len(_gen_feature_names()), dtype=np.float32)
-    rng = Random(42)
-
-    intent = intent_fn(zeros, rng)
+def test_zero_features_produce_finite_output():
+    """Model should handle a zeroed-out state without crashing."""
+    ctx = _make_context(seed=42, quarter=0, clock=0, down=0, distance=0, yardline=0, score=(0, 0))
+    intent, out = outcome_model(ctx)
     assert isinstance(intent, Intent)
+    assert isinstance(out.yards, int)
 
 
-def test_neutral_state_produces_sane_output(predictors):
+def test_neutral_state_produces_sane_output():
     """A typical mid-game state should produce reasonable output."""
-    intent_fn, outcome_fns = predictors
     ctx = _make_context(
         seed=42,
         quarter=2,
@@ -184,7 +172,7 @@ def test_neutral_state_produces_sane_output(predictors):
         score=(0, 0),
         spread=0.0,
     )
-    intent, out = outcome_model(intent_fn, outcome_fns, ctx)
+    intent, out = outcome_model(ctx)
 
     assert isinstance(intent, Intent)
     assert -15 <= out.yards <= 100
@@ -215,11 +203,10 @@ def test_neutral_state_produces_sane_output(predictors):
         "huge_neg_spread",
     ],
 )
-def test_edge_inputs_no_nan(predictors, kw: dict):
+def test_edge_inputs_no_nan(kw: dict):
     """Edge-case game states must produce finite, bounded predictions."""
-    intent_fn, outcome_fns = predictors
     ctx = _make_context(seed=42, **kw)
-    intent, out = outcome_model(intent_fn, outcome_fns, ctx)
+    intent, out = outcome_model(ctx)
 
     assert isinstance(intent, Intent)
     assert np.isfinite(out.yards), f"yards is not finite: {out.yards}"
