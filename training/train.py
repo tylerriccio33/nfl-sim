@@ -1,7 +1,7 @@
 """Training CLI for the split token classifier using scikit-learn RandomForest.
 
 Trains 4 models:
-  - action: ActionToken (9 classes, all rows)
+  - action: ActionToken (6 classes, all rows)
   - run:    PlayToken (rows where route=RUN)
   - pass:   PlayToken (rows where route=PASS)
   - st:     PlayToken (rows where route=ST)

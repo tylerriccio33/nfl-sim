@@ -12,19 +12,7 @@ route = "RUN"
 action = "PASS"
 route = "PASS"
 
-[SHORT_PASS]
-action = "PASS"
-route = "PASS"
-
-[MED_PASS]
-action = "PASS"
-route = "PASS"
-
-[DEEP_PASS]
-action = "PASS"
-route = "PASS"
-
-[SCRAMBLE]
+[PASS]
 action = "PASS"
 route = "PASS"
 

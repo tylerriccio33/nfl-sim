@@ -1,7 +1,7 @@
 """Action token taxonomy: the coach's decision layer.
 
 ActionTokens represent what the offense *chooses* to do at a high level
-(run, screen, short pass, etc.), independent of the outcome. This is the
+(run, screen, pass, etc.), independent of the outcome. This is the
 first stage of the two-stage architecture: ActionModel -> OutcomeModel.
 
 Currently derived from the mono-token RF via reverse mapping. When a
@@ -50,13 +50,10 @@ class ActionToken(IntEnum):
 
     RUN = 0
     SCREEN = 1
-    SHORT_PASS = 2
-    MED_PASS = 3
-    DEEP_PASS = 4
-    SCRAMBLE = 5
-    FG_ATT = 6
-    PUNT = 7
-    KNEEL = 8
+    PASS = 2
+    FG_ATT = 3
+    PUNT = 4
+    KNEEL = 5
 
 
 assert list(ActionToken.__members__.keys()) == list(_ACTION_TOKEN_CONFIG.keys()), (
@@ -92,8 +89,7 @@ def route_from_action_token(at: ActionToken) -> Route:
 
 # ── PlayToken -> ActionToken reverse mapping ──────────────────────────────
 # Maps every mono-token PlayToken to the ActionToken it corresponds to.
-# Ambiguous pass tokens (SACK, SACK_FUM, INC, INT, FUM) default to
-# SHORT_PASS until a trained action model makes this moot.
+# All pass-related tokens (sack, inc, int, fum, dropback_*, scramble_*) -> PASS.
 
 PLAY_TOKEN_TO_ACTION_TOKEN: dict[PlayToken, ActionToken] = {
     # RUN
@@ -103,29 +99,27 @@ PLAY_TOKEN_TO_ACTION_TOKEN: dict[PlayToken, ActionToken] = {
     PlayToken.RUN_SHORT_FUM: ActionToken.RUN,
     PlayToken.RUN_LONG: ActionToken.RUN,
     PlayToken.RUN_EXPLOSIVE: ActionToken.RUN,
-    # Ambiguous pass outcomes -> SHORT_PASS default
-    PlayToken.SACK: ActionToken.SHORT_PASS,
-    PlayToken.SACK_FUM: ActionToken.SHORT_PASS,
-    PlayToken.DROPBACK_INC: ActionToken.SHORT_PASS,
-    PlayToken.DROPBACK_INT: ActionToken.SHORT_PASS,
-    PlayToken.DROPBACK_FUM: ActionToken.SHORT_PASS,
+    # Ambiguous pass outcomes -> PASS
+    PlayToken.SACK: ActionToken.PASS,
+    PlayToken.SACK_FUM: ActionToken.PASS,
+    PlayToken.DROPBACK_INC: ActionToken.PASS,
+    PlayToken.DROPBACK_INT: ActionToken.PASS,
+    PlayToken.DROPBACK_FUM: ActionToken.PASS,
     # SCREEN
     PlayToken.SCREEN_YAC0_5: ActionToken.SCREEN,
     PlayToken.SCREEN_YAC6_10: ActionToken.SCREEN,
     PlayToken.SCREEN_YAC11P: ActionToken.SCREEN,
-    # SHORT_PASS (AY 1-10)
-    PlayToken.DROPBACK_AY1_10_YAC0: ActionToken.SHORT_PASS,
-    PlayToken.DROPBACK_AY1_10_YAC1_10: ActionToken.SHORT_PASS,
-    PlayToken.DROPBACK_AY1_10_YAC11P: ActionToken.SHORT_PASS,
-    # MED_PASS (AY 11-20)
-    PlayToken.DROPBACK_AY11_20_YAC0_5: ActionToken.MED_PASS,
-    PlayToken.DROPBACK_AY11_20_YAC6P: ActionToken.MED_PASS,
-    # DEEP_PASS (AY 21+)
-    PlayToken.DROPBACK_AY21P_YAC0_10: ActionToken.DEEP_PASS,
-    PlayToken.DROPBACK_AY21P_YAC11P: ActionToken.DEEP_PASS,
-    # SCRAMBLE
-    PlayToken.SCRAMBLE_SHORT: ActionToken.SCRAMBLE,
-    PlayToken.SCRAMBLE_LONG: ActionToken.SCRAMBLE,
+    # PASS (all dropback completions)
+    PlayToken.DROPBACK_AY1_10_YAC0: ActionToken.PASS,
+    PlayToken.DROPBACK_AY1_10_YAC1_10: ActionToken.PASS,
+    PlayToken.DROPBACK_AY1_10_YAC11P: ActionToken.PASS,
+    PlayToken.DROPBACK_AY11_20_YAC0_5: ActionToken.PASS,
+    PlayToken.DROPBACK_AY11_20_YAC6P: ActionToken.PASS,
+    PlayToken.DROPBACK_AY21P_YAC0_10: ActionToken.PASS,
+    PlayToken.DROPBACK_AY21P_YAC11P: ActionToken.PASS,
+    # SCRAMBLE -> PASS (intent was to pass)
+    PlayToken.SCRAMBLE_SHORT: ActionToken.PASS,
+    PlayToken.SCRAMBLE_LONG: ActionToken.PASS,
     # Special teams
     PlayToken.FG_MADE: ActionToken.FG_ATT,
     PlayToken.FG_MISS: ActionToken.FG_ATT,

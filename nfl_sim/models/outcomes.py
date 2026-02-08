@@ -91,7 +91,7 @@ def rand_outcome_model(
     # PASS
     if rng.random() < 0.35:
         return (
-            ActionToken.SHORT_PASS,
+            ActionToken.PASS,
             action,
             Outcome(
                 yards=0,
@@ -102,7 +102,7 @@ def rand_outcome_model(
         )
     if rng.random() < 0.03:
         return (
-            ActionToken.SHORT_PASS,
+            ActionToken.PASS,
             action,
             Outcome(
                 yards=0,
@@ -115,7 +115,7 @@ def rand_outcome_model(
     yards = int(max(-5, min(40, yards)))
     time_elapsed = min(rng.randint(10, 35), remaining_clock)
     return (
-        ActionToken.SHORT_PASS,
+        ActionToken.PASS,
         action,
         Outcome(
             yards=yards, turnover_type=TurnoverType.NONE, touchdown=False, time_elapsed=time_elapsed
