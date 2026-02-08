@@ -2,7 +2,7 @@
 
 The token system replaces the 3-headed model (yards + turnover + time) with a
 single classifier that predicts ~29 discrete play archetypes. Each token encodes
-the action type, yard bucket, and turnover type — the model jointly learns
+the intent type, yard bucket, and turnover type — the model jointly learns
 *what* teams do and *what happens*.
 
 The taxonomy is defined in tokens.toml and loaded once at import time.
@@ -15,7 +15,7 @@ from enum import IntEnum
 from importlib.resources import files
 from typing import TYPE_CHECKING
 
-from nfl_sim.engine.state import _CLK, _YL, Action, Outcome, TurnoverType, _GameState
+from nfl_sim.engine.state import _CLK, _YL, Intent, Outcome, TurnoverType, _GameState
 
 if TYPE_CHECKING:
     from random import Random
@@ -78,13 +78,13 @@ assert list(PlayToken.__members__.keys()) == list(_TOKEN_CONFIG.keys()), (
 TOKEN_NAMES: list[str] = list(_TOKEN_CONFIG.keys())
 NUM_TOKENS: int = len(TOKEN_NAMES)
 
-# ── Action mapping ───────────────────────────────────────────────────────
+# ── Intent mapping ───────────────────────────────────────────────────────
 
-_ACTION_MAP = {
-    "RUN": Action.RUN,
-    "PASS": Action.PASS,
-    "FIELD_GOAL": Action.FIELD_GOAL,
-    "PUNT": Action.PUNT,
+_INTENT_MAP = {
+    "RUN": Intent.RUN,
+    "PASS": Intent.PASS,
+    "FIELD_GOAL": Intent.FIELD_GOAL,
+    "PUNT": Intent.PUNT,
 }
 
 _TURNOVER_MAP = {
@@ -193,24 +193,24 @@ def tokenize_row(row: dict) -> PlayToken:
     return PlayToken.DROPBACK_AY21P_YAC11P
 
 
-# ── token_to_outcome: post-process a predicted token into (Action, Outcome) ──
+# ── token_to_outcome: post-process a predicted token into (Intent, Outcome) ──
 
 
-def token_to_outcome(token: PlayToken, rng: Random, state: _GameState) -> tuple[Action, Outcome]:
-    """Convert a predicted PlayToken into an Action and Outcome.
+def token_to_outcome(token: PlayToken, rng: Random, state: _GameState) -> tuple[Intent, Outcome]:
+    """Convert a predicted PlayToken into an Intent and Outcome.
 
     Yards are sampled uniformly within the token's bucket range.
     For DROPBACK completions, air_yards and YAC are sampled independently and summed.
     Special teams tokens use rule-based post-processing.
     """
     cfg = _TOKEN_CONFIG[token.name]
-    action = _ACTION_MAP[cfg["action"]]
+    intent = _INTENT_MAP[cfg["intent"]]
     turnover = _TURNOVER_MAP[cfg["turnover"]]
     remaining_clock = state[_CLK]
 
     # ── Special: FG_MADE ─────────────────────────────────────────────
     if token == PlayToken.FG_MADE:
-        return action, Outcome(
+        return intent, Outcome(
             yards=state[_YL],
             turnover_type=TurnoverType.NONE,
             touchdown=False,
@@ -219,7 +219,7 @@ def token_to_outcome(token: PlayToken, rng: Random, state: _GameState) -> tuple[
 
     # ── Special: FG_MISS ─────────────────────────────────────────────
     if token == PlayToken.FG_MISS:
-        return action, Outcome(
+        return intent, Outcome(
             yards=0,
             turnover_type=TurnoverType.NONE,
             touchdown=False,
@@ -228,7 +228,7 @@ def token_to_outcome(token: PlayToken, rng: Random, state: _GameState) -> tuple[
 
     # ── Special: PUNT ────────────────────────────────────────────────
     if token == PlayToken.PUNT:
-        return action, Outcome(
+        return intent, Outcome(
             yards=0,
             turnover_type=TurnoverType.NONE,
             touchdown=False,
@@ -237,7 +237,7 @@ def token_to_outcome(token: PlayToken, rng: Random, state: _GameState) -> tuple[
 
     # ── Special: KNEEL ───────────────────────────────────────────────
     if token == PlayToken.KNEEL:
-        return action, Outcome(
+        return intent, Outcome(
             yards=-1,
             turnover_type=TurnoverType.NONE,
             touchdown=False,
@@ -257,12 +257,12 @@ def token_to_outcome(token: PlayToken, rng: Random, state: _GameState) -> tuple[
     # Passes with incompletions stop the clock (shorter elapsed)
     if token == PlayToken.DROPBACK_INC:
         time_elapsed = min(rng.randint(3, 8), remaining_clock)
-    elif action == Action.PASS:
+    elif intent == Intent.PASS:
         time_elapsed = min(rng.randint(10, 35), remaining_clock)
     else:
         time_elapsed = min(rng.randint(20, 40), remaining_clock)
 
-    return action, Outcome(
+    return intent, Outcome(
         yards=yards,
         turnover_type=turnover,
         touchdown=False,

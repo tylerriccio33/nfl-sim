@@ -1,10 +1,10 @@
 # Token taxonomy for the play outcome classifier.
 #
-# Each token maps to an action, a yard-sampling range, and a turnover type.
+# Each token maps to an intent, a yard-sampling range, and a turnover type.
 # For DROPBACK completions, yards = air_yards + yac (both sampled independently).
 #
 # Fields:
-#   action     - RUN | PASS | FIELD_GOAL | PUNT (maps to Action enum)
+#   intent     - RUN | PASS | FIELD_GOAL | PUNT (maps to Intent enum)
 #   yards_lo   - lower bound of uniform yard sampling
 #   yards_hi   - upper bound of uniform yard sampling
 #   turnover   - NONE | INTERCEPTION | FUMBLE
@@ -13,37 +13,37 @@
 # ── RUN (6) ──────────────────────────────────────────────────────────────
 
 [RUN_LOSS]
-action = "RUN"
+intent = "RUN"
 yards_lo = -10
 yards_hi = -1
 turnover = "NONE"
 
 [RUN_SHORT]
-action = "RUN"
+intent = "RUN"
 yards_lo = 0
 yards_hi = 3
 turnover = "NONE"
 
 [RUN_MED]
-action = "RUN"
+intent = "RUN"
 yards_lo = 4
 yards_hi = 7
 turnover = "NONE"
 
 [RUN_SHORT_FUM]
-action = "RUN"
+intent = "RUN"
 yards_lo = -2
 yards_hi = 4
 turnover = "FUMBLE"
 
 [RUN_LONG]
-action = "RUN"
+intent = "RUN"
 yards_lo = 8
 yards_hi = 15
 turnover = "NONE"
 
 [RUN_EXPLOSIVE]
-action = "RUN"
+intent = "RUN"
 yards_lo = 16
 yards_hi = 40
 turnover = "NONE"
@@ -51,13 +51,13 @@ turnover = "NONE"
 # ── SACK (2) ─────────────────────────────────────────────────────────────
 
 [SACK]
-action = "PASS"
+intent = "PASS"
 yards_lo = -12
 yards_hi = -1
 turnover = "NONE"
 
 [SACK_FUM]
-action = "PASS"
+intent = "PASS"
 yards_lo = -12
 yards_hi = -1
 turnover = "FUMBLE"
@@ -65,19 +65,19 @@ turnover = "FUMBLE"
 # ── DROPBACK incomplete / turnover (3) ───────────────────────────────────
 
 [DROPBACK_INC]
-action = "PASS"
+intent = "PASS"
 yards_lo = 0
 yards_hi = 0
 turnover = "NONE"
 
 [DROPBACK_INT]
-action = "PASS"
+intent = "PASS"
 yards_lo = 0
 yards_hi = 0
 turnover = "INTERCEPTION"
 
 [DROPBACK_FUM]
-action = "PASS"
+intent = "PASS"
 yards_lo = -5
 yards_hi = 5
 turnover = "FUMBLE"
@@ -86,19 +86,19 @@ turnover = "FUMBLE"
 # air_yards <= 0, complete_pass=1, not sack
 
 [SCREEN_YAC0_5]
-action = "PASS"
+intent = "PASS"
 yards_lo = 0
 yards_hi = 5
 turnover = "NONE"
 
 [SCREEN_YAC6_10]
-action = "PASS"
+intent = "PASS"
 yards_lo = 6
 yards_hi = 10
 turnover = "NONE"
 
 [SCREEN_YAC11P]
-action = "PASS"
+intent = "PASS"
 yards_lo = 11
 yards_hi = 25
 turnover = "NONE"
@@ -108,7 +108,7 @@ turnover = "NONE"
 # yards = air_yards + yac (both sampled from their bucket ranges)
 
 [DROPBACK_AY1_10_YAC0]
-action = "PASS"
+intent = "PASS"
 ay_lo = 1
 ay_hi = 10
 yac_lo = 0
@@ -116,7 +116,7 @@ yac_hi = 0
 turnover = "NONE"
 
 [DROPBACK_AY1_10_YAC1_10]
-action = "PASS"
+intent = "PASS"
 ay_lo = 1
 ay_hi = 10
 yac_lo = 1
@@ -124,7 +124,7 @@ yac_hi = 10
 turnover = "NONE"
 
 [DROPBACK_AY1_10_YAC11P]
-action = "PASS"
+intent = "PASS"
 ay_lo = 1
 ay_hi = 10
 yac_lo = 11
@@ -132,7 +132,7 @@ yac_hi = 25
 turnover = "NONE"
 
 [DROPBACK_AY11_20_YAC0_5]
-action = "PASS"
+intent = "PASS"
 ay_lo = 11
 ay_hi = 20
 yac_lo = 0
@@ -140,7 +140,7 @@ yac_hi = 5
 turnover = "NONE"
 
 [DROPBACK_AY11_20_YAC6P]
-action = "PASS"
+intent = "PASS"
 ay_lo = 11
 ay_hi = 20
 yac_lo = 6
@@ -148,7 +148,7 @@ yac_hi = 20
 turnover = "NONE"
 
 [DROPBACK_AY21P_YAC0_10]
-action = "PASS"
+intent = "PASS"
 ay_lo = 21
 ay_hi = 35
 yac_lo = 0
@@ -156,7 +156,7 @@ yac_hi = 10
 turnover = "NONE"
 
 [DROPBACK_AY21P_YAC11P]
-action = "PASS"
+intent = "PASS"
 ay_lo = 21
 ay_hi = 35
 yac_lo = 11
@@ -166,13 +166,13 @@ turnover = "NONE"
 # ── SCRAMBLE (2) ─────────────────────────────────────────────────────────
 
 [SCRAMBLE_SHORT]
-action = "PASS"
+intent = "PASS"
 yards_lo = 0
 yards_hi = 7
 turnover = "NONE"
 
 [SCRAMBLE_LONG]
-action = "PASS"
+intent = "PASS"
 yards_lo = 8
 yards_hi = 25
 turnover = "NONE"
@@ -180,25 +180,25 @@ turnover = "NONE"
 # ── SPECIAL TEAMS (4) ────────────────────────────────────────────────────
 
 [FG_MADE]
-action = "FIELD_GOAL"
+intent = "FIELD_GOAL"
 yards_lo = 0
 yards_hi = 0
 turnover = "NONE"
 
 [FG_MISS]
-action = "FIELD_GOAL"
+intent = "FIELD_GOAL"
 yards_lo = 0
 yards_hi = 0
 turnover = "NONE"
 
 [PUNT]
-action = "PUNT"
+intent = "PUNT"
 yards_lo = 0
 yards_hi = 0
 turnover = "NONE"
 
 [KNEEL]
-action = "RUN"
+intent = "RUN"
 yards_lo = -1
 yards_hi = -1
 turnover = "NONE"

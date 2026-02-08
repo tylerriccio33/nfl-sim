@@ -11,7 +11,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from nfl_sim.engine.state import Action, TurnoverType
+from nfl_sim.engine.state import Intent, TurnoverType
 from nfl_sim.models.backends import Backend, load_backend
 from nfl_sim.models.context import (
     DerivedContext,
@@ -81,8 +81,8 @@ def test_determinism(backend: Backend):
     results = []
     for _ in range(3):
         ctx = _make_context(seed=99)
-        _at, action, out = outcome_model(backend, ctx)
-        results.append((action, out.yards, out.turnover_type, out.time_elapsed))
+        _it, intent, out = outcome_model(backend, ctx)
+        results.append((intent, out.yards, out.turnover_type, out.time_elapsed))
 
     assert results[0] == results[1] == results[2]
 
@@ -91,8 +91,8 @@ def test_determinism_different_seeds(backend: Backend):
     """Different seeds produce different outcomes (usually)."""
     ctx1 = _make_context(seed=1)
     ctx2 = _make_context(seed=2)
-    _at1, a1, out1 = outcome_model(backend, ctx1)
-    _at2, a2, out2 = outcome_model(backend, ctx2)
+    _it1, a1, out1 = outcome_model(backend, ctx1)
+    _it2, a2, out2 = outcome_model(backend, ctx2)
 
     # At least something should differ
     different = (
@@ -133,8 +133,8 @@ def test_identifier_leakage_game_id(backend: Backend):
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
-    _at_a, act_a, out_a = outcome_model(backend, ctx_a)
-    _at_b, act_b, out_b = outcome_model(backend, ctx_b)
+    _it_a, act_a, out_a = outcome_model(backend, ctx_a)
+    _it_b, act_b, out_b = outcome_model(backend, ctx_b)
     assert act_a == act_b
     assert out_a.yards == out_b.yards
     assert out_a.turnover_type == out_b.turnover_type
@@ -181,9 +181,9 @@ def test_neutral_state_produces_sane_output(backend: Backend):
         score=(0, 0),
         spread=0.0,
     )
-    _at, action, out = outcome_model(backend, ctx)
+    _it, intent, out = outcome_model(backend, ctx)
 
-    assert isinstance(action, Action)
+    assert isinstance(intent, Intent)
     assert -15 <= out.yards <= 99
     assert 1 <= out.time_elapsed <= 450
     assert out.turnover_type in (TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FUMBLE)
@@ -215,9 +215,9 @@ def test_neutral_state_produces_sane_output(backend: Backend):
 def test_edge_inputs_no_nan(backend: Backend, kw: dict):
     """Edge-case game states must produce finite, bounded predictions."""
     ctx = _make_context(seed=42, **kw)
-    _at, action, out = outcome_model(backend, ctx)
+    _it, intent, out = outcome_model(backend, ctx)
 
-    assert isinstance(action, Action)
+    assert isinstance(intent, Intent)
     assert np.isfinite(out.yards), f"yards is not finite: {out.yards}"
     assert np.isfinite(out.time_elapsed), f"time_elapsed is not finite: {out.time_elapsed}"
 
@@ -316,26 +316,26 @@ def test_feature_engineering_e2e(
 
 
 def test_token_to_outcome_fg_made():
-    """FG_MADE token should produce field goal action with yards = yardline."""
+    """FG_MADE token should produce field goal intent with yards = yardline."""
     state = _make_state(yardline=30)
-    action, outcome = token_to_outcome(PlayToken.FG_MADE, Random(1), state)
-    assert action == Action.FIELD_GOAL
+    intent, outcome = token_to_outcome(PlayToken.FG_MADE, Random(1), state)
+    assert intent == Intent.FIELD_GOAL
     assert outcome.yards == 30
 
 
 def test_token_to_outcome_punt():
-    """PUNT token should produce punt action."""
+    """PUNT token should produce punt intent."""
     state = _make_state(yardline=60)
-    action, outcome = token_to_outcome(PlayToken.PUNT, Random(1), state)
-    assert action == Action.PUNT
+    intent, outcome = token_to_outcome(PlayToken.PUNT, Random(1), state)
+    assert intent == Intent.PUNT
     assert outcome.yards == 0
 
 
 def test_token_to_outcome_run_short():
-    """RUN_SHORT should produce run action with 0-3 yards."""
+    """RUN_SHORT should produce run intent with 0-3 yards."""
     state = _make_state()
-    action, outcome = token_to_outcome(PlayToken.RUN_SHORT, Random(1), state)
-    assert action == Action.RUN
+    intent, outcome = token_to_outcome(PlayToken.RUN_SHORT, Random(1), state)
+    assert intent == Intent.RUN
     assert 0 <= outcome.yards <= 3
 
 

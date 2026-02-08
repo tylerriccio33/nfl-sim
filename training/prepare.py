@@ -15,9 +15,9 @@ import numpy as np
 import polars as pl
 
 from nfl_sim.engine.state import GameState, _GameState
-from nfl_sim.models.action_tokens import PLAY_TOKEN_TO_ACTION_TOKEN, route_from_action_token
 from nfl_sim.models.context import DerivedContext, GameContext, ModelContext, ctx_from_game_id
 from nfl_sim.models.features import build_features
+from nfl_sim.models.intent_tokens import PLAY_TOKEN_TO_INTENT_TOKEN, route_from_intent_token
 from nfl_sim.models.tokens import tokenize_row
 
 DATA_PATH = Path("data/pbp.parquet")
@@ -60,7 +60,7 @@ class TrainingData:
 
     features: np.ndarray  # (N, num_features)
     token: np.ndarray  # (N,) int: PlayToken ordinal
-    action_token: np.ndarray  # (N,) int: ActionToken ordinal
+    intent_token: np.ndarray  # (N,) int: IntentToken ordinal
     route: np.ndarray  # (N,) int: Route ordinal
     time_elapsed: np.ndarray  # (N,) float: estimated seconds per play
 
@@ -153,7 +153,7 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
     rows = df.select(all_cols).to_dicts()
     feats: list[np.ndarray] = []
     target_token: list[int] = []
-    target_action: list[int] = []
+    target_intent: list[int] = []
     target_route: list[int] = []
     target_time: list[float] = []
 
@@ -187,10 +187,10 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
         token = tokenize_row(row)
         target_token.append(int(token))
 
-        # Derive action token and route from play token
-        action_tok = PLAY_TOKEN_TO_ACTION_TOKEN[token]
-        target_action.append(int(action_tok))
-        target_route.append(int(route_from_action_token(action_tok)))
+        # Derive intent token and route from play token
+        intent_tok = PLAY_TOKEN_TO_INTENT_TOKEN[token]
+        target_intent.append(int(intent_tok))
+        target_route.append(int(route_from_intent_token(intent_tok)))
 
         # Time target
         time_val = row.get("time_elapsed")
@@ -201,7 +201,7 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
     return TrainingData(
         features=feat_mat,
         token=np.asarray(target_token),
-        action_token=np.asarray(target_action),
+        intent_token=np.asarray(target_intent),
         route=np.asarray(target_route),
         time_elapsed=np.asarray(target_time),
     )

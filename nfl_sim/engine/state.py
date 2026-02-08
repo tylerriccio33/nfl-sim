@@ -7,7 +7,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 if TYPE_CHECKING:
-    from nfl_sim.models.action_tokens import ActionToken
+    from nfl_sim.models.intent_tokens import IntentToken
 
 type TeamId = Literal["HOME", "AWAY"]
 
@@ -53,7 +53,7 @@ class GameState(NamedTuple):
     score: tuple[int, int]
 
 
-class Action(Enum):
+class Intent(Enum):
     """What the offense chooses to do; decision not the outcome."""
 
     RUN = auto()
@@ -97,10 +97,10 @@ class PlayEvent:
     """
 
     state_before: _GameState
-    action: Action
+    intent: Intent
     outcome: Outcome
     state_after: _GameState
-    action_token: ActionToken | None = field(default=None, repr=False)
+    intent_token: IntentToken | None = field(default=None, repr=False)
 
 
 GameTrace = list[PlayEvent]

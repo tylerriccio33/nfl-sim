@@ -36,7 +36,7 @@ def features_from_state(s: _GameState) -> list[float]:
 
 
 def build_features(context: ModelContext) -> np.ndarray:
-    """Build the feature vector from game state and context (no action)."""
+    """Build the feature vector from game state and context (no intent)."""
     state_feats: list[float] = features_from_state(context.state)
     game_feats: list[float] = context.game_context.features.get(context.state[_OFF])
     return np.array(state_feats + game_feats, dtype=np.float32)

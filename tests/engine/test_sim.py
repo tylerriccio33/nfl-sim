@@ -24,8 +24,8 @@ from nfl_sim.engine.state import (
     _Q,
     _SC,
     _YL,
-    Action,
     GameState,
+    Intent,
     Outcome,
     TurnoverType,
     _GameState,
@@ -83,7 +83,7 @@ class TestDownProgression:
         state = make_state(down=1, distance=10, yardline=75)
         outcome = make_outcome(yards=0)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_DN] == 2
         assert result[_DIST] == 10
@@ -94,7 +94,7 @@ class TestDownProgression:
         state = make_state(down=1, distance=10, yardline=75)
         outcome = make_outcome(yards=3)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_DN] == 2
         assert result[_DIST] == 7
@@ -105,7 +105,7 @@ class TestDownProgression:
         state = make_state(down=2, distance=7, yardline=72)
         outcome = make_outcome(yards=2)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_DN] == 3
         assert result[_DIST] == 5
@@ -116,7 +116,7 @@ class TestDownProgression:
         state = make_state(down=3, distance=5, yardline=70)
         outcome = make_outcome(yards=1)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_DN] == 4
         assert result[_DIST] == 4
@@ -127,7 +127,7 @@ class TestDownProgression:
         state = make_state(down=2, distance=8, yardline=50)
         outcome = make_outcome(yards=-5)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_DN] == 3
         assert result[_DIST] == 13
@@ -147,7 +147,7 @@ class TestFirstDown:
         state = make_state(down=2, distance=7, yardline=50)
         outcome = make_outcome(yards=7)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_DN] == 1
         assert result[_DIST] == 10
@@ -158,7 +158,7 @@ class TestFirstDown:
         state = make_state(down=3, distance=4, yardline=40)
         outcome = make_outcome(yards=15)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_DN] == 1
         assert result[_DIST] == 10
@@ -169,7 +169,7 @@ class TestFirstDown:
         state = make_state(down=4, distance=1, yardline=30)
         outcome = make_outcome(yards=3)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_DN] == 1
         assert result[_DIST] == 10
@@ -181,7 +181,7 @@ class TestFirstDown:
         state = make_state(down=2, distance=6, yardline=12)
         outcome = make_outcome(yards=8)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_DN] == 1
         assert result[_DIST] == 4  # Only 4 yards to go
@@ -201,7 +201,7 @@ class TestTurnoverOnDowns:
         state = make_state(down=4, distance=5, yardline=50, offense="HOME", defense="AWAY")
         outcome = make_outcome(yards=2)  # Short of first down
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_OFF] == "AWAY"
         assert result[_DEF] == "HOME"
@@ -214,7 +214,7 @@ class TestTurnoverOnDowns:
         state = make_state(down=4, distance=10, yardline=65, offense="AWAY", defense="HOME")
         outcome = make_outcome(yards=0)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_OFF] == "HOME"
         assert result[_DEF] == "AWAY"
@@ -235,7 +235,7 @@ class TestTurnovers:
         state = make_state(down=1, distance=10, yardline=50, offense="HOME", defense="AWAY")
         outcome = make_outcome(yards=5, turnover=True)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_OFF] == "AWAY"
         assert result[_DEF] == "HOME"
@@ -248,7 +248,7 @@ class TestTurnovers:
         state = make_state(down=2, distance=8, yardline=40, offense="AWAY", defense="HOME")
         outcome = make_outcome(yards=0, turnover=True)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_OFF] == "HOME"
         assert result[_DEF] == "AWAY"
@@ -269,7 +269,7 @@ class TestTouchdowns:
         state = make_state(yardline=5, offense="HOME", defense="AWAY", score=(14, 7))
         outcome = make_outcome(yards=5)  # Exactly to endzone
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_SC] == (21, 7)
 
@@ -278,7 +278,7 @@ class TestTouchdowns:
         state = make_state(yardline=10, offense="AWAY", defense="HOME", score=(7, 14))
         outcome = make_outcome(yards=15)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_SC] == (7, 21)
 
@@ -287,7 +287,7 @@ class TestTouchdowns:
         state = make_state(yardline=8, offense="HOME", defense="AWAY")
         outcome = make_outcome(yards=10)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_OFF] == "AWAY"
         assert result[_DEF] == "HOME"
@@ -300,7 +300,7 @@ class TestTouchdowns:
         state = make_state(yardline=75, offense="HOME", score=(0, 0))
         outcome = make_outcome(yards=80)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_SC] == (7, 0)
         assert result[_OFF] == "AWAY"
@@ -319,7 +319,7 @@ class TestClockManagement:
         state = make_state(clock=600)
         outcome = make_outcome(time_elapsed=7)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_CLK] == 593
 
@@ -328,7 +328,7 @@ class TestClockManagement:
         state = make_state(clock=120)
         outcome = make_outcome(time_elapsed=5)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_CLK] == 115
 
@@ -337,7 +337,7 @@ class TestClockManagement:
         state = make_state(quarter=1, clock=5)
         outcome = make_outcome(time_elapsed=10)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_Q] == 2
         assert result[_CLK] == 900  # Reset to 15 minutes
@@ -356,7 +356,7 @@ class TestQuarterTransitions:
         state = make_state(quarter=1, clock=3)
         outcome = make_outcome(time_elapsed=5)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_Q] == 2
         assert result[_CLK] == 900
@@ -366,7 +366,7 @@ class TestQuarterTransitions:
         state = make_state(quarter=2, clock=2)
         outcome = make_outcome(time_elapsed=10)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_Q] == 3
 
@@ -375,7 +375,7 @@ class TestQuarterTransitions:
         state = make_state(quarter=3, clock=1)
         outcome = make_outcome(time_elapsed=5)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_Q] == 4
 
@@ -384,7 +384,7 @@ class TestQuarterTransitions:
         state = make_state(quarter=4, clock=2)
         outcome = make_outcome(time_elapsed=10)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_Q] == 5
 
@@ -424,7 +424,7 @@ class TestFieldPositionEdgeCases:
         state = make_state(yardline=95)  # 5 yards from own endzone
         outcome = make_outcome(yards=3)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_YL] == 92
 
@@ -433,7 +433,7 @@ class TestFieldPositionEdgeCases:
         state = make_state(yardline=1, down=1, distance=1)
         outcome = make_outcome(yards=0)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_DN] == 2
         assert result[_DIST] == 1
@@ -453,7 +453,7 @@ class TestPossessionContinuity:
         state = make_state(offense="HOME", defense="AWAY")
         outcome = make_outcome(yards=5)
 
-        result = apply_outcome(state, Action.RUN, outcome)
+        result = apply_outcome(state, Intent.RUN, outcome)
 
         assert result[_OFF] == "HOME"
         assert result[_DEF] == "AWAY"
@@ -463,30 +463,30 @@ class TestPossessionContinuity:
         state = make_state(down=3, distance=4, offense="AWAY")
         outcome = make_outcome(yards=6)
 
-        result = apply_outcome(state, Action.PASS, outcome)
+        result = apply_outcome(state, Intent.PASS, outcome)
 
         assert result[_OFF] == "AWAY"
 
 
 # =============================================================================
-# Action Type Independence Tests
+# Intent Type Independence Tests
 # =============================================================================
 
 
-class TestActionTypeIndependence:
-    """Tests that state transitions work regardless of action type.
+class TestIntentTypeIndependence:
+    """Tests that state transitions work regardless of intent type.
 
-    The action is passed through but doesn't affect the core logic
+    The intent is passed through but doesn't affect the core logic
     (yards, turnover, etc. come from the outcome).
     """
 
     def test_run_and_pass_same_outcome_same_result(self):
-        """Same outcome should produce same state regardless of action."""
+        """Same outcome should produce same state regardless of intent."""
         state = make_state()
         outcome = make_outcome(yards=5, time_elapsed=7)
 
-        run_result = apply_outcome(state, Action.RUN, outcome)
-        pass_result = apply_outcome(state, Action.PASS, outcome)
+        run_result = apply_outcome(state, Intent.RUN, outcome)
+        pass_result = apply_outcome(state, Intent.PASS, outcome)
 
         assert run_result == pass_result
 

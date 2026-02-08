@@ -9,13 +9,13 @@ from nfl_sim.engine.state import (
     _Q,
     _SC,
     _YL,
-    Action,
+    Intent,
     Outcome,
     _GameState,
 )
 
 
-def apply_outcome(state: _GameState, action: Action, outcome: Outcome) -> _GameState:
+def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameState:
     """The reducer/transition function.
 
     This is the hardest part and should be:
@@ -35,7 +35,7 @@ def apply_outcome(state: _GameState, action: Action, outcome: Outcome) -> _GameS
     new_yardline = min(99, state[_YL] - outcome.yards)
 
     # Handle field goal (special case - points without TD, changes possession)
-    if action == Action.FIELD_GOAL:
+    if intent == Intent.FIELD_GOAL:
         fg_made = new_yardline <= 0
         score = state[_SC]
         if fg_made:
@@ -45,7 +45,7 @@ def apply_outcome(state: _GameState, action: Action, outcome: Outcome) -> _GameS
         return (new_quarter, new_clock, state[_DEF], state[_OFF], 1, 10, 75, score)
 
     # Handle punt (intentional possession change)
-    if action == Action.PUNT:
+    if intent == Intent.PUNT:
         # Simplified punt - assume average net of 40 yards toward opponent's endzone
         punt_distance = 40
         punt_landing = state[_YL] - punt_distance

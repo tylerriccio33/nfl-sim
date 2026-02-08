@@ -19,7 +19,7 @@ from nfl_sim.engine.api import (
     sim_games,
     traces_to_dataframe,
 )
-from nfl_sim.engine.state import _CLK, _DIST, _DN, _Q, _SC, _YL, Action
+from nfl_sim.engine.state import _CLK, _DIST, _DN, _Q, _SC, _YL, Intent
 from nfl_sim.models.context import GameContext, GameFeatures
 from nfl_sim.models.outcomes import rand_outcome_model
 
@@ -125,13 +125,13 @@ class TestTraceValidity:
             next_play = result.trace[i + 1]
             assert current_play.state_after == next_play.state_before
 
-    def test_trace_has_valid_actions(self):
-        """All plays should have valid Action enum values."""
+    def test_trace_has_valid_intents(self):
+        """All plays should have valid Intent enum values."""
         result = _sim("CIN", "CLE")
 
         for play in result.trace:
-            assert isinstance(play.action, Action)
-            assert play.action in [Action.RUN, Action.PASS, Action.FIELD_GOAL, Action.PUNT]
+            assert isinstance(play.intent, Intent)
+            assert play.intent in [Intent.RUN, Intent.PASS, Intent.FIELD_GOAL, Intent.PUNT]
 
     def test_trace_starts_with_initial_state(self):
         """First play should start from standard initial state."""

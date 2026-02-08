@@ -16,11 +16,11 @@ import numpy as np
 import tl2cgen
 from sklearn.ensemble import RandomForestClassifier
 
-from nfl_sim.models.action_tokens import ActionToken, Route, route_from_action_token
 from nfl_sim.models.features import _gen_feature_names
+from nfl_sim.models.intent_tokens import IntentToken, Route, route_from_intent_token
 from nfl_sim.models.tokens import NUM_TOKENS, PlayToken
 
-NUM_ACTION_TOKENS = len(ActionToken)
+NUM_INTENT_TOKENS = len(IntentToken)
 
 # Platform-appropriate shared library extension
 _LIB_EXT = ".dylib"
@@ -81,7 +81,7 @@ class RFBackend:
         """Predict a PlayToken and time_elapsed from a feature vector.
 
         Returns (token, time_elapsed) — the caller converts the token
-        into (Action, Outcome) via token_to_outcome().
+        into (Intent, Outcome) via token_to_outcome().
         """
         row = features.reshape(1, -1)
         proba = self._predict_proba(row)
@@ -189,17 +189,17 @@ _ROUTE_NAMES: dict[Route, str] = {
 
 @dataclass
 class SplitRFBackend:
-    """Two-stage backend: action model -> route -> outcome sub-model.
+    """Two-stage backend: intent model -> route -> outcome sub-model.
 
-    Stage 1: Predict ActionToken (9 classes) from features.
-    Stage 2: Derive Route from the sampled ActionToken, then predict
+    Stage 1: Predict IntentToken (6 classes) from features.
+    Stage 2: Derive Route from the sampled IntentToken, then predict
              PlayToken from the corresponding route-specific sub-model.
     """
 
     time_intercept: float
     time_slope: float
     time_residual_std: float
-    _action: RFBackend
+    _intent: RFBackend
     _sub_models: dict[Route, RFBackend]
 
     # ------------------------------------------------------------------
@@ -210,18 +210,18 @@ class SplitRFBackend:
     def from_parts(
         cls,
         *,
-        action: RFBackend,
+        intent: RFBackend,
         sub_models: dict[Route, RFBackend],
         time_intercept: float,
         time_slope: float,
         time_residual_std: float,
     ) -> Self:
-        """Construct from pre-trained action + route sub-models."""
+        """Construct from pre-trained intent + route sub-models."""
         return cls(
             time_intercept=time_intercept,
             time_slope=time_slope,
             time_residual_std=time_residual_std,
-            _action=action,
+            _intent=intent,
             _sub_models=sub_models,
         )
 
@@ -230,22 +230,22 @@ class SplitRFBackend:
     # ------------------------------------------------------------------
 
     def predict(self, features: np.ndarray, rng: Random) -> tuple[PlayToken, int]:
-        """Two-stage prediction: ActionToken -> Route -> PlayToken."""
+        """Two-stage prediction: IntentToken -> Route -> PlayToken."""
         row = features.reshape(1, -1)
 
-        # Stage 1: sample an ActionToken
-        action_proba = self._action._predict_proba(row)
-        action_probs = np.zeros(NUM_ACTION_TOKENS, dtype=np.float64)
-        for i, cls in enumerate(self._action._classes):
-            action_probs[int(cls)] = action_proba[i]
-        total = action_probs.sum()
+        # Stage 1: sample an IntentToken
+        intent_proba = self._intent._predict_proba(row)
+        intent_probs = np.zeros(NUM_INTENT_TOKENS, dtype=np.float64)
+        for i, cls in enumerate(self._intent._classes):
+            intent_probs[int(cls)] = intent_proba[i]
+        total = intent_probs.sum()
         if total > 0:
-            action_probs /= total
-        action_val = _sample_categorical(action_probs, rng)
-        action_token = ActionToken(action_val)
+            intent_probs /= total
+        intent_val = _sample_categorical(intent_probs, rng)
+        intent_token = IntentToken(intent_val)
 
         # Stage 2: route to sub-model, sample a PlayToken
-        route = route_from_action_token(action_token)
+        route = route_from_intent_token(intent_token)
         sub = self._sub_models[route]
         play_proba = sub._predict_proba(row)
         token_probs = np.zeros(NUM_TOKENS, dtype=np.float64)
@@ -282,8 +282,8 @@ class SplitRFBackend:
         }
         (path / "meta.json").write_text(json.dumps(meta, indent=2))
 
-        # Action sub-model
-        self._action.save(path / "action")
+        # Intent sub-model
+        self._intent.save(path / "intent")
 
         # Route outcome sub-models
         for route, backend in self._sub_models.items():
@@ -294,7 +294,7 @@ class SplitRFBackend:
         """Load a split RF backend from disk."""
         meta = json.loads((path / "meta.json").read_text())
 
-        action = RFBackend.load(path / "action")
+        intent = RFBackend.load(path / "intent")
 
         sub_models: dict[Route, RFBackend] = {}
         for route, name in _ROUTE_NAMES.items():
@@ -304,6 +304,6 @@ class SplitRFBackend:
             time_intercept=meta["time_intercept"],
             time_slope=meta["time_slope"],
             time_residual_std=meta["time_residual_std"],
-            _action=action,
+            _intent=intent,
             _sub_models=sub_models,
         )

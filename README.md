@@ -6,21 +6,21 @@ A play-by-play NFL game simulation engine.
 - Trace: All plays up to this point
 - State: The state of the game right now
 - Game Context: Details about the teams and game.
-- Action: The type of play the team will run (token).
+- Intent: The type of play the team will run (token).
 - Outcome: The outcome of said play (token).
 ```{python}
 derived = DerivedContext(trace)
 context = ModelContext(state, derived, rng, game_context)
-action, outcome = model(context) # Completely abstracted from game logic.
-new_state = apply_outcome(state, action, outcome)
+intent, outcome = model(context) # Completely abstracted from game logic.
+new_state = apply_outcome(state, intent, outcome)
 ```
 
 ![alt text](docs/image.png)
 
 **Model Logic:**
-1. Action model ingests context and produces a set of possible tokens.
+1. Intent model ingests context and produces a set of possible tokens.
 - Examples include `RUN_INSIDE`, `SCREEN_WR`, `FG_ATT` or `MED_PASS`.
-2. Depending on action, run, pass or st model is selected.
+2. Depending on intent, run, pass or st model is selected.
 3. Outcome is produced and both are sent back to the game.
 
 ![alt text](docs/image-2.png)

@@ -19,8 +19,8 @@ from nfl_sim.engine.state import (
     _Q,
     _SC,
     _YL,
-    Action,
     GameTrace,
+    Intent,
     PlayEvent,
     TurnoverType,
     _GameState,
@@ -59,16 +59,16 @@ def _run_game_loop(
     while not is_terminal(state):
         derived = DerivedContext(trace)
         context = ModelContext(state, derived, rng, game_context)
-        action_token, action, outcome = model(context)
-        new_state = apply_outcome(state, action, outcome)
+        intent_token, intent, outcome = model(context)
+        new_state = apply_outcome(state, intent, outcome)
 
         # Engine detects TDs by yardline - reflect this in the outcome for consumers
-        if action not in (Action.FIELD_GOAL, Action.PUNT):
+        if intent not in (Intent.FIELD_GOAL, Intent.PUNT):
             new_yardline = state[_YL] - outcome.yards
             if new_yardline <= 0:
                 outcome.touchdown = True
 
-        trace.append(PlayEvent(state, action, outcome, new_state, action_token=action_token))
+        trace.append(PlayEvent(state, intent, outcome, new_state, intent_token=intent_token))
         state = new_state
 
     return trace
@@ -88,7 +88,7 @@ def _simulate_game(
         home: Home team identifier
         away: Away team identifier
         seed: Random seed for reproducibility
-        model: Outcome model that jointly predicts action + outcome
+        model: Outcome model that jointly predicts intent + outcome
         context: GameContext with spread and other features
 
     Returns:
@@ -211,18 +211,18 @@ def _event_from_play(play: PlayEvent) -> str:
     """
     sb = play.state_before
     sa = play.state_after
-    action = play.action
+    intent = play.intent
     outcome = play.outcome
 
-    # Field goal miss (FG action, no score change, possession changed)
-    if action == Action.FIELD_GOAL:
+    # Field goal miss (FG intent, no score change, possession changed)
+    if intent == Intent.FIELD_GOAL:
         offense_idx = 0 if sb[_OFF] == "HOME" else 1
         if sa[_SC][offense_idx] == sb[_SC][offense_idx]:
             return "FieldGoalMiss"
         return "FieldGoalSuccess"
 
     # Punt
-    if action == Action.PUNT:
+    if intent == Intent.PUNT:
         return "PuntRegular"
 
     # Model-generated turnovers

@@ -16,7 +16,7 @@ class Backend(Protocol):
 
     A backend owns the token prediction pipeline: given a feature vector and
     an RNG source, it returns a sampled PlayToken and time estimate.
-    The caller converts the token into (Action, Outcome) via token_to_outcome().
+    The caller converts the token into (Intent, Outcome) via token_to_outcome().
     """
 
     def predict(self, features: np.ndarray, rng: Random) -> tuple[PlayToken, int]:

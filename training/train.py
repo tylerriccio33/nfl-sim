@@ -1,7 +1,7 @@
 """Training CLI for the split token classifier using scikit-learn RandomForest.
 
 Trains 4 models:
-  - action: ActionToken (6 classes, all rows)
+  - intent: IntentToken (6 classes, all rows)
   - run:    PlayToken (rows where route=RUN)
   - pass:   PlayToken (rows where route=PASS)
   - st:     PlayToken (rows where route=ST)
@@ -22,9 +22,9 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, log_loss, roc_auc_score
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
 
-from nfl_sim.models.action_tokens import ActionToken, Route
-from nfl_sim.models.backends.rf import NUM_ACTION_TOKENS, RFBackend, SplitRFBackend
+from nfl_sim.models.backends.rf import NUM_INTENT_TOKENS, RFBackend, SplitRFBackend
 from nfl_sim.models.features import _gen_feature_names
+from nfl_sim.models.intent_tokens import IntentToken, Route
 from nfl_sim.models.tokens import NUM_TOKENS, PlayToken
 from training.prepare import prepare
 
@@ -34,7 +34,7 @@ BEST_MODELS_PATH = Path("training/bestmodels")
 warnings.filterwarnings("ignore")  # sklearn is very loud
 
 _FEATURE_NAMES = _gen_feature_names()
-_ACTION_TOKEN_NAMES = [t.name for t in ActionToken]
+_INTENT_TOKEN_NAMES = [t.name for t in IntentToken]
 _PLAY_TOKEN_NAMES = [t.name for t in PlayToken]
 
 
@@ -314,7 +314,7 @@ def train(save: bool = True) -> SplitRFBackend:
 
     X_train, X_test = data.features[idx_train], data.features[idx_test]
     y_token_train, y_token_test = data.token[idx_train], data.token[idx_test]
-    y_action_train, y_action_test = data.action_token[idx_train], data.action_token[idx_test]
+    y_intent_train, y_intent_test = data.intent_token[idx_train], data.intent_token[idx_test]
     y_route_train, y_route_test = data.route[idx_train], data.route[idx_test]
     y_time_train = data.time_elapsed[idx_train]
 
@@ -326,15 +326,15 @@ def train(save: bool = True) -> SplitRFBackend:
     time_slope = 0.0
     time_residual_std = float(np.std(time_f))
 
-    # -- Train action model (all rows, target = ActionToken) --
-    action_backend = _train_one_model(
+    # -- Train intent model (all rows, target = IntentToken) --
+    intent_backend = _train_one_model(
         X_train,
         X_test,
-        y_action_train,
-        y_action_test,
-        num_classes=NUM_ACTION_TOKENS,
-        name="action",
-        token_names=_ACTION_TOKEN_NAMES,
+        y_intent_train,
+        y_intent_test,
+        num_classes=NUM_INTENT_TOKENS,
+        name="intent",
+        token_names=_INTENT_TOKEN_NAMES,
         console=console,
         is_main=True,
     )
@@ -360,7 +360,7 @@ def train(save: bool = True) -> SplitRFBackend:
 
     # -- Assemble SplitRFBackend --
     trained = SplitRFBackend.from_parts(
-        action=action_backend,
+        intent=intent_backend,
         sub_models=sub_models,
         time_intercept=time_intercept,
         time_slope=time_slope,

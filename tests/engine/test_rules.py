@@ -112,9 +112,9 @@ def check_score_changes_only_on_scoring(trace: GameTrace) -> None:
         score_changed = before[_SC] != after[_SC]
         scoring_event = event.outcome.touchdown
         # Field goals also change score
-        from nfl_sim.engine.state import Action
+        from nfl_sim.engine.state import Intent
 
-        if event.action == Action.FIELD_GOAL and not event.outcome.turnover:
+        if event.intent == Intent.FIELD_GOAL and not event.outcome.turnover:
             scoring_event = True
         if score_changed:
             assert scoring_event, (
@@ -177,10 +177,10 @@ def check_turnover_flips_possession(trace: GameTrace) -> None:
 
 def check_punt_flips_possession(trace: GameTrace) -> None:
     """After a punt, receiving team has possession."""
-    from nfl_sim.engine.state import Action
+    from nfl_sim.engine.state import Intent
 
     for event in trace:
-        if event.action == Action.PUNT:
+        if event.intent == Intent.PUNT:
             before, after = event.state_before, event.state_after
             assert before[_OFF] == after[_DEF], (
                 f"Punt didn't flip possession: {before[_OFF]} -> {after[_OFF]}"
@@ -275,14 +275,14 @@ def check_distance_lte_yardline(trace: GameTrace) -> None:
 
 def check_fourth_down_failure_ends_possession(trace: GameTrace) -> None:
     """4th down failure (no first down, no score) ends possession."""
-    from nfl_sim.engine.state import Action
+    from nfl_sim.engine.state import Intent
 
     for event in trace:
         before, after = event.state_before, event.state_after
         if before[_DN] != 4:
             continue
         # Punts and FGs are intentional possession changes
-        if event.action in (Action.PUNT, Action.FIELD_GOAL):
+        if event.intent in (Intent.PUNT, Intent.FIELD_GOAL):
             continue
         if event.outcome.touchdown:
             continue
@@ -318,10 +318,10 @@ def check_touchdown_gives_7(trace: GameTrace) -> None:
 
 def check_field_goal_gives_3(trace: GameTrace) -> None:
     """Successful field goal adds exactly 3 points."""
-    from nfl_sim.engine.state import Action
+    from nfl_sim.engine.state import Intent
 
     for event in trace:
-        if event.action != Action.FIELD_GOAL:
+        if event.intent != Intent.FIELD_GOAL:
             continue
         before, after = event.state_before, event.state_after
         delta = sum(after[_SC]) - sum(before[_SC])
@@ -384,22 +384,22 @@ TIME_RULES: tuple[RuleChecker, ...] = (
 
 def check_possession_flip_has_reason(trace: GameTrace) -> None:
     """Possession only flips on punt, turnover, or score."""
-    from nfl_sim.engine.state import Action
+    from nfl_sim.engine.state import Intent
 
     for event in trace:
         before, after = event.state_before, event.state_after
         if before[_OFF] == after[_OFF]:
             continue
         # Possession flipped - must have a reason
-        is_punt = event.action == Action.PUNT
+        is_punt = event.intent == Intent.PUNT
         is_turnover = event.outcome.turnover
-        is_fg = event.action == Action.FIELD_GOAL
+        is_fg = event.intent == Intent.FIELD_GOAL
         is_td = event.outcome.touchdown
         # 4th down failure
         is_fourth_down_fail = (
             before[_DN] == 4
             and event.outcome.yards < before[_DIST]
-            and event.action not in (Action.PUNT, Action.FIELD_GOAL)
+            and event.intent not in (Intent.PUNT, Intent.FIELD_GOAL)
         )
         has_reason = is_punt or is_turnover or is_fg or is_td or is_fourth_down_fail
         assert has_reason, "Possession flipped without valid reason"
