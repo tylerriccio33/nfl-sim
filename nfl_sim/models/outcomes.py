@@ -41,15 +41,31 @@ def _load_rf_intent_fn() -> Callable[[np.ndarray, Random], Intent]:
 
     artifact_dir = Path("training/artifacts/rf/intent")
     rf = joblib.load(artifact_dir / "model.joblib")
-    # Disable parallel processing for single-sample inference (major speedup).
-    # Training uses n_jobs=-1, but inference on single samples causes multiprocessing
-    # overhead that's 100-1000x worse than serial inference.
-    rf.n_jobs = 1
+
+    # Try to use treelite for 200x faster inference
+    model = None
+    use_treelite = False
+    treelite_gtil = None
+
+    try:
+        import treelite.gtil as _treelite_gtil
+        import treelite.sklearn
+
+        model = treelite.sklearn.import_model(rf)
+        treelite_gtil = _treelite_gtil
+        use_treelite = True
+    except ImportError:
+        # Fall back to sklearn if treelite not available
+        rf.n_jobs = 1
+
     meta = json.loads((artifact_dir / "meta.json").read_text())
     classes = [Intent(c) for c in meta["classes"]]
 
     def _rf_intent(features: np.ndarray, rng: Random) -> Intent:
-        probs = rf.predict_proba(features.reshape(1, -1))[0]
+        if use_treelite:
+            probs = treelite_gtil.predict(model, features.reshape(1, -1), nthread=1)[0, 0]
+        else:
+            probs = rf.predict_proba(features.reshape(1, -1))[0]
         # Sample from the predicted probability distribution
         r = rng.random()
         cumulative = 0.0
@@ -60,6 +76,7 @@ def _load_rf_intent_fn() -> Callable[[np.ndarray, Random], Intent]:
         return classes[-1]
 
     return _rf_intent
+
 
 # TODO: Can remove this
 def _placeholder_outcome(
