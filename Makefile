@@ -58,6 +58,9 @@ train: ## Run model training script
 	@uv run training/train.py
 	@uv run training/compile_intent_model.py
 
+train-time: ## Train time model
+	@uv run training/train_time.py
+
 refresh-data: ## Refresh all data files
 	@uv run python data/refresh_data.py
 

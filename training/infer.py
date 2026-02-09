@@ -23,6 +23,7 @@ from training.prepare import prepare
 ARTIFACT_DIR = Path("training/artifacts")
 OUTPUT_DIR = Path("training/artifacts/predictions")
 INTENT_ARTIFACT_DIR = Path("training/artifacts/rf/intent")
+TIME_ARTIFACT_DIR = Path("training/artifacts/time")
 
 # Intent value → route name for CVAE selection
 INTENT_TO_ROUTE = {
@@ -47,6 +48,9 @@ def infer() -> pl.DataFrame:
 
     print("Loading intent model...")
     rf_model = joblib.load(INTENT_ARTIFACT_DIR / "model.joblib")
+
+    print("Loading time model...")
+    time_model = joblib.load(TIME_ARTIFACT_DIR / "model.joblib")
 
     # Predict intents
     print("Predicting intents...")
@@ -92,6 +96,10 @@ def infer() -> pl.DataFrame:
         pred_yards[mask] = cont_denorm[:, 0]
         pred_turnover[mask] = cat_samples[0].numpy()
 
+    # Predict time using only first 9 features (matching training)
+    print("Predicting time...")
+    pred_time = time_model.predict(data.features[:, :9])
+
     # Build output DataFrame
     print("Assembling output...")
     feature_names = _gen_feature_names()
@@ -114,10 +122,12 @@ def infer() -> pl.DataFrame:
                 "pred_intent": pred_intent_names,
                 "pred_yards": pred_yards,
                 "pred_turnover": pred_turnover_names,
+                "pred_time": pred_time,
                 # Actual outcomes for comparison
                 "actual_intent": actual_intent_names,
                 "actual_yards": data.yards,
                 "actual_turnover": actual_turnover_names,
+                "actual_time": data.time_elapsed,
             }
         )
         .select(cs.numeric().fill_nan(pl.lit(None)))
