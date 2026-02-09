@@ -1,11 +1,10 @@
 """All model inference lives here.
 
 Two-stage architecture:
-  1. Intent prediction — what the offense will do (will be RF)
-  2. Outcome generation — yards/turnover/time per route (will be CVAE / RF)
+  1. Intent prediction (RF) — what the offense will do
+  2. Outcome generation (CVAE / RF) — yards/turnover/time per route
 
-Predictors are loaded once at module level. When trained models exist,
-loading will be driven by NFL_SIM_MODEL_DIR env var.
+Predictors are loaded once at module level from training artifacts.
 """
 
 import math
@@ -27,13 +26,6 @@ from nfl_sim.engine.state import (
 from nfl_sim.models.context import ModelContext
 from nfl_sim.models.features import build_features
 
-# ---------------------------------------------------------------------------
-# Predictor implementations
-#
-# Placeholders for now. When trained models land, these get replaced by
-# functions that load from disk (path driven by NFL_SIM_MODEL_DIR env var).
-# ---------------------------------------------------------------------------
-
 # Training data uses 0/1/2 for turnover_type, but the enum uses auto() → 1/2/3.
 # This list maps CVAE output index → TurnoverType enum value.
 _TURNOVER_INDEX = [TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FUMBLE]
@@ -41,11 +33,35 @@ _TURNOVER_INDEX = [TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FU
 type _OutcomeFn = Callable[[np.ndarray, Intent, Random, _GameState], Outcome]
 
 
-def _placeholder_intent(features: np.ndarray, rng: Random) -> Intent:
-    """Random intent — will be replaced by a trained RF."""
-    return rng.choice([Intent.RUN, Intent.PASS, Intent.FIELD_GOAL, Intent.PUNT])
+def _load_rf_intent_fn() -> Callable[[np.ndarray, Random], Intent]:
+    """Load the trained RF for intent prediction."""
+    import json
 
+    import joblib
 
+    artifact_dir = Path("training/artifacts/rf/intent")
+    rf = joblib.load(artifact_dir / "model.joblib")
+    # Disable parallel processing for single-sample inference (major speedup).
+    # Training uses n_jobs=-1, but inference on single samples causes multiprocessing
+    # overhead that's 100-1000x worse than serial inference.
+    rf.n_jobs = 1
+    meta = json.loads((artifact_dir / "meta.json").read_text())
+    classes = [Intent(c) for c in meta["classes"]]
+
+    def _rf_intent(features: np.ndarray, rng: Random) -> Intent:
+        probs = rf.predict_proba(features.reshape(1, -1))[0]
+        # Sample from the predicted probability distribution
+        r = rng.random()
+        cumulative = 0.0
+        for cls, p in zip(classes, probs):
+            cumulative += p
+            if r < cumulative:
+                return cls
+        return classes[-1]
+
+    return _rf_intent
+
+# TODO: Can remove this
 def _placeholder_outcome(
     features: np.ndarray, intent: Intent, rng: Random, state: _GameState
 ) -> Outcome:
@@ -106,6 +122,7 @@ def _load_cvae_outcome_fn(route_name: str) -> _OutcomeFn | None:
 
         raw_yards = cont[0, 0].item()
         raw_time = cont[0, 1].item()
+        # TODO: Should actually have time be a downstream linear model instead of wrapped into the cvae
 
         # Guard against NaN/inf from an untrained or broken model — fall back
         # to neutral defaults so the simulation can still run.
@@ -125,7 +142,8 @@ def _load_cvae_outcome_fn(route_name: str) -> _OutcomeFn | None:
 
 
 # Module-level predictors — loaded once on import.
-_intent_fn = _placeholder_intent
+_intent_fn: Callable[[np.ndarray, Random], Intent] = _load_rf_intent_fn()
+
 _outcome_fns: dict[Route, _OutcomeFn] = {
     Route.RUN: _placeholder_outcome,
     Route.PASS: _placeholder_outcome,

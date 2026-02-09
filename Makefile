@@ -35,7 +35,7 @@ vulture: ## Detect dead code
 
 infer: ## Run inference and look at results in the browser
 	@uv run training/infer.py
-	@duckdb -ui
+	@duckdb -ui training/artifacts/predictions/predictions.csv
 
 load-dictionaries: ## Download data dictionaries
 	@curl -L -o dictionary/pbp.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_pbp.csv

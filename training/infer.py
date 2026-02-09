@@ -15,6 +15,7 @@ import polars as pl
 import torch
 
 from nfl_sim.engine.state import Intent
+from nfl_sim.models.features import _gen_feature_names
 from training.cvae import CVAE, CvaeConfig
 from training.prepare import prepare
 
@@ -26,6 +27,10 @@ INTENT_TO_ROUTE = {
     Intent.RUN.value: "run",
     Intent.PASS.value: "pass",
 }
+
+# Reverse mappings for converting ordinal values back to names
+_INTENT_MAP = {intent.value: intent.name for intent in Intent}
+_TURNOVER_MAP = {0: "NONE", 1: "INTERCEPTION", 2: "FUMBLE"}
 
 
 def infer() -> pl.DataFrame:
@@ -44,6 +49,8 @@ def infer() -> pl.DataFrame:
     # Predict intents
     print("Predicting intents...")
     pred_intents = rf_model.predict(data.features)
+    print(f"  Unique predictions: {np.unique(pred_intents)}")
+    print(f"  Model classes: {rf_model.classes_}")
 
     # Load CVAEs (only for routes we have models for)
     cvae_models = {}
@@ -67,11 +74,17 @@ def infer() -> pl.DataFrame:
         if not mask.any():
             continue
 
-        state_t = torch.tensor(data.features[mask], dtype=torch.float32)
+        # Normalize features using the same stats from training
+        features_masked = data.features[mask]
+        feat_mean = np.array(cfg.feat_mean)
+        feat_std = np.array(cfg.feat_std)
+        features_normalized = (features_masked - feat_mean) / feat_std
+
+        state_t = torch.tensor(features_normalized, dtype=torch.float32)
         with torch.no_grad():
             cont_pred, cat_samples = model.generate(state_t)
 
-        # Denormalize
+        # Denormalize predictions to original scale
         cont_pred_np = cont_pred.numpy()
         cont_denorm = cont_pred_np * np.array(cfg.cont_std) + np.array(cfg.cont_mean)
 
@@ -81,21 +94,31 @@ def infer() -> pl.DataFrame:
 
     # Build output DataFrame
     print("Assembling output...")
-    n_features = data.features.shape[1]
-    feature_cols = {f"feat_{i}": data.features[:, i] for i in range(n_features)}
+    feature_names = _gen_feature_names()
+
+    # Extract raw feature values (before normalization)
+    feature_cols = {name: data.features[:, i] for i, name in enumerate(feature_names)}
+
+    # Convert ordinal values back to categorical names
+    pred_intent_names = np.array([_INTENT_MAP[int(v)] for v in pred_intents])
+    actual_intent_names = np.array([_INTENT_MAP[v] for v in data.intent])
+    pred_turnover_names = np.array([_TURNOVER_MAP[v] for v in pred_turnover])
+    actual_turnover_names = np.array([_TURNOVER_MAP[v] for v in data.turnover_type])
 
     output_df = pl.DataFrame(
         {
+            # Input features fed to the model
             **feature_cols,
-            "pred_intent": pred_intents,
+            # Predicted outcomes
+            "pred_intent": pred_intent_names,
             "pred_yards": pred_yards,
             "pred_time": pred_time,
-            "pred_turnover": pred_turnover,
-            # Include actual values for inspection
-            "actual_intent": data.intent,
+            "pred_turnover": pred_turnover_names,
+            # Actual outcomes for comparison
+            "actual_intent": actual_intent_names,
             "actual_yards": data.yards,
             "actual_time": data.time_elapsed,
-            "actual_turnover": data.turnover_type,
+            "actual_turnover": actual_turnover_names,
         }
     )
 

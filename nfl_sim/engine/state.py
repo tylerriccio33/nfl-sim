@@ -53,18 +53,18 @@ class GameState(NamedTuple):
 class Intent(Enum):
     """What the offense chooses to do; decision not the outcome."""
 
-    RUN = auto()
-    PASS = auto()
-    FIELD_GOAL = auto()
-    PUNT = auto()
+    RUN = 1
+    PASS = 2
+    FIELD_GOAL = 3
+    PUNT = 4
 
 
 class Route(Enum):
     """Routing key that selects which outcome sub-model to use."""
 
-    RUN = auto()
-    PASS = auto()
-    ST = auto()  # special teams (punt, field goal)
+    RUN = 1
+    PASS = 2
+    ST = 3  # special teams (punt, field goal)
 
 
 def route_from_intent(intent: Intent) -> Route:

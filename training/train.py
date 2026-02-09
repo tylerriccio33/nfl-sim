@@ -1,17 +1,23 @@
-"""Train CVAE outcome models for RUN and PASS routes.
+"""Train intent (RF) and outcome (CVAE) models.
 
 Usage: uv run training/train.py (or `make train`)
 
-Trains one CVAE per route, saves state_dict + config to
-training/artifacts/cvae/{run,pass}/.
+1. Trains a RandomForest classifier for Intent prediction.
+   Saves to training/artifacts/rf/intent/.
+2. Trains one CVAE per route for outcome generation.
+   Saves to training/artifacts/cvae/{run,pass}/.
 """
 
+import json
 from pathlib import Path
 
+import joblib
 import numpy as np
 import torch
 from rich.console import Console
 from rich.table import Table
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader, TensorDataset
 from torchmetrics import Accuracy, MeanAbsoluteError
@@ -22,6 +28,7 @@ from training.prepare import prepare
 
 console = Console()
 
+INTENT_ARTIFACT_DIR = Path("training/artifacts/rf/intent")
 ARTIFACT_DIR = Path("training/artifacts/cvae")
 EPOCHS = 100
 BATCH_SIZE = 256
@@ -230,10 +237,42 @@ def _train_route(
     print(f"  Saved to {out_dir}")
 
 
+def _train_intent(features: np.ndarray, intent: np.ndarray) -> None:
+    """Train a RandomForest classifier for Intent prediction."""
+    console.print("\n==============[bold]Training RF Intent Model[/bold]")
+
+    # Hold out last 10% for evaluation (same split strategy as CVAEs)
+    n = len(features)
+    split = int(n * 0.9)
+    train_x, eval_x = features[:split], features[split:]
+    train_y, eval_y = intent[:split], intent[split:]
+
+    console.print(f"  Train samples: {len(train_x):,} | Eval samples: {len(eval_x):,}\n")
+
+    rf = RandomForestClassifier(n_estimators=50, max_depth=20, min_samples_leaf=10, n_jobs=-1)
+    rf.fit(train_x, train_y)
+
+    # Eval
+    eval_pred = rf.predict(eval_x)
+    intent_names = {v.value: v.name for v in Intent}
+    target_names = [intent_names[c] for c in rf.classes_]
+    report = classification_report(eval_y, eval_pred, target_names=target_names)
+    console.print(report)
+
+    # Save
+    INTENT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    joblib.dump(rf, INTENT_ARTIFACT_DIR / "model.joblib")
+    meta = {"classes": rf.classes_.tolist()}
+    (INTENT_ARTIFACT_DIR / "meta.json").write_text(json.dumps(meta, indent=2))
+    console.print(f"  Saved to {INTENT_ARTIFACT_DIR}")
+
+
 def main() -> None:
-    """Train CVAEs for RUN and PASS routes and save artifacts."""
+    """Train intent RF and outcome CVAEs."""
     print("Preparing training data...")
     data = prepare()
+
+    _train_intent(data.features, data.intent)
 
     for intent_val, route_name in ROUTES.items():
         mask = data.intent == intent_val
