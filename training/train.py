@@ -17,7 +17,8 @@ import torch
 from rich.console import Console
 from rich.table import Table
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import classification_report, f1_score
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader, TensorDataset
 from torchmetrics import Accuracy, MeanAbsoluteError
@@ -30,6 +31,8 @@ console = Console()
 
 INTENT_ARTIFACT_DIR = Path("training/artifacts/rf/intent")
 ARTIFACT_DIR = Path("training/artifacts/cvae")
+TIME_ARTIFACT_DIR = Path("training/artifacts/time")
+BESTMODELS_FILE = Path("training/bestmodels")
 EPOCHS = 100
 BATCH_SIZE = 256
 LR = 1e-3
@@ -41,33 +44,80 @@ ROUTES = {
 }
 
 
+def _load_bestmodels() -> dict[str, float]:
+    """Load best model scores from file."""
+    if not BESTMODELS_FILE.exists():
+        return {}
+
+    best_scores = {}
+    for line in BESTMODELS_FILE.read_text().strip().split("\n"):
+        if line.strip():
+            parts = line.split()
+            if len(parts) == 2:
+                route, score = parts
+                best_scores[route] = float(score)
+    return best_scores
+
+
+def _save_bestmodels(scores: dict[str, float]) -> None:
+    """Save best model scores to file."""
+    lines = [f"{route} {score:.4f}" for route, score in sorted(scores.items())]
+    BESTMODELS_FILE.write_text("\n".join(lines) + "\n")
+
+
+def _update_bestmodels(model_name: str, metric: float, is_better: bool) -> bool:
+    """Update bestmodels file if metric is better. Returns True if updated."""
+    best_scores = _load_bestmodels()
+
+    if model_name not in best_scores:
+        # First time seeing this model, always save it
+        best_scores[model_name] = metric
+        _save_bestmodels(best_scores)
+        console.print(f"  [green]New model '{model_name}' saved: {metric:.4f}[/green]")
+        return True
+    elif is_better:
+        # Improved over previous best
+        old_score = best_scores[model_name]
+        best_scores[model_name] = metric
+        _save_bestmodels(best_scores)
+        improvement = old_score - metric  # For MAE, lower is better
+        console.print(
+            f"  [green]✓ New best '{model_name}': {metric:.4f} (improved by {improvement:.4f})[/green]"
+        )
+        return True
+    else:
+        # Did not improve
+        old_score = best_scores[model_name]
+        gap = metric - old_score  # For MAE, lower is better
+        console.print(
+            f"  [yellow]Did not improve '{model_name}': {metric:.4f} (best is {old_score:.4f}, gap: {gap:.4f})[/yellow]"
+        )
+        return False
+
+
 def _nan_guard(
     features: np.ndarray,
     yards: np.ndarray,
-    time_elapsed: np.ndarray,
     turnover_type: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Drop rows containing NaN or inf in features or continuous targets."""
-    bad = np.any(~np.isfinite(features), axis=1) | ~np.isfinite(yards) | ~np.isfinite(time_elapsed)
+    bad = np.any(~np.isfinite(features), axis=1) | ~np.isfinite(yards)
     n_bad = int(bad.sum())
     if n_bad > 0:
         print(f"  Dropped {n_bad} rows with NaN/inf values")
     good = ~bad
-    return features[good], yards[good], time_elapsed[good], turnover_type[good]
+    return features[good], yards[good], turnover_type[good]
 
 
 def _train_route(
     name: str,
     features: np.ndarray,
     yards: np.ndarray,
-    time_elapsed: np.ndarray,
     turnover_type: np.ndarray,
-) -> None:
-    """Train and save a single CVAE for one route."""
+) -> float:
+    """Train and save a single CVAE for one route. Returns yards_mae metric."""
     # --- NaN guard ---
-    features, yards, time_elapsed, turnover_type = _nan_guard(
-        features, yards, time_elapsed, turnover_type
-    )
+    features, yards, turnover_type = _nan_guard(features, yards, turnover_type)
 
     # --- Standardize features ---
     feat_mean = features.mean(axis=0)
@@ -75,8 +125,8 @@ def _train_route(
     feat_std[feat_std == 0] = 1.0  # avoid division by zero for constant columns
     features = (features - feat_mean) / feat_std
 
-    # --- Standardize continuous targets ---
-    cont_raw = np.column_stack([yards.astype(np.float32), time_elapsed.astype(np.float32)])
+    # --- Standardize continuous targets (yards only) ---
+    cont_raw = yards.astype(np.float32).reshape(-1, 1)
     cont_mean = cont_raw.mean(axis=0)
     cont_std = cont_raw.std(axis=0)
     cont_std[cont_std == 0] = 1.0
@@ -165,26 +215,20 @@ def _train_route(
         ) + torch.tensor(cont_mean, dtype=torch.float32)
 
         pred_yards = pred_cont[:, 0]
-        pred_time = pred_cont[:, 1]
         actual_yards = actual_cont[:, 0]
-        actual_time = actual_cont[:, 1]
 
         # Compute metrics using torchmetrics
         yards_mae_metric = MeanAbsoluteError()
-        time_mae_metric = MeanAbsoluteError()
         turnover_acc_metric = Accuracy(task="multiclass", num_classes=int(eval_cat.max()) + 1)
 
         yards_mae = float(yards_mae_metric(pred_yards, actual_yards))
-        time_mae = float(time_mae_metric(pred_time, actual_time))
         turnover_acc = float(
             turnover_acc_metric(cat_samples[0], torch.tensor(eval_cat, dtype=torch.long))
         )
 
         # Convert to numpy for stats computation
         pred_yards_np = pred_yards.numpy()
-        pred_time_np = pred_time.numpy()
         actual_yards_np = actual_yards.numpy()
-        actual_time_np = actual_time.numpy()
 
         # Create metrics table
         metrics_table = Table(
@@ -198,11 +242,6 @@ def _train_route(
             "Yards MAE",
             f"{yards_mae:.2f}",
             f"Actual: mean={actual_yards_np.mean():.1f}, std={actual_yards_np.std():.1f}",
-        )
-        metrics_table.add_row(
-            "Time MAE",
-            f"{time_mae:.2f}",
-            f"Actual: mean={actual_time_np.mean():.1f}, std={actual_time_np.std():.1f}",
         )
         metrics_table.add_row(
             "Turnover Accuracy",
@@ -221,9 +260,6 @@ def _train_route(
         pred_table.add_row(
             "Predicted Yards", f"{pred_yards_np.mean():.1f}", f"{pred_yards_np.std():.1f}"
         )
-        pred_table.add_row(
-            "Predicted Time", f"{pred_time_np.mean():.1f}", f"{pred_time_np.std():.1f}"
-        )
 
         console.print()
         console.print(metrics_table)
@@ -236,9 +272,11 @@ def _train_route(
     cfg.save(out_dir / "meta.json")
     print(f"  Saved to {out_dir}")
 
+    return yards_mae
 
-def _train_intent(features: np.ndarray, intent: np.ndarray) -> None:
-    """Train a RandomForest classifier for Intent prediction."""
+
+def _train_intent(features: np.ndarray, intent: np.ndarray) -> float:
+    """Train a RandomForest classifier for Intent prediction. Returns weighted F1 score."""
     console.print("\n==============[bold]Training RF Intent Model[/bold]")
 
     # Hold out last 10% for evaluation (same split strategy as CVAEs)
@@ -259,6 +297,9 @@ def _train_intent(features: np.ndarray, intent: np.ndarray) -> None:
     report = classification_report(eval_y, eval_pred, target_names=target_names)
     console.print(report)
 
+    # Compute weighted F1 score as primary metric (higher is better)
+    weighted_f1 = f1_score(eval_y, eval_pred, average="weighted")
+
     # Save
     INTENT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(rf, INTENT_ARTIFACT_DIR / "model.joblib")
@@ -266,27 +307,121 @@ def _train_intent(features: np.ndarray, intent: np.ndarray) -> None:
     (INTENT_ARTIFACT_DIR / "meta.json").write_text(json.dumps(meta, indent=2))
     console.print(f"  Saved to {INTENT_ARTIFACT_DIR}")
 
+    return weighted_f1
+
+
+def _train_time_model(
+    features: np.ndarray,
+    time_elapsed: np.ndarray,
+) -> float:
+    """Train and save a linear regression model for time elapsed prediction.
+
+    The time model takes features as input and predicts time_elapsed independently
+    of yard outcomes to ensure time is influenced by state/context rather than
+    being entangled with outcome generation.
+
+    Uses only the first 9 features (state + game features) that match what's
+    available at inference time. Ignores any additional training-time features.
+
+    Returns the MAE on held-out evaluation data.
+    """
+    # Use only the features available at inference time (9: 7 state + 2 game features)
+    # Training data from prepare() may have more features, so we slice to match inference
+    features = features[:, :9]
+
+    # Drop NaN/inf rows
+    bad = ~np.isfinite(features).all(axis=1) | ~np.isfinite(time_elapsed)
+    n_bad = int(bad.sum())
+    if n_bad > 0:
+        print(f"  Dropped {n_bad} rows with NaN/inf values")
+
+    features = features[~bad]
+    time_elapsed = time_elapsed[~bad]
+
+    if len(features) == 0:
+        raise ValueError("No valid samples for time model training")
+
+    # Hold out last 10% for evaluation
+    n = len(features)
+    split = int(n * 0.9)
+    train_X, eval_X = features[:split], features[split:]
+    train_y, eval_y = time_elapsed[:split], time_elapsed[split:]
+
+    console.print("\n==============[bold]Training Time Model[/bold]")
+    console.print(f"  Train samples: {len(train_X):,} | Eval samples: {len(eval_X):,}\n")
+
+    # Train simple linear regression
+    model = LinearRegression()
+    model.fit(train_X, train_y)
+
+    # Evaluate
+    eval_pred = model.predict(eval_X)
+    mae = float(np.mean(np.abs(eval_pred - eval_y)))
+
+    metrics_table = Table(title="Time Model Evaluation", show_header=True, header_style="bold cyan")
+    metrics_table.add_column("Metric", style="dim")
+    metrics_table.add_column("Value", style="green")
+
+    metrics_table.add_row(
+        "MAE (seconds)",
+        f"{mae:.2f}",
+    )
+    metrics_table.add_row(
+        "Actual Mean",
+        f"{eval_y.mean():.1f}",
+    )
+    metrics_table.add_row(
+        "Actual Std",
+        f"{eval_y.std():.1f}",
+    )
+
+    console.print(metrics_table)
+
+    # Save model
+    TIME_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, TIME_ARTIFACT_DIR / "model.joblib")
+    console.print(f"  Saved to {TIME_ARTIFACT_DIR}\n")
+
+    return mae
+
 
 def main() -> None:
-    """Train intent RF and outcome CVAEs."""
+    """Train intent RF, outcome CVAEs, and time model."""
     print("Preparing training data...")
     data = prepare()
 
-    _train_intent(data.features, data.intent)
+    # Load existing best models
+    best_scores = _load_bestmodels()
 
+    # Train intent model (higher F1 is better)
+    intent_f1 = _train_intent(data.features, data.intent)
+    intent_is_better = "action" not in best_scores or intent_f1 > best_scores.get("action", 0)
+    _update_bestmodels("action", intent_f1, intent_is_better)
+
+    # Train route-specific CVAEs (lower MAE is better)
     for intent_val, route_name in ROUTES.items():
         mask = data.intent == intent_val
         if mask.sum() == 0:
             print(f"No samples for route {route_name}, skipping.")
             continue
 
-        _train_route(
+        yards_mae = _train_route(
             name=route_name,
             features=data.features[mask],
             yards=data.yards[mask],
-            time_elapsed=data.time_elapsed[mask],
             turnover_type=data.turnover_type[mask],
         )
+
+        # Update best models tracking (lower MAE is better)
+        route_is_better = route_name not in best_scores or yards_mae < best_scores.get(
+            route_name, float("inf")
+        )
+        _update_bestmodels(route_name, yards_mae, route_is_better)
+
+    # Train time model (lower MAE is better)
+    time_mae = _train_time_model(data.features, data.time_elapsed)
+    time_is_better = "time" not in best_scores or time_mae < best_scores.get("time", float("inf"))
+    _update_bestmodels("time", time_mae, time_is_better)
 
     print("\nDone.")
 

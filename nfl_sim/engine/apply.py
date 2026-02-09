@@ -46,8 +46,11 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
 
     # Handle punt (intentional possession change)
     if intent == Intent.PUNT:
-        # Simplified punt - assume average net of 40 yards toward opponent's endzone
-        punt_distance = 40
+        # Fixed punt distance. Punt return outcomes (TD, touchback, fair catch) are
+        # not modeled - outcomes default to 50 yards and the receiving team's field position
+        # is determined mechanically from this distance. Future work could model specific
+        # return outcomes (fair catch, touchback, return TD) separately.
+        punt_distance = 50
         punt_landing = state[_YL] - punt_distance
         if punt_landing <= 0:
             # Into or past endzone - touchback at the 25

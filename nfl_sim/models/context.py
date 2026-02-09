@@ -121,6 +121,7 @@ def ctx_from_game_id(
         lookup.sort(ids)
         .with_columns(pl.all().exclude(ids).shift(1).over("posteam"))
         .drop("season", "week")
+        .drop_nulls()  # Filter out rows without prior week EPA (first week of season)
     )
 
     pbp_feats: list[str] = [c for c in shifted.columns if c not in ids]

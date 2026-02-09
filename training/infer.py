@@ -12,6 +12,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import polars as pl
+import polars.selectors as cs
 import torch
 
 from nfl_sim.engine.state import Intent
@@ -21,6 +22,7 @@ from training.prepare import prepare
 
 ARTIFACT_DIR = Path("training/artifacts")
 OUTPUT_DIR = Path("training/artifacts/predictions")
+INTENT_ARTIFACT_DIR = Path("training/artifacts/rf/intent")
 
 # Intent value → route name for CVAE selection
 INTENT_TO_ROUTE = {
@@ -44,7 +46,7 @@ def infer() -> pl.DataFrame:
     data = prepare()
 
     print("Loading intent model...")
-    rf_model = joblib.load(ARTIFACT_DIR / "rf" / "model.joblib")
+    rf_model = joblib.load(INTENT_ARTIFACT_DIR / "model.joblib")
 
     # Predict intents
     print("Predicting intents...")
@@ -66,7 +68,6 @@ def infer() -> pl.DataFrame:
     # Generate predictions for each intent type
     print("Generating outcome predictions...")
     pred_yards = np.zeros(len(data.features))
-    pred_time = np.zeros(len(data.features))
     pred_turnover = np.zeros(len(data.features), dtype=int)
 
     for intent_val, (model, cfg) in cvae_models.items():
@@ -89,7 +90,6 @@ def infer() -> pl.DataFrame:
         cont_denorm = cont_pred_np * np.array(cfg.cont_std) + np.array(cfg.cont_mean)
 
         pred_yards[mask] = cont_denorm[:, 0]
-        pred_time[mask] = cont_denorm[:, 1]
         pred_turnover[mask] = cat_samples[0].numpy()
 
     # Build output DataFrame
@@ -105,21 +105,23 @@ def infer() -> pl.DataFrame:
     pred_turnover_names = np.array([_TURNOVER_MAP[v] for v in pred_turnover])
     actual_turnover_names = np.array([_TURNOVER_MAP[v] for v in data.turnover_type])
 
-    output_df = pl.DataFrame(
-        {
-            # Input features fed to the model
-            **feature_cols,
-            # Predicted outcomes
-            "pred_intent": pred_intent_names,
-            "pred_yards": pred_yards,
-            "pred_time": pred_time,
-            "pred_turnover": pred_turnover_names,
-            # Actual outcomes for comparison
-            "actual_intent": actual_intent_names,
-            "actual_yards": data.yards,
-            "actual_time": data.time_elapsed,
-            "actual_turnover": actual_turnover_names,
-        }
+    output_df = (
+        pl.DataFrame(
+            {
+                # Input features fed to the model
+                **feature_cols,
+                # Predicted outcomes
+                "pred_intent": pred_intent_names,
+                "pred_yards": pred_yards,
+                "pred_turnover": pred_turnover_names,
+                # Actual outcomes for comparison
+                "actual_intent": actual_intent_names,
+                "actual_yards": data.yards,
+                "actual_turnover": actual_turnover_names,
+            }
+        )
+        .select(cs.numeric().fill_nan(pl.lit(None)))
+        .filter(pl.all_horizontal(cs.starts_with("pred_").is_not_null()))
     )
 
     return output_df

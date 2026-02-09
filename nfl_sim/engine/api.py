@@ -156,8 +156,10 @@ def sim_games(
     # Deterministic per-game seeds so results don't depend on execution order
     seeds = [None if base_seed is None else base_seed + 77 + i for i in range(len(game_items))]
 
-    workers = 1  # TODO: Figure this one out
-    # workers = max_workers or min(len(game_items), (os.cpu_count() or 1))
+    # workers = 1  # TODO: Figure this one out
+    import os
+
+    workers = max_workers or min(len(game_items), (os.cpu_count() or 1))
 
     def _submit(gid: str, ctx: GameContext, seed: int | None) -> tuple[str, list[GameTrace]]:
         return _run_one_game(gid, ctx, n, seed)

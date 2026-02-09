@@ -1,8 +1,10 @@
 """All model inference lives here.
 
-Two-stage architecture:
+Three-stage architecture:
   1. Intent prediction (RF) — what the offense will do
-  2. Outcome generation (CVAE / RF) — yards/turnover/time per route
+  2. Outcome generation (CVAE / RF) — yards/turnover per route
+  3. Time elapsed prediction (Linear Regression) — how much time was consumed,
+     independently influenced by state and game context
 
 Predictors are loaded once at module level from training artifacts.
 """
@@ -138,13 +140,10 @@ def _load_cvae_outcome_fn(route_name: str) -> _OutcomeFn | None:
             cont = cont * cont_std + cont_mean
 
         raw_yards = cont[0, 0].item()
-        raw_time = cont[0, 1].item()
-        # TODO: Should actually have time be a downstream linear model instead of wrapped into the cvae
 
         # Guard against NaN/inf from an untrained or broken model — fall back
         # to neutral defaults so the simulation can still run.
         yards = round(raw_yards) if math.isfinite(raw_yards) else 0
-        time_elapsed = max(1, round(raw_time)) if math.isfinite(raw_time) else 20
         turnover_idx = int(cat_samples[0][0].item())
         turnover_type = _TURNOVER_INDEX[turnover_idx]
 
@@ -152,10 +151,126 @@ def _load_cvae_outcome_fn(route_name: str) -> _OutcomeFn | None:
             yards=yards,
             turnover_type=turnover_type,
             touchdown=False,
-            time_elapsed=time_elapsed,
+            time_elapsed=0,  # Time is set by separate time model in outcome_model()
         )
 
     return _cvae_outcome
+
+
+def _load_st_outcome_fn() -> _OutcomeFn | None:
+    """Load the trained ST RF model for special teams outcome prediction.
+
+    Predicts categorical outcomes for field goals and punts:
+    - FG_MADE: encoded as yards <= 0
+    - FG_MISS: encoded as yards > 0
+    - PUNT: defaults to 50 yards (not modeled per outcome)
+    """
+    import json
+
+    artifact_dir = Path("training/artifacts/rf/st")
+    model_path = artifact_dir / "model.dylib"
+    meta_path = artifact_dir / "meta.json"
+
+    if not model_path.exists() or not meta_path.exists():
+        return None
+
+    # Try to use treelite compiled model for fast inference
+    model = None
+    use_treelite = False
+    treelite_gtil = None
+
+    try:
+        import treelite.gtil as _treelite_gtil
+
+        model = _treelite_gtil.load(str(model_path))
+        treelite_gtil = _treelite_gtil
+        use_treelite = True
+    except (ImportError, Exception):
+        # Treelite not available, will fall back to simple heuristics
+        pass
+
+    meta = json.loads((artifact_dir / "meta.json").read_text())
+    classes = meta.get("classes", [23, 24, 25, 26])
+
+    def _st_outcome(
+        features: np.ndarray, intent: Intent, rng: Random, state: _GameState
+    ) -> Outcome:
+        """Predict ST outcome (FG made/miss or punt outcome)."""
+        if use_treelite:
+            # Treelite predict returns probabilities
+            probs = treelite_gtil.predict(model, features.reshape(1, -1), nthread=1)[0, 0]
+            # Sample from probability distribution
+            r = rng.random()
+            cumulative = 0.0
+            predicted_class_idx = 0
+            for i, p in enumerate(probs):
+                cumulative += p
+                if r < cumulative:
+                    predicted_class_idx = i
+                    break
+        else:
+            # Fallback: random prediction when treelite not available
+            predicted_class_idx = rng.randint(0, len(classes) - 1)
+
+        # Map class predictions to yards encoding
+        # Classes are typically: 23=FG_MADE, 24=FG_MISS, 25/26=PUNT outcomes
+        if intent == Intent.FIELD_GOAL:
+            # For FG: encode made/miss as yards based on current yardline
+            # FG is made when new_yardline = yardline - yards <= 0
+            # FG is missed when new_yardline > 0
+            # Class index 0: FG_MADE → yards high enough to reach/exceed endzone
+            # Class index 1+: FG_MISS → yards too short to reach endzone
+            yardline = state[6]  # _YL index
+            if predicted_class_idx == 0:
+                # FG MADE: set yards to yardline + buffer to ensure new_yardline <= 0
+                yards = yardline + 10
+            else:
+                # FG MISS: set yards to yardline - margin, ensuring new_yardline > 0
+                yards = max(1, yardline - 20)
+        else:
+            # For PUNT: use default 50 yards (not modeled per outcome type)
+            # The actual outcome is handled by the punt logic in apply_outcome
+            yards = 50
+
+        return Outcome(
+            yards=yards,
+            turnover_type=TurnoverType.NONE,
+            touchdown=False,
+            time_elapsed=20,
+        )
+
+    return _st_outcome
+
+
+def _load_time_fn() -> Callable[[np.ndarray, _GameState], int]:
+    """Load the trained time elapsed regression model.
+
+    This is a post-processing model that predicts how much time (in seconds) a
+    play consumed, independently of the outcome yards. It takes the full feature
+    set and game state as input.
+
+    Raises FileNotFoundError if the model artifact doesn't exist.
+    """
+    import joblib
+
+    artifact_dir = Path("training/artifacts/time")
+    model_path = artifact_dir / "model.joblib"
+
+    if not model_path.exists():  # pragma: no cover
+        raise FileNotFoundError(
+            f"Time model not found at {model_path}.\n"
+            "Run `make train` to generate the time model artifact."
+        )
+
+    model = joblib.load(model_path)
+
+    def _time_from_model(features: np.ndarray, state: _GameState) -> int:
+        # Features already include all state information (down, distance, yardline, etc.)
+        # Just pass features directly to the time model
+        raw_time = model.predict(features.reshape(1, -1))[0]
+        return max(1, round(raw_time)) if math.isfinite(raw_time) else 20
+
+    return _time_from_model
 
 
 # Module-level predictors — loaded once on import.
@@ -167,11 +282,27 @@ _outcome_fns: dict[Route, _OutcomeFn] = {
     Route.ST: _placeholder_outcome,
 }
 
-# Replace placeholders with trained CVAEs if artifacts exist
+# Replace placeholders with trained models if artifacts exist
 for _route, _name in [(Route.RUN, "run"), (Route.PASS, "pass")]:
     _fn = _load_cvae_outcome_fn(_name)
     if _fn is not None:
         _outcome_fns[_route] = _fn
+
+# Load ST model for special teams
+_st_fn = _load_st_outcome_fn()
+if _st_fn is not None:
+    _outcome_fns[Route.ST] = _st_fn
+
+# Time model is lazily loaded and cached
+_time_fn_cache: Callable[[np.ndarray, _GameState], int] | None = None
+
+
+def _get_time_fn() -> Callable[[np.ndarray, _GameState], int]:
+    """Lazily load and cache the time elapsed model."""
+    global _time_fn_cache
+    if _time_fn_cache is None:
+        _time_fn_cache = _load_time_fn()
+    return _time_fn_cache
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +314,10 @@ def outcome_model(context: ModelContext) -> tuple[Intent, Outcome]:
     """Predict intent and outcome for a single play.
 
     Builds features from the game context, picks an intent, routes to the
-    appropriate outcome predictor, and clamps time/touchdown.
+    appropriate outcome predictor, and uses the time model for time elapsed.
+
+    Time is predicted independently via a separate regression model to ensure
+    it's influenced by state and game context, not coupled to outcome generation.
     """
     features = build_features(context)
 
@@ -191,6 +325,11 @@ def outcome_model(context: ModelContext) -> tuple[Intent, Outcome]:
     route: Route = route_from_intent(intent)
     outcome: Outcome = _outcome_fns[route](features, intent, context.rng, context.state)
 
+    # Get time from post-processing time model
+    time_fn = _get_time_fn()
+    outcome.time_elapsed = time_fn(features, context.state)
+
+    # Clamp time to remaining clock
     outcome.time_elapsed = min(outcome.time_elapsed, context.state[_CLK])
     outcome.touchdown = False  # engine detects via yardline
     return intent, outcome

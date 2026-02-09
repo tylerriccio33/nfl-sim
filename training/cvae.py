@@ -30,7 +30,7 @@ class CvaeConfig:
 
     # Architecture dimensions
     state_dim: int = 9  # Size of the game state vector (down, distance, etc.)
-    cont_dim: int = 2  # Continuous targets: yards, time_elapsed
+    cont_dim: int = 1  # Continuous targets: yards only (time is separate model)
     cat_cards: tuple[int, ...] = (3,)  # Categorical cardinalities (turnover_type: 3 classes)
     cat_emb_dim: int = 8  # Dimension for categorical embeddings
     latent_dim: int = 16  # Dimension of the latent space
@@ -45,8 +45,8 @@ class CvaeConfig:
     # and proper inference performance.
     feat_mean: list[float] | None = None  # Mean of concatenated features for encoder
     feat_std: list[float] | None = None  # Std of concatenated features for encoder
-    cont_mean: list[float] | None = None  # Mean of continuous targets (yards, time)
-    cont_std: list[float] | None = None  # Std of continuous targets (yards, time)
+    cont_mean: list[float] | None = None  # Mean of continuous targets (yards)
+    cont_std: list[float] | None = None  # Std of continuous targets (yards)
 
     def save(self, path: Path) -> None:
         """Serialize config to a JSON file."""
