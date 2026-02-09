@@ -141,7 +141,7 @@ def ctx_from_game_id(
     return _rows_to_contexts(joined)
 
 
-class DerivedContext:
+class DerivedContext:  # TODO: Overkill
     """Game context; basically features."""
 
     def __init__(self, trace: GameTrace):

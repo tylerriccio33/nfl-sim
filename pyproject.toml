@@ -32,6 +32,7 @@ nfl-sim = "nfl_sim.__main__:main"
 dev = [
     "complexipy>=5.1.0",
     "hypothesis>=6.100.0",
+    "joblib>=1.5.3",
     "line-profiler>=4.1.0",
     "nflreadpy>=0.1.5",
     "plotext>=5.3.2",
@@ -42,6 +43,8 @@ dev = [
     "pytest-timeout>=2.4.0",
     "requests>=2.32.5",
     "ruff>=0.14.10",
+    "scikit-learn>=1.8.0",
+    "torchmetrics>=1.8.2",
     "ty>=0.0.8",
 ]
 

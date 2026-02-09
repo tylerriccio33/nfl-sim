@@ -62,6 +62,7 @@ class TrainingData:
     intent: np.ndarray  # (N,) int: Intent ordinal
     yards: np.ndarray  # (N,) int: yards gained
     time_elapsed: np.ndarray  # (N,) float: estimated seconds per play
+    turnover_type: np.ndarray  # (N,) int: 0=none, 1=interception, 2=fumble
 
 
 def _row_to_state(row: dict) -> _GameState:
@@ -154,6 +155,7 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
     target_intent: list[int] = []
     target_yards: list[int] = []
     target_time: list[float] = []
+    target_turnover: list[int] = []
 
     for row in rows:
         game_id = row["game_id"]
@@ -196,6 +198,9 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
         time_val = row.get("time_elapsed")
         target_time.append(float(time_val) if time_val is not None else 25.0)
 
+        # Turnover target
+        target_turnover.append(int(row["turnover_type"]))
+
     feat_mat = np.stack(feats)
 
     return TrainingData(
@@ -203,4 +208,5 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
         intent=np.asarray(target_intent),
         yards=np.asarray(target_yards),
         time_elapsed=np.asarray(target_time),
+        turnover_type=np.asarray(target_turnover),
     )
