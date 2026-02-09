@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Compile the intent RF model using treelite for fast inference.
+"""Convert RF models to treelite format for fast inference.
 
-Treelite compiles random forest models to native C++ code, achieving
-10-100x speedups on inference compared to sklearn's Python implementation.
+Treelite provides fast inference via the gtil (generic tree inference library)
+with 10-100x speedups compared to sklearn's Python implementation.
 
 Usage: uv run training/compile_intent_model.py
 """
@@ -10,35 +10,42 @@ Usage: uv run training/compile_intent_model.py
 from pathlib import Path
 
 import joblib
-import treelite
+import treelite.model
+import treelite.sklearn
 
 ARTIFACT_DIR = Path("training/artifacts/rf/intent")
-OUTPUT_DIR = ARTIFACT_DIR / "compiled"
+ST_ARTIFACT_DIR = Path("training/artifacts/rf/st")
+
+
+def _convert_model(artifact_dir: Path, model_name: str) -> None:
+    """Convert a trained RF model to treelite format."""
+    print(f"Converting {model_name} RF model...")
+    rf = joblib.load(artifact_dir / "model.joblib")
+
+    # Convert sklearn model to treelite format
+    tl_model = treelite.sklearn.import_model(rf)
+
+    # Serialize to checkpoint file for fast loading
+    output_path = artifact_dir / "model.tl"
+    tl_model.serialize(str(output_path))
+
+    print(f"✅ Converted {model_name} model saved to {output_path}")
+    joblib_size = (artifact_dir / "model.joblib").stat().st_size / 1e6
+    tl_size = output_path.stat().st_size / 1e6
+    print(f"  Original (joblib): {joblib_size:.1f} MB")
+    print(f"  Treelite (.tl):    {tl_size:.1f} MB")
 
 
 def main() -> None:
-    """Compile the trained RF model."""
-    print("Loading trained RF model...")
-    rf = joblib.load(ARTIFACT_DIR / "model.joblib")
+    """Convert intent and ST models."""
+    _convert_model(ARTIFACT_DIR, "intent")
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    print("Converting to treelite format and compiling...")
-    treelite.sklearn.export_model(
-        rf,
-        str(OUTPUT_DIR / "libmodel.so"),
-        toolchain="clang",
-    )
-
-    print(f"✅ Compiled model saved to {OUTPUT_DIR / 'libmodel.dylib'}")
-    print("\nModel info:")
-    print(
-        f"  Original (sklearn joblib): {(ARTIFACT_DIR / 'model.joblib').stat().st_size / 1e6:.1f} MB"
-    )
-    print(
-        f"  Compiled (treelite dylib): {(OUTPUT_DIR / 'libmodel.dylib').stat().st_size / 1e6:.1f} MB"
-    )
-    print("\nExpected speedup: 10-100x faster than sklearn")
+    # ST model is optional - only compile if joblib exists
+    st_model_path = ST_ARTIFACT_DIR / "model.joblib"
+    if st_model_path.exists():
+        _convert_model(ST_ARTIFACT_DIR, "special teams")
+    else:
+        print("Skipping special teams model (not trained in current pipeline)")
 
 
 if __name__ == "__main__":

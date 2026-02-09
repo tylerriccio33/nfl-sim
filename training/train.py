@@ -303,7 +303,7 @@ def _train_intent(features: np.ndarray, intent: np.ndarray) -> float:
     # Save
     INTENT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(rf, INTENT_ARTIFACT_DIR / "model.joblib")
-    meta = {"classes": rf.classes_.tolist()}
+    meta = {"classes": rf.classes_.tolist()}  # type: ignore[union-attr]
     (INTENT_ARTIFACT_DIR / "meta.json").write_text(json.dumps(meta, indent=2))
     console.print(f"  Saved to {INTENT_ARTIFACT_DIR}")
 
