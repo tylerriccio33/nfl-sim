@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 from rich.console import Console
 from rich.table import Table
-from sklearn.linear_model import LinearRegression
+from sklearn.tree import DecisionTreeRegressor
 
 from training.prepare import prepare
 
@@ -24,11 +24,8 @@ console = Console()
 TIME_ARTIFACT_DIR = Path("training/artifacts/time")
 
 
-def train_time_model(
-    features: np.ndarray,
-    time_elapsed: np.ndarray,
-) -> float:
-    """Train and save a linear regression model for time elapsed prediction.
+def train_time_model(features: np.ndarray, time_elapsed: np.ndarray) -> float:
+    """Train and save a decision tree (CART) model for time elapsed prediction.
 
     Returns the MAE on held-out evaluation data.
     """
@@ -57,8 +54,8 @@ def train_time_model(
     console.print("\n==============[bold]Training Time Model[/bold]")
     console.print(f"  Train samples: {len(train_X):,} | Eval samples: {len(eval_X):,}\n")
 
-    # Train simple linear regression
-    model = LinearRegression()
+    # Train decision tree regression (CART)
+    model = DecisionTreeRegressor(max_depth=10, min_samples_leaf=5, random_state=42)
     model.fit(train_X, train_y)
 
     # Evaluate
@@ -69,18 +66,9 @@ def train_time_model(
     metrics_table.add_column("Metric", style="dim")
     metrics_table.add_column("Value", style="green")
 
-    metrics_table.add_row(
-        "MAE (seconds)",
-        f"{mae:.2f}",
-    )
-    metrics_table.add_row(
-        "Actual Mean",
-        f"{eval_y.mean():.1f}",
-    )
-    metrics_table.add_row(
-        "Actual Std",
-        f"{eval_y.std():.1f}",
-    )
+    metrics_table.add_row("MAE (seconds)", f"{mae:.2f}")
+    metrics_table.add_row("Actual Mean", f"{eval_y.mean():.1f}")
+    metrics_table.add_row("Actual Std", f"{eval_y.std():.1f}")
 
     console.print(metrics_table)
 

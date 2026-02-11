@@ -128,9 +128,11 @@ def infer() -> pl.DataFrame:
                 "actual_yards": data.yards,
                 "actual_turnover": actual_turnover_names,
                 "actual_time": data.time_elapsed,
+                # Original pbp data
+                "desc": data.desc,
             }
         )
-        .select(cs.numeric().fill_nan(pl.lit(None)))
+        .with_columns(cs.numeric().fill_nan(pl.lit(None)))
         .filter(pl.all_horizontal(cs.starts_with("pred_").is_not_null()))
     )
 

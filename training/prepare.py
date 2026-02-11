@@ -42,6 +42,9 @@ REQUIRED_COLS = [
     "time",
     "turnover_type",
     "time_elapsed",
+    "desc",
+    "field_goal_result",
+    "punt_blocked",
 ]
 
 # Map play_type string → Intent enum
@@ -63,6 +66,9 @@ class TrainingData:
     yards: np.ndarray  # (N,) int: yards gained
     time_elapsed: np.ndarray  # (N,) float: estimated seconds per play
     turnover_type: np.ndarray  # (N,) int: 0=none, 1=interception, 2=fumble
+    fg_success: np.ndarray  # (N,) int: 1=FG made, 0=FG miss/blocked (for FG plays only)
+    punt_blocked: np.ndarray  # (N,) int: 1=punt blocked, 0=not blocked (for punt plays only)
+    desc: list[str]  # (N,) str: play description
 
 
 def _row_to_state(row: dict) -> _GameState:
@@ -156,6 +162,9 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
     target_yards: list[int] = []
     target_time: list[float] = []
     target_turnover: list[int] = []
+    target_fg_success: list[int] = []
+    target_punt_blocked: list[int] = []
+    target_desc: list[str] = []
 
     for row in rows:
         game_id = row["game_id"]
@@ -201,6 +210,18 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
         # Turnover target
         target_turnover.append(int(row["turnover_type"]))
 
+        # FG success target (1=made, 0=miss/blocked, applicable only for field goals)
+        fg_result = row.get("field_goal_result", "")
+        fg_success = 1 if fg_result == "made" else 0
+        target_fg_success.append(fg_success)
+
+        # Punt blocked target (1=blocked, 0=not blocked, applicable only for punts)
+        punt_blocked = int(row.get("punt_blocked", 0))
+        target_punt_blocked.append(punt_blocked)
+
+        # Description
+        target_desc.append(str(row.get("desc", "")))
+
     feat_mat = np.stack(feats)
 
     return TrainingData(
@@ -209,4 +230,7 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
         yards=np.asarray(target_yards),
         time_elapsed=np.asarray(target_time),
         turnover_type=np.asarray(target_turnover),
+        fg_success=np.asarray(target_fg_success),
+        punt_blocked=np.asarray(target_punt_blocked),
+        desc=target_desc,
     )

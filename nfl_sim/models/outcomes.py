@@ -78,29 +78,22 @@ def _load_rf_intent_fn() -> Callable[[np.ndarray, Random], Intent]:
     return _rf_intent
 
 
-# TODO: Can remove this
-def _placeholder_outcome(
-    features: np.ndarray, intent: Intent, rng: Random, state: _GameState
-) -> Outcome:
-    """Random outcome — will be replaced by per-route CVAE / RF."""
-    return Outcome(
-        yards=rng.randint(0, 100),
-        turnover_type=TurnoverType.NONE,
-        touchdown=False,
-        time_elapsed=20,
-    )
+def _load_cvae_outcome_fn(route_name: str) -> _OutcomeFn:
+    """Load a trained CVAE for the given route.
 
-
-def _load_cvae_outcome_fn(route_name: str) -> _OutcomeFn | None:
-    """Try to load a trained CVAE for the given route, return an outcome function or None."""
+    Raises FileNotFoundError if the model artifact is missing.
+    """
     artifact_dir = Path("training/artifacts/cvae") / route_name
     model_path = artifact_dir / "model.pt"
     meta_path = artifact_dir / "meta.json"
 
     if not model_path.exists() or not meta_path.exists():
-        return None
+        raise FileNotFoundError(
+            f"{route_name.upper()} outcome model not found at {artifact_dir}.\n"
+            "Run `make train` to generate all model artifacts."
+        )
 
-    # Lazy torch import so tests that use placeholders never pay the cost
+    # Lazy torch import deferred until model is actually needed
     import torch
 
     from training.cvae import CVAE, CvaeConfig
@@ -155,62 +148,109 @@ def _load_cvae_outcome_fn(route_name: str) -> _OutcomeFn | None:
     return _cvae_outcome
 
 
-def _load_st_outcome_fn() -> _OutcomeFn | None:
-    """Load the treelite-compiled ST RF model for special teams outcome prediction.
+def _load_fg_model() -> Callable[[np.ndarray], bool]:
+    """Load the trained FG success model.
 
-    Predicts categorical outcomes for field goals and punts:
-    - FG_MADE: encoded as yards <= 0
-    - FG_MISS: encoded as yards > 0
-    - PUNT: defaults to 50 yards (not modeled per outcome)
+    Raises FileNotFoundError if the model artifact is missing.
     """
-    import treelite
-    import treelite.gtil
+    import joblib
 
-    artifact_dir = Path("training/artifacts/rf/st")
-    model_path = artifact_dir / "model.tl"
-    meta_path = artifact_dir / "meta.json"
+    artifact_dir = Path("training/artifacts/fg")
+    model_path = artifact_dir / "model.joblib"
 
-    if not model_path.exists() or not meta_path.exists():
-        return None
+    if not model_path.exists():  # pragma: no cover
+        raise FileNotFoundError(
+            f"FG model not found at {model_path}.\n"
+            "Run `make train-fg` to generate the FG model artifact."
+        )
 
-    tl_model = treelite.Model.deserialize(str(model_path))
+    model = joblib.load(model_path)
+
+    def _fg_success(features: np.ndarray) -> bool:
+        """Predict if FG is made (True) or missed (False)."""
+        # Use only first 9 features (state + game context)
+        pred = model.predict(features[:9].reshape(1, -1))[0]
+        return bool(pred == 1)
+
+    return _fg_success
+
+
+def _load_punt_models() -> tuple[Callable[[np.ndarray], bool], Callable[[np.ndarray], float]]:
+    """Load the trained punt outcome models (blocked prediction + yards prediction).
+
+    Returns tuple of (blocked_fn, yards_fn).
+    Raises FileNotFoundError if model artifacts are missing.
+    """
+    import joblib
+
+    artifact_dir = Path("training/artifacts/punt")
+    blocked_path = artifact_dir / "blocked.joblib"
+    yards_path = artifact_dir / "yards.joblib"
+
+    if not blocked_path.exists() or not yards_path.exists():  # pragma: no cover
+        raise FileNotFoundError(
+            f"Punt models not found at {artifact_dir}.\n"
+            "Run `make train-punt` to generate the punt model artifacts."
+        )
+
+    blocked_model = joblib.load(blocked_path)
+    yards_model = joblib.load(yards_path)
+
+    def _blocked(features: np.ndarray) -> bool:
+        """Predict if punt is blocked (True) or not (False)."""
+        pred = blocked_model.predict(features[:9].reshape(1, -1))[0]
+        return bool(pred == 1)
+
+    def _yards(features: np.ndarray) -> float:
+        """Predict punt yards when not blocked."""
+        pred = yards_model.predict(features[:9].reshape(1, -1))[0]
+        return float(pred)
+
+    return _blocked, _yards
+
+
+def _load_st_outcome_fn(
+    fg_model: Callable[[np.ndarray], bool],
+    punt_models: tuple[Callable[[np.ndarray], bool], Callable[[np.ndarray], float]],
+) -> _OutcomeFn:
+    """Build the special teams outcome function.
+
+    Routes to FG and punt models based on intent:
+    - FIELD_GOAL: uses FG model to predict make/miss
+    - PUNT: uses punt models to predict blocked/yards
+
+    Args:
+        fg_model: FG success predictor for field goal predictions.
+        punt_models: Tuple of (blocked_fn, yards_fn) for punt outcome prediction.
+
+    """
 
     def _st_outcome(
         features: np.ndarray, intent: Intent, rng: Random, state: _GameState
     ) -> Outcome:
         """Predict ST outcome (FG made/miss or punt outcome)."""
-        probs = treelite.gtil.predict(
-            tl_model, features.reshape(1, -1).astype(np.float32), nthread=1
-        )[0, 0]
-        # Sample from probability distribution
-        r = rng.random()
-        cumulative = 0.0
-        predicted_class_idx = 0
-        for i, p in enumerate(probs):
-            cumulative += p
-            if r < cumulative:
-                predicted_class_idx = i
-                break
-
-        # Map class predictions to yards encoding
-        # Classes are typically: 23=FG_MADE, 24=FG_MISS, 25/26=PUNT outcomes
         if intent == Intent.FIELD_GOAL:
-            # For FG: encode made/miss as yards based on current yardline
-            # FG is made when new_yardline = yardline - yards <= 0
-            # FG is missed when new_yardline > 0
-            # Class index 0: FG_MADE → yards high enough to reach/exceed endzone
-            # Class index 1+: FG_MISS → yards too short to reach endzone
+            # Use dedicated FG model for field goal prediction
+            fg_made = fg_model(features)
             yardline = state[6]  # _YL index
-            if predicted_class_idx == 0:
+            if fg_made:
                 # FG MADE: set yards to yardline + buffer to ensure new_yardline <= 0
                 yards = yardline + 10
             else:
                 # FG MISS: set yards to yardline - margin, ensuring new_yardline > 0
                 yards = max(1, yardline - 20)
+        elif intent == Intent.PUNT:
+            # Use dedicated punt models for punt prediction
+            blocked_fn, yards_fn = punt_models
+            is_blocked = blocked_fn(features)
+            if is_blocked:
+                # Blocked punt: defense returns 35 yards (negative for punting team)
+                yards = -35
+            else:
+                # Not blocked: predict yards using regression model
+                yards = max(0, round(yards_fn(features)))
         else:
-            # For PUNT: use default 50 yards (not modeled per outcome type)
-            # The actual outcome is handled by the punt logic in apply_outcome
-            yards = 50
+            raise ValueError(f"Unexpected ST intent: {intent}")
 
         return Outcome(
             yards=yards,
@@ -253,44 +293,52 @@ def _load_time_fn() -> Callable[[np.ndarray, _GameState], int]:
     return _time_from_model
 
 
-# Module-level predictors — loaded lazily on first use.
-_intent_fn_cache: Callable[[np.ndarray, Random], Intent] | None = None
-
-_outcome_fns: dict[Route, _OutcomeFn] = {
-    Route.RUN: _placeholder_outcome,
-    Route.PASS: _placeholder_outcome,
-    Route.ST: _placeholder_outcome,
-}
-
-# Replace placeholders with trained models if artifacts exist
-for _route, _name in [(Route.RUN, "run"), (Route.PASS, "pass")]:
-    _fn = _load_cvae_outcome_fn(_name)
-    if _fn is not None:
-        _outcome_fns[_route] = _fn
-
-# Load ST model for special teams
-_st_fn = _load_st_outcome_fn()
-if _st_fn is not None:
-    _outcome_fns[Route.ST] = _st_fn
-
-# Time model is lazily loaded and cached
-_time_fn_cache: Callable[[np.ndarray, _GameState], int] | None = None
+# ============================================================================
+# Module Initialization: Load all models at import time
+# ============================================================================
 
 
-def _get_intent_fn() -> Callable[[np.ndarray, Random], Intent]:
-    """Lazily load and cache the intent model."""
-    global _intent_fn_cache
-    if _intent_fn_cache is None:
-        _intent_fn_cache = _load_rf_intent_fn()
-    return _intent_fn_cache
+def _initialize_models() -> tuple[
+    Callable[[np.ndarray, Random], Intent],
+    dict[Route, _OutcomeFn],
+    Callable[[np.ndarray, _GameState], int],
+]:
+    """Load all required models at module initialization.
+
+    Returns a tuple of (intent_fn, outcome_fns_dict, time_fn).
+    Raises FileNotFoundError with a helpful message if any required model is missing.
+    """
+    try:
+        intent_fn = _load_rf_intent_fn()
+        outcome_fns = {
+            Route.RUN: _load_cvae_outcome_fn("run"),
+            Route.PASS: _load_cvae_outcome_fn("pass"),
+        }
+        # Load FG and punt models
+        fg_fn = _load_fg_model()
+        punt_fns = _load_punt_models()
+
+        # Load ST model with the specialized models
+        st_fn = _load_st_outcome_fn(fg_fn, punt_fns)
+        outcome_fns[Route.ST] = st_fn
+
+        time_fn = _load_time_fn()
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            f"Failed to load required model artifacts:\n{e}\n\n"
+            "Run `make train` to generate and compile all model artifacts."
+        ) from e
+
+    return intent_fn, outcome_fns, time_fn
 
 
-def _get_time_fn() -> Callable[[np.ndarray, _GameState], int]:
-    """Lazily load and cache the time elapsed model."""
-    global _time_fn_cache
-    if _time_fn_cache is None:
-        _time_fn_cache = _load_time_fn()
-    return _time_fn_cache
+# These are loaded once at module import time. If any model is missing,
+# the import will fail with a clear error message.
+# During training, skip initialization with TRAINING_MODE=1 to allow training scripts to create artifacts first.
+if os.getenv("TRAINING_MODE") != "1":
+    _INTENT_FN, _OUTCOME_FNS, _TIME_FN = _initialize_models()
+else:
+    _INTENT_FN, _OUTCOME_FNS, _TIME_FN = (None, {}, None)  # type: ignore
 
 
 # ---------------------------------------------------------------------------
@@ -309,14 +357,19 @@ def outcome_model(context: ModelContext) -> tuple[Intent, Outcome]:
     """
     features = build_features(context)
 
-    intent_fn = _get_intent_fn()
-    intent: Intent = intent_fn(features, context.rng)
+    intent: Intent = _INTENT_FN(features, context.rng)
     route: Route = route_from_intent(intent)
-    outcome: Outcome = _outcome_fns[route](features, intent, context.rng, context.state)
+
+    if route not in _OUTCOME_FNS:
+        raise KeyError(
+            f"Outcome model missing for route {route.name}.\n"
+            "Run `make train` to generate all model artifacts."
+        )
+
+    outcome: Outcome = _OUTCOME_FNS[route](features, intent, context.rng, context.state)
 
     # Get time from post-processing time model
-    time_fn = _get_time_fn()
-    outcome.time_elapsed = time_fn(features, context.state)
+    outcome.time_elapsed = _TIME_FN(features, context.state)
 
     # Clamp time to remaining clock
     outcome.time_elapsed = min(outcome.time_elapsed, context.state[_CLK])
