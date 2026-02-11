@@ -57,20 +57,20 @@ converge: ## Run convergence benchmark
 train: train-all  ## Alias for train-all
 
 train-all: ## Run model training script
-	@TRAINING_MODE=1 uv run training/train.py
+	@uv run training/train.py
 	@uv run training/compile_intent_model.py
-	@TRAINING_MODE=1 uv run training/train_time.py
-	@TRAINING_MODE=1 uv run training/train_fg.py
-	@TRAINING_MODE=1 uv run training/train_punt.py
+	@uv run training/train_time.py
+	@uv run training/train_fg.py
+	@uv run training/train_punt.py
 
 train-time: ## Train time model
-	@TRAINING_MODE=1 uv run training/train_time.py
+	@uv run training/train_time.py
 
 train-fg: ## Train field goal success model
-	@TRAINING_MODE=1 uv run training/train_fg.py
+	@uv run training/train_fg.py
 
 train-punt: ## Train punt blocked and yards models
-	@TRAINING_MODE=1 uv run training/train_punt.py
+	@uv run training/train_punt.py
 
 refresh-data: ## Refresh all data files
 	@uv run python data/refresh_data.py
