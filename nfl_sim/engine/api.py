@@ -39,7 +39,12 @@ class GameResult:
 
 
 def _create_initial_state() -> _GameState:
-    """Standard kickoff state."""
+    """Standard kickoff state.
+
+    NOTE: Production uses quarter-relative clock (900 = full quarter, 0-900 per quarter).
+    Training uses raw game_seconds_remaining (full-game clock 0-3600).
+    This divergence is intentional - training features are built from the raw pbp values.
+    """
     return (1, 900, "HOME", "AWAY", 1, 10, 75, (0, 0))
 
 

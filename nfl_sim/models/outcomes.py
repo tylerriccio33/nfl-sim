@@ -149,6 +149,7 @@ class OutcomeModel:
         """Sample an intent from the RF probability distribution."""
         import treelite.gtil
 
+        # TODO: document
         probs = treelite.gtil.predict(
             self._intent_model,
             features.reshape(1, -1).astype(np.float32),
@@ -169,6 +170,7 @@ class OutcomeModel:
 
         torch.manual_seed(rng.randint(0, 2**31))
 
+        # TODO: document
         x = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
         if art.feat_mean is not None:
             x = (x - art.feat_mean) / art.feat_std
@@ -228,19 +230,26 @@ class OutcomeModel:
         if not self._loaded:
             self._load()
 
+        # Load all features:
+        # This is an array of state and game features.
         features = build_features(context)
 
+        ## First, we predict intent which is mapped to a route.
         intent = self._predict_intent(features, context.rng)
         route = route_from_intent(intent)
 
+        # If Run/Pass, we predict using the corresponding neural net.
+        # If we go the ST route, we pass the features, state and intent to that function.
         match route:
             case Route.RUN | Route.PASS:
-                outcome = self._predict_cvae(self._cvae[route], features, context.rng)
+                cvae_model: _CvaeArtifact = self._cvae[route]
+                outcome = self._predict_cvae(cvae_model, features, context.rng)
             case Route.ST:
                 outcome = self._predict_st(features, intent, context.state)
 
+        # Finally, we pass the features and state to the time model.
         outcome.time_elapsed = min(self._predict_time(features), context.state[_CLK])
-        outcome.touchdown = False  # engine detects via yardline
+        outcome.touchdown = False  # engine detects via yardline # TODO: Weird right?
         return intent, outcome
 
 
