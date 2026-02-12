@@ -3,8 +3,11 @@
 Three-stage architecture:
   1. Intent prediction (RF) — what the offense will do
   2. Outcome generation (CVAE / RF) — yards/turnover per route
-  3. Time elapsed prediction (Linear Regression) — how much time was consumed,
-     independently influenced by state and game context
+  3. Time elapsed prediction (Decision Tree) — how much time was consumed,
+     conditioned on both game state/context and yards gained
+
+Time is predicted AFTER the outcome is known, so it can be conditioned on the
+actual yards gained. Special teams (FG/PUNT) use a fixed 20 seconds.
 
 Models are lazy-loaded on first call via ``OutcomeModel``.  This lets the module
 be imported freely (e.g. during training or in tests) without requiring trained
@@ -50,6 +53,7 @@ _ARTIFACTS = Path("training/artifacts")
 class _CvaeArtifact:
     """A trained CVAE and its normalization tensors (None = pre-standardization)."""
 
+    # TODO: These should just be regularly typed
     model: Any
     feat_mean: Any  # Tensor | None
     feat_std: Any  # Tensor | None
@@ -210,9 +214,17 @@ class OutcomeModel:
             time_elapsed=20,
         )
 
-    def _predict_time(self, features: np.ndarray) -> int:
-        """Predict seconds consumed by the play."""
-        raw = self._time.predict(features.reshape(1, -1))[0]
+    def _predict_time(self, features: np.ndarray, yards: int) -> int:
+        """Predict seconds consumed by the play, conditioned on yards gained.
+
+        Time is predicted as a function of both game state/context (9 features)
+        and the actual yards gained. This captures that a 5-yard play takes
+        different time than a 50-yard play with the same game state.
+        """
+        # Append yards as 10th feature (yards come from outcome model)
+        # features is 1D array of shape (9,), reshape to 2D for predict
+        full_features = np.concatenate([features[:9], np.array([yards])]).reshape(1, -1)
+        raw = self._time.predict(full_features)[0]
         return max(1, round(raw)) if math.isfinite(raw) else 20
 
     # ------------------------------------------------------------------
@@ -222,10 +234,10 @@ class OutcomeModel:
     def __call__(self, context: ModelContext) -> tuple[Intent, Outcome]:
         """Run the full model graph for a single play.
 
-        features → intent (RF) → route → outcome (CVAE/ST) → time (LR)
+        features → intent (RF) → route → outcome (CVAE/ST) → time (conditioned on yards)
 
-        Time is predicted independently via a separate regression model so it's
-        influenced by state and game context, not coupled to outcome generation.
+        Time is predicted after outcome is known, so it can be conditioned on
+        the actual yards gained (a 5-yard play takes different time than 50-yard).
         """
         if not self._loaded:
             self._load()
@@ -244,11 +256,15 @@ class OutcomeModel:
             case Route.RUN | Route.PASS:
                 cvae_model: _CvaeArtifact = self._cvae[route]
                 outcome = self._predict_cvae(cvae_model, features, context.rng)
+                # Time for offensive plays is conditioned on yards gained
+                outcome.time_elapsed = min(
+                    self._predict_time(features, outcome.yards), context.state[_CLK]
+                )
             case Route.ST:
                 outcome = self._predict_st(features, intent, context.state)
+                # ST plays use fixed 20 seconds, but cap at remaining clock time
+                outcome.time_elapsed = min(outcome.time_elapsed, context.state[_CLK])
 
-        # Finally, we pass the features and state to the time model.
-        outcome.time_elapsed = min(self._predict_time(features), context.state[_CLK])
         outcome.touchdown = False  # engine detects via yardline # TODO: Weird right?
         return intent, outcome
 

@@ -69,6 +69,7 @@ class TrainingData:
     fg_success: np.ndarray  # (N,) int: 1=FG made, 0=FG miss/blocked (for FG plays only)
     punt_blocked: np.ndarray  # (N,) int: 1=punt blocked, 0=not blocked (for punt plays only)
     desc: list[str]  # (N,) str: play description
+    game_ids: list[str]  # (N,) str: game_id for each row (needed for inference)
 
 
 # TODO: Remove defaults
@@ -153,19 +154,23 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
     # TODO: Abstract this, shouldn't need to edit this source code to mess w/targets
     intent_map = {pt: int(intent.value) for pt, intent in _PLAY_TYPE_TO_INTENT.items()}
     target_intent = (
-        df.select(pl.col("play_type").map_elements(lambda x: intent_map[x], return_dtype=pl.Int64))
-        .to_numpy(dtype=int)
+        df.select(pl.col("play_type").replace_strict(intent_map, default=None))
+        .to_numpy()
         .flatten()
+        .astype(int)
     )
-    target_yards = df["yards_gained"].to_numpy(dtype=int)
-    target_time = df.select(pl.col("time_elapsed").fill_null(25.0)).to_numpy(dtype=float).flatten()
-    target_turnover = df["turnover_type"].to_numpy(dtype=int)
+    target_yards = df["yards_gained"].to_numpy().astype(int)
+    target_time = (
+        df.select(pl.col("time_elapsed").fill_null(25.0)).to_numpy().flatten().astype(float)
+    )
+    target_turnover = df["turnover_type"].to_numpy().astype(int)
     target_fg_success = (
         df.select(pl.when(pl.col("field_goal_result") == "made").then(1).otherwise(0))
-        .to_numpy(dtype=int)
+        .to_numpy()
         .flatten()
+        .astype(int)
     )
-    target_punt_blocked = df["punt_blocked"].to_numpy(dtype=int)
+    target_punt_blocked = df["punt_blocked"].to_numpy().astype(int)
     target_desc = df["desc"].to_list()  # TODO: Not a target
 
     ## MODEL CONTEXT BUILT HERE ##
@@ -173,8 +178,10 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
     rows = df.select(all_cols).to_dicts()
 
     feats: list[np.ndarray] = []
+    game_ids_list: list[str] = []
     for row in rows:
         game_id = row["game_id"]
+        game_ids_list.append(game_id)
 
         state = GameState(
             quarter=row["qtr"],
@@ -208,4 +215,5 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
         fg_success=target_fg_success,
         punt_blocked=target_punt_blocked,
         desc=target_desc,
+        game_ids=game_ids_list,
     )

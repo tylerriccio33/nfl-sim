@@ -20,7 +20,7 @@ from nfl_sim.engine.api import (
 )
 from nfl_sim.engine.apply import apply_outcome
 from nfl_sim.models.context import GameContext, GameFeatures
-from nfl_sim.models.outcomes import outcome_model
+from nfl_sim.models.outcomes import OutcomeModel
 
 FUNCTIONS = (
     ## High-level API:
@@ -31,7 +31,7 @@ FUNCTIONS = (
     ## State transitions:
     apply_outcome,
     ## Models:
-    outcome_model,
+    OutcomeModel.__call__,
     ## DataFrame conversion:
     traces_to_dataframe,
     _event_from_play,

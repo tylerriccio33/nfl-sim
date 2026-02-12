@@ -2,42 +2,35 @@
 
 Usage: uv run training/infer.py
 
-Loads trained intent model and CVAEs, generates predictions on real data,
+Uses the same outcome_model as simulation to generate predictions on real data
 and exports a CSV with original features, predicted intents, and outcomes
 for manual inspection.
+
+This approach eliminates model duplication and ensures inference uses the exact
+same logic as runtime simulation.
 """
 
 from pathlib import Path
+from random import Random
 
-import joblib
 import numpy as np
 import polars as pl
 import polars.selectors as cs
-import torch
 
-from nfl_sim.engine.state import Intent
+from nfl_sim.engine.state import GameState
+from nfl_sim.models.context import DerivedContext, ModelContext
 from nfl_sim.models.features import _gen_feature_names
-from training.cvae import CVAE, CvaeConfig
-from training.prepare import prepare
+from nfl_sim.models.outcomes import outcome_model
+from training.prepare import SCHEDULE_PATH, ctx_from_game_id, prepare
 
-ARTIFACT_DIR = Path("training/artifacts")
 OUTPUT_DIR = Path("training/artifacts/predictions")
-INTENT_ARTIFACT_DIR = Path("training/artifacts/rf/intent")
-TIME_ARTIFACT_DIR = Path("training/artifacts/time")
-
-# Intent value → route name for CVAE selection
-INTENT_TO_ROUTE = {
-    Intent.RUN.value: "run",
-    Intent.PASS.value: "pass",
-}
 
 # Reverse mappings for converting ordinal values back to names
-_INTENT_MAP = {intent.value: intent.name for intent in Intent}
-_TURNOVER_MAP = {0: "NONE", 1: "INTERCEPTION", 2: "FUMBLE"}
+_INTENT_MAP = {1: "RUN", 2: "PASS", 3: "FIELD_GOAL", 4: "PUNT"}
 
 
 def infer() -> pl.DataFrame:
-    """Generate predictions on real data and return as DataFrame.
+    """Generate predictions on real data using the simulation's outcome_model.
 
     Returns:
         DataFrame with original features, predicted intent, and predicted outcomes.
@@ -45,91 +38,159 @@ def infer() -> pl.DataFrame:
     """
     print("Loading data...")
     data = prepare()
+    schedule_data = pl.read_parquet(SCHEDULE_PATH)
 
-    print("Loading intent model...")
-    rf_model = joblib.load(INTENT_ARTIFACT_DIR / "model.joblib")
+    # Build game contexts for all game_ids
+    print("Building game contexts...")
+    from training.prepare import DATA_PATH
 
-    print("Loading time model...")
-    time_model = joblib.load(TIME_ARTIFACT_DIR / "model.joblib")
+    # Load full pbp data (ctx_from_game_id needs season, week, epa, etc.)
+    df_pbp = pl.read_parquet(DATA_PATH)
+    game_ids_list = df_pbp["game_id"].unique().to_list()
+    contexts = ctx_from_game_id(df_pbp, schedule_data, game_ids_list)
 
-    # Predict intents
-    print("Predicting intents...")
-    pred_intents = rf_model.predict(data.features)
-    print(f"  Unique predictions: {np.unique(pred_intents)}")
-    print(f"  Model classes: {rf_model.classes_}")
+    # Generate predictions using outcome_model (same as simulation)
+    print("Generating predictions using outcome_model...")
+    pred_intents = []
+    pred_yards = []
+    pred_turnover = []
+    pred_time = []
 
-    # Load CVAEs (only for routes we have models for)
-    cvae_models = {}
-    for intent_val, route_name in INTENT_TO_ROUTE.items():
-        cvae_path = ARTIFACT_DIR / "cvae" / route_name
-        if (cvae_path / "model.pt").exists():
-            cfg = CvaeConfig.load(cvae_path / "meta.json")
-            model = CVAE(cfg)
-            model.load_state_dict(torch.load(cvae_path / "model.pt", weights_only=True))
-            model.eval()
-            cvae_models[intent_val] = (model, cfg)
+    # Need to reconstruct GameState for each row to pass to outcome_model
+    from training.prepare import _PLAY_TYPE_TO_INTENT, REQUIRED_COLS
 
-    # Generate predictions for each intent type
-    print("Generating outcome predictions...")
-    pred_yards = np.zeros(len(data.features))
-    pred_turnover = np.zeros(len(data.features), dtype=int)
+    # Prepare df (filter to valid plays, add computed columns)
+    df_full = (
+        df_pbp.lazy()
+        .with_columns(
+            time_elapsed=pl.col("game_seconds_remaining").shift(1).over("game_id")
+            - pl.col("game_seconds_remaining"),
+            turnover_type=pl.when(pl.col("interception").eq(1))
+            .then(1)
+            .when(pl.col("fumble_lost").eq(1))
+            .then(2)
+            .otherwise(0),
+        )
+        .filter(
+            pl.col("play_type").is_in(["run", "pass", "punt", "field_goal", "qb_kneel"]),
+            pl.col("qtr").is_in([1, 2, 3, 4]),
+        )
+        .drop_nulls(
+            subset=[
+                "play_type",
+                "down",
+                "ydstogo",
+                "yardline_100",
+                "qtr",
+                "game_seconds_remaining",
+                "yards_gained",
+                "game_id",
+                "posteam",
+                "defteam",
+                "posteam_type",
+                "total_home_score",
+                "total_away_score",
+                "time_elapsed",
+            ]
+        )
+        .collect()
+    )
 
-    for intent_val, (model, cfg) in cvae_models.items():
-        mask = pred_intents == intent_val
-        if not mask.any():
+    # Filter to valid games
+    valid_game_ids = set(contexts.keys())
+    valid_play_types = set(_PLAY_TYPE_TO_INTENT.keys())
+    df_full = df_full.filter(
+        pl.col("game_id").is_in(list(valid_game_ids)),
+        pl.col("play_type").is_in(list(valid_play_types)),
+    )
+
+    # Add offense/defense columns
+    df_full = df_full.with_columns(
+        offense=pl.when(pl.col("posteam_type") == "home")
+        .then(pl.lit("HOME"))
+        .otherwise(pl.lit("AWAY")),
+        defense=pl.when(pl.col("posteam_type") == "home")
+        .then(pl.lit("AWAY"))
+        .otherwise(pl.lit("HOME")),
+    )
+
+    all_cols = [c for c in REQUIRED_COLS if c in df_full.columns] + ["offense", "defense"]
+    rows = df_full.select(all_cols).to_dicts()
+
+    for i, row in enumerate(rows):
+        if i % 50000 == 0 and i > 0:
+            print(f"  Processed {i:,} / {len(rows):,} rows")
+
+        game_id = row["game_id"]
+        if game_id not in contexts:
             continue
 
-        # Normalize features using the same stats from training
-        features_masked = data.features[mask]
-        feat_mean = np.array(cfg.feat_mean)
-        feat_std = np.array(cfg.feat_std)
-        features_normalized = (features_masked - feat_mean) / feat_std
+        # Construct GameState from row
+        state = GameState(
+            quarter=row["qtr"],
+            clock=row["game_seconds_remaining"],
+            offense=row["offense"],
+            defense=row["defense"],
+            down=row["down"],
+            distance=row["ydstogo"],
+            yardline=row["yardline_100"],
+            score=(row["total_home_score"], row["total_away_score"]),
+        )
 
-        state_t = torch.tensor(features_normalized, dtype=torch.float32)
-        with torch.no_grad():
-            cont_pred, cat_samples = model.generate(state_t)
+        # Build ModelContext (same as training/simulation)
+        model_context = ModelContext(
+            state=state,
+            derived=DerivedContext([]),  # Unused for inference
+            rng=Random(i),  # Use row index for reproducible randomness
+            game_context=contexts[game_id],
+        )
 
-        # Denormalize predictions to original scale
-        cont_pred_np = cont_pred.numpy()
-        cont_denorm = cont_pred_np * np.array(cfg.cont_std) + np.array(cfg.cont_mean)
+        # Call outcome_model to get predictions
+        intent, outcome = outcome_model(model_context)
 
-        pred_yards[mask] = cont_denorm[:, 0]
-        pred_turnover[mask] = cat_samples[0].numpy()
+        pred_intents.append(int(intent.value))
+        pred_yards.append(int(outcome.yards))
+        pred_turnover.append(outcome.turnover_type.name)
+        pred_time.append(int(outcome.time_elapsed))
 
-    # Predict time using only first 9 features (matching training)
-    print("Predicting time...")
-    pred_time = time_model.predict(data.features[:, :9])
+    # Ensure arrays match the filtered data length
+    n_preds = len(pred_intents)
+    print(f"Generated {n_preds:,} predictions")
 
     # Build output DataFrame
     print("Assembling output...")
     feature_names = _gen_feature_names()
 
-    # Extract raw feature values (before normalization)
-    feature_cols = {name: data.features[:, i] for i, name in enumerate(feature_names)}
+    # Extract feature values from first n_preds rows
+    feature_cols = {name: data.features[:n_preds, i] for i, name in enumerate(feature_names)}
 
     # Convert ordinal values back to categorical names
-    pred_intent_names = np.array([_INTENT_MAP[int(v)] for v in pred_intents])
-    actual_intent_names = np.array([_INTENT_MAP[v] for v in data.intent])
-    pred_turnover_names = np.array([_TURNOVER_MAP[v] for v in pred_turnover])
-    actual_turnover_names = np.array([_TURNOVER_MAP[v] for v in data.turnover_type])
+    pred_intent_names = np.array([_INTENT_MAP.get(int(v), "UNKNOWN") for v in pred_intents])
+    actual_intent_names = np.array([_INTENT_MAP.get(v, "UNKNOWN") for v in data.intent[:n_preds]])
+    pred_turnover_names = np.array(pred_turnover)  # Already string names from enum
+    # Map training turnover values (0/1/2) to names
+    _ACTUAL_TURNOVER_MAP = {0: "NONE", 1: "INTERCEPTION", 2: "FUMBLE"}
+    actual_turnover_names = np.array(
+        [_ACTUAL_TURNOVER_MAP[int(v)] for v in data.turnover_type[:n_preds]]
+    )
 
     output_df = (
         pl.DataFrame(
             {
                 # Input features fed to the model
                 **feature_cols,
-                # Predicted outcomes
+                # Predicted outcomes (from outcome_model)
                 "pred_intent": pred_intent_names,
                 "pred_yards": pred_yards,
                 "pred_turnover": pred_turnover_names,
                 "pred_time": pred_time,
                 # Actual outcomes for comparison
                 "actual_intent": actual_intent_names,
-                "actual_yards": data.yards,
+                "actual_yards": data.yards[:n_preds],
                 "actual_turnover": actual_turnover_names,
-                "actual_time": data.time_elapsed,
+                "actual_time": data.time_elapsed[:n_preds],
                 # Original pbp data
-                "desc": data.desc,
+                "desc": data.desc[:n_preds],
             }
         )
         .with_columns(cs.numeric().fill_nan(pl.lit(None)))

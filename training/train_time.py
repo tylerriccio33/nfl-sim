@@ -1,13 +1,14 @@
-"""Train a linear regression model for time elapsed prediction.
+"""Train a decision tree model for time elapsed prediction.
 
 Usage: uv run training/train_time.py (or `make train-time`)
 
-The time model takes features as input and predicts time_elapsed independently
-of yard outcomes to ensure time is influenced by state/context rather than
-being entangled with outcome generation.
+The time model predicts time_elapsed conditioned on both game state/context
+and the actual yards gained during the play. This captures the intuition that
+a 5-yard gain takes different time than a 50-yard gain.
 
-Uses only the first 9 features (state + game features) that match what's
-available at inference time. Ignores any additional training-time features.
+Uses first 9 features (state + game features) plus yards as a 10th feature.
+At inference, yards come from the outcome model (CVAE or ST) so time is
+predicted AFTER we know the play outcome.
 """
 
 from pathlib import Path
@@ -24,14 +25,26 @@ console = Console()
 TIME_ARTIFACT_DIR = Path("training/artifacts/time")
 
 
-def train_time_model(features: np.ndarray, time_elapsed: np.ndarray) -> float:
+def train_time_model(features: np.ndarray, time_elapsed: np.ndarray, yards: np.ndarray) -> float:
     """Train and save a decision tree (CART) model for time elapsed prediction.
 
+    Time is conditioned on both game state/context (9 features) and yards gained.
+    This captures that yard gains of different magnitudes consume different time.
+
+    Args:
+        features: Game state + context features, shape (N, M) where M >= 9
+        time_elapsed: Target time in seconds, shape (N,)
+        yards: Actual yards gained from each play, shape (N,)
+
     Returns the MAE on held-out evaluation data.
+
     """
     # Use only the features available at inference time (9: 7 state + 2 game features)
     # Training data from prepare() may have more features, so we slice to match inference
     features = features[:, :9]
+
+    # Append yards as 10th feature. At inference, yards come from the outcome model.
+    features = np.concatenate([features, yards.reshape(-1, 1)], axis=1)
 
     # Drop NaN/inf rows
     bad = ~np.isfinite(features).all(axis=1) | ~np.isfinite(time_elapsed)
@@ -87,7 +100,7 @@ def main() -> None:
     print("Preparing training data...")
     data = prepare()
 
-    train_time_model(data.features, data.time_elapsed)
+    train_time_model(data.features, data.time_elapsed, data.yards)
 
     print("Done.")
 

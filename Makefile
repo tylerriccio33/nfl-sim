@@ -19,8 +19,8 @@ test: ## Run tests
 		--cov-report term-missing \
 		--durations 10
 
-test-train: ## Run training tests
-	@NFL_SIM_TRAIN_TEST=1 v run pytest -sv tests/analysis/test_training.py
+test-train: ## Run training-related tests
+	@NFL_SIM_TRAIN_TEST=1 uv run pytest -sv tests/analysis/test_model.py tests/analysis/test_model_efficacy.py
 
 parity: ## Run parity tests
 	@NFL_SIM_PARITY=1 uv run pytest tests/engine/test_parity.py

@@ -31,6 +31,59 @@ The outcome for now is ONLY yards gained, but in the future there will be more.
 
 ## Code Style and Conventions
 
+## The Perfect Documentation/Model
+
+This is an example of one of the most perfectly documented piece of inline code I grabbed from online. Seek to emulate this for extremely dense sections or at the developer's request.
+
+```{rust}
+let out: ArrayChunked = unsafe {
+
+    // This is similar to apply_values, but it's amortized and made specifically
+    // for arrays.
+    ca.try_apply_amortized_same_type(|row| {
+        let s = row.as_ref();
+        // `s` is a Series which contains two elements.
+        // We unpack it similarly to the way we've been unpacking Series in the
+        // previous chapters:
+        //
+        // Previously we've been doing this to unpack a column we had behind a
+        // Series - this time, inside this closure, the Series contains the two
+        // elements composing the "row" (x and y):
+        let ca = s.f64()?;
+
+        // There are many ways to extract the x and y coordinates from ca.
+        // Here, we remain idiomatic and consistent with what we've been doing
+        // in the past - iterate, enumerate and map:
+        let out_inner: Float64Chunked = ca
+            .iter()
+            .enumerate()
+            .map(|(idx, opt_val)| {
+
+                // We only use map here because opt_val is an Option
+                opt_val.map(|val| {
+
+                    // Here's where the simple logic of calculating a
+                    // midpoint happens. We take the coordinate (`val`) at
+                    // index `idx`, add it to the `idx-th` entry of our
+                    // reference point (which is a coordinate of our point),
+                    // then divide it by two, since we're dealing with 2d
+                    // points only.
+                    (val + ref_point[idx]) / 2.0f64
+                })
+                // Our map already returns Some or None, so we don't have to
+                // worry about wrapping the result in, e.g., Some()
+            }).collect_trusted();
+
+        // At last, we convert out_inner (which is a Float64Chunked) back to a
+        // Series
+        Ok(out_inner.into_series())
+    })}?;
+
+// And finally, we convert our ArrayChunked into a Series, ready to ship to
+// Python-land:
+Ok(out.into_series())
+```
+
 ### Helpful Commands
 
 Everything non-uv is a make command, everything else is UV standards. you should never be running something like `python ...` or `pytest ...` directly.
