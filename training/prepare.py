@@ -9,7 +9,6 @@ so training features can never silently diverge from what the model sees at infe
 
 from dataclasses import dataclass
 from pathlib import Path
-from random import Random
 
 import numpy as np
 import polars as pl
@@ -199,7 +198,6 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
         model_context = ModelContext(
             state=state,
             derived=DerivedContext([]),  # Unused for now
-            rng=Random(1),
             game_context=contexts[game_id],
         )
 

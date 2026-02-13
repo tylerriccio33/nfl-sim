@@ -33,6 +33,7 @@ FUNCTIONS = (
     ## Models:
     OutcomeModel.__call__,
     OutcomeModel._predict_cvae,
+    OutcomeModel._predict_time,
     ## DataFrame conversion:
     traces_to_dataframe,
     _event_from_play,
@@ -56,7 +57,7 @@ def main() -> None:
     )
 
     # Need to warm up; loads all the modules and models
-    sim_games({context.game_id: context}, n = 1, max_workers=1)
+    sim_games({context.game_id: context}, n=1, max_workers=1)
 
     for fn in FUNCTIONS:
         profiler.add_function(fn)

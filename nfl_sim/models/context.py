@@ -2,7 +2,6 @@
 
 import dataclasses
 from dataclasses import dataclass
-from random import Random
 from typing import ClassVar, Literal, Self
 
 import polars as pl
@@ -157,11 +156,9 @@ class ModelContext:
     Attributes:
     - state (_GameState): Used to guide post-processing of generated play.
     - derived (DerivedContext): Momentum-like variables based off trace.
-    - rng (Random): Random number generator used by model.
 
     """
 
     state: _GameState
     derived: DerivedContext
-    rng: Random
     game_context: GameContext

@@ -11,7 +11,7 @@ from nfl_sim.engine.api import traces_to_dataframe
 
 def test_full_pipeline_completes(ctx):
     """Full pipeline should complete without error."""
-    traces = sim_games(ctx, n=20, base_seed=42)
+    traces = sim_games(ctx, n=20)
     df = traces_to_dataframe(traces)
     game_stats = understand(df)
 

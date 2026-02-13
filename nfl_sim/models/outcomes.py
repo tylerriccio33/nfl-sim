@@ -19,8 +19,13 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from random import Random
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import torch
+    import treelite
+
+    from training.cvae import CVAE
 
 # Treelite and torch both bundle their own libomp. Without this, importing both
 # in the same process aborts with "libomp.dylib already initialized". We also
@@ -56,12 +61,11 @@ _TURNOVER_INDEX = [TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FU
 class _CvaeArtifact:
     """A trained CVAE and its normalization tensors (None = pre-standardization)."""
 
-    # TODO: These should just be regularly typed
-    model: Any
-    feat_mean: Any  # Tensor | None
-    feat_std: Any  # Tensor | None
-    cont_mean: Any  # Tensor | None
-    cont_std: Any  # Tensor | None
+    model: "CVAE"
+    feat_mean: "torch.Tensor | None"
+    feat_std: "torch.Tensor | None"
+    cont_mean: "torch.Tensor | None"
+    cont_std: "torch.Tensor | None"
 
 
 class OutcomeModel:
@@ -91,6 +95,15 @@ class OutcomeModel:
         "_time",
     )
 
+    _cvae: dict[Route, _CvaeArtifact]
+    _fg: Any  # sklearn estimator (joblib.load returns Any)
+    _intent_classes: list[Intent]
+    _intent_model: "treelite.Model"
+    _loaded: bool
+    _punt_blocked: Any  # sklearn estimator (joblib.load returns Any)
+    _punt_yards: Any  # sklearn estimator (joblib.load returns Any)
+    _time: Any  # sklearn estimator (joblib.load returns Any)
+
     def __init__(self) -> None:
         self._loaded = False
 
@@ -110,7 +123,7 @@ class OutcomeModel:
         self._intent_model = treelite.Model.deserialize(
             str(intent_dir / ARTIFACT_PATHS.intent_compiled)
         )
-        meta = json.loads((intent_dir / ARTIFACT_PATHS.intent_meta).read_text())
+        meta: dict[str, Any] = json.loads((intent_dir / ARTIFACT_PATHS.intent_meta).read_text())
         self._intent_classes = [Intent(c) for c in meta["classes"]]
 
         # CVAE outcome models (one per offensive route)
@@ -154,38 +167,31 @@ class OutcomeModel:
     # Inference — called millions of times per simulation run
     # ------------------------------------------------------------------
 
-    def _predict_intent(self, features: np.ndarray, rng: Random) -> Intent:
-        """Sample an intent from the RF probability distribution."""
+    def _predict_intent(self, features: np.ndarray) -> Intent:
+        """Predict the highest-probability intent from the RF model."""
         import treelite.gtil
 
-        # TODO: document
         probs = treelite.gtil.predict(
             self._intent_model,
             features.reshape(1, -1).astype(np.float32),
             nthread=1,
         )[0, 0]
-        r = rng.random()
-        cumulative = 0.0
-        for cls, p in zip(self._intent_classes, probs):
-            cumulative += p
-            if r < cumulative:
-                return cls
-        return self._intent_classes[-1]
+        best_idx = int(np.argmax(probs))
+        return self._intent_classes[best_idx]
 
     @staticmethod
-    def _predict_cvae(art: _CvaeArtifact, features: np.ndarray, rng: Random) -> Outcome:
+    def _predict_cvae(art: _CvaeArtifact, features: np.ndarray) -> Outcome:
         """Generate yards + turnover (+ completion for PASS) from a CVAE."""
         import torch
 
-        # Used to need this, but why?
-        # torch.manual_seed(rng.randint(0, 2**31))
-
         x = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
         if art.feat_mean is not None:
+            assert art.feat_std is not None
             x = (x - art.feat_mean) / art.feat_std
 
         cont, cat_samples = art.model.generate(x)
         if art.cont_mean is not None:
+            assert art.cont_std is not None
             cont = cont * art.cont_std + art.cont_mean
 
         raw_yards = cont[0, 0].item()
@@ -266,7 +272,7 @@ class OutcomeModel:
         features = build_features(context)
 
         ## First, we predict intent which is mapped to a route.
-        intent = self._predict_intent(features, context.rng)
+        intent = self._predict_intent(features)
         route = route_from_intent(intent)
 
         # If Run/Pass, we predict using the corresponding neural net.
@@ -274,7 +280,7 @@ class OutcomeModel:
         match route:
             case Route.RUN | Route.PASS:
                 cvae_model: _CvaeArtifact = self._cvae[route]
-                outcome = self._predict_cvae(cvae_model, features, context.rng)
+                outcome = self._predict_cvae(cvae_model, features)
                 # Time for offensive plays is conditioned on outcome fields (yards, completion, etc.)
                 outcome.time_elapsed = min(
                     self._predict_time(features, outcome), context.state[_CLK]

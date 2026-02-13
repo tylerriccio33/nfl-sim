@@ -30,12 +30,11 @@ def _test_ctx(home: str, away: str) -> GameContext:
     )
 
 
-def _sim(home: str, away: str, seed: int = 42) -> GameResult:
+def _sim(home: str, away: str) -> GameResult:
     """Helper: simulate with dummy context."""
     return _simulate_game(
         home,
         away,
-        seed=seed,
         context=_test_ctx(home, away),
     )
 
@@ -64,7 +63,7 @@ class TestSimulateGame:
 
     def test_game_has_valid_final_score(self):
         """Final score should be non-negative integers."""
-        result = _sim("BUF", "MIA", seed=123)
+        result = _sim("BUF", "MIA")
 
         assert result.home_score >= 0
         assert result.away_score >= 0
@@ -78,28 +77,6 @@ class TestSimulateGame:
         # Last play should transition to quarter 5 (terminal)
         final_state = result.trace[-1].state_after
         assert final_state[_Q] > 4
-
-    def test_seed_produces_reproducible_results(self):
-        """Same seed should produce identical games."""
-        result1 = _sim("NE", "NYJ", seed=999)
-        result2 = _sim("NE", "NYJ", seed=999)
-
-        assert result1.home_score == result2.home_score
-        assert result1.away_score == result2.away_score
-        assert len(result1.trace) == len(result2.trace)
-
-    def test_different_seeds_produce_different_results(self):
-        """Different seeds should produce different games (usually)."""
-        result1 = _sim("LAR", "SEA", seed=1)
-        result2 = _sim("LAR", "SEA", seed=2)
-
-        # At least one of these should differ (very unlikely to be identical)
-        different = (
-            result1.home_score != result2.home_score
-            or result1.away_score != result2.away_score
-            or len(result1.trace) != len(result2.trace)
-        )
-        assert different
 
 
 # =============================================================================
@@ -168,7 +145,7 @@ class TestSimGames:
 
     def test_sim_games_single_game(self, ctx):
         """Simulate a single game multiple times."""
-        traces = sim_games(ctx, n=5, base_seed=42)
+        traces = sim_games(ctx, n=5)
 
         assert len(traces) == 2
         assert "2025_02_KC_BUF" in traces
@@ -176,21 +153,21 @@ class TestSimGames:
 
     def test_returns_correct_number_of_traces(self, ctx):
         """Should return exactly n traces per game."""
-        traces = sim_games(ctx, n=10, base_seed=42)
+        traces = sim_games(ctx, n=10)
 
         assert len(traces["2025_02_KC_BUF"]) == 10
 
     def test_each_trace_is_valid(self, ctx):
         """Each trace should be a valid GameTrace."""
-        traces = sim_games(ctx, n=5, base_seed=42)
+        traces = sim_games(ctx, n=5)
 
         for trace in traces["2025_02_KC_BUF"]:
             assert isinstance(trace, list)
             assert len(trace) > 0  # At least some plays
 
-    def test_results_vary_with_different_seeds(self, ctx):
+    def test_results_vary_with_multiple_simulations(self, ctx):
         """Multiple simulations should produce varying results."""
-        traces = sim_games(ctx, n=20, base_seed=42)
+        traces = sim_games(ctx, n=20)
 
         # Extract final scores from each trace
         scores = []
@@ -199,21 +176,12 @@ class TestSimGames:
             scores.append(final_state[_SC])
         unique_scores = set(scores)
 
-        # Should have some variety in outcomes
+        # Should have some variety in outcomes (due to CVAE sampling)
         assert len(unique_scores) > 1
-
-    def test_base_seed_produces_reproducible_batch(self, ctx):
-        """Same base_seed should produce identical batch of simulations."""
-        traces1 = sim_games(ctx, n=5, base_seed=777)
-        traces2 = sim_games(ctx, n=5, base_seed=777)
-
-        for t1, t2 in zip(traces1["2025_02_KC_BUF"], traces2["2025_02_KC_BUF"]):
-            assert t1[-1].state_after[_SC] == t2[-1].state_after[_SC]
-            assert len(t1) == len(t2)
 
     def test_n_equals_one(self, ctx):
         """Should handle n=1 correctly."""
-        traces = sim_games(ctx, n=1, base_seed=42)
+        traces = sim_games(ctx, n=1)
 
         assert len(traces["2025_02_KC_BUF"]) == 1
 
@@ -228,14 +196,14 @@ class TestTracesToDataframe:
 
     def test_returns_dataframe(self, ctx):
         """Should return a polars DataFrame."""
-        traces = sim_games(ctx, n=5, base_seed=42)
+        traces = sim_games(ctx, n=5)
         df = traces_to_dataframe(traces)
 
         assert isinstance(df, pl.DataFrame)
 
     def test_has_required_columns(self, ctx):
         """DataFrame should have all required columns."""
-        traces = sim_games(ctx, n=3, base_seed=42)
+        traces = sim_games(ctx, n=3)
         df = traces_to_dataframe(traces)
 
         required_cols = [
@@ -258,14 +226,14 @@ class TestTracesToDataframe:
 
     def test_game_id_is_correct(self, ctx):
         """Game ID should match the input."""
-        traces = sim_games(ctx, n=2, base_seed=42)
+        traces = sim_games(ctx, n=2)
         df = traces_to_dataframe(traces)
 
         assert set(df["game_id"].unique().to_list()) == {"2025_02_KC_BUF", "2025_03_BUF_MIA"}
 
     def test_sim_id_is_sequential(self, ctx):
         """Sim IDs should be 0, 1, 2, ..., n-1."""
-        traces = sim_games(ctx, n=5, base_seed=42)
+        traces = sim_games(ctx, n=5)
         df = traces_to_dataframe(traces)
 
         sim_ids = sorted(df["sim_id"].unique().to_list())
@@ -273,7 +241,7 @@ class TestTracesToDataframe:
 
     def test_events_are_valid(self, ctx):
         """Event column should have valid event types."""
-        traces = sim_games(ctx, n=10, base_seed=42)
+        traces = sim_games(ctx, n=10)
         df = traces_to_dataframe(traces)
 
         valid_events = {

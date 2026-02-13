@@ -11,7 +11,6 @@ same logic as runtime simulation.
 """
 
 from pathlib import Path
-from random import Random
 
 import numpy as np
 import polars as pl
@@ -141,7 +140,6 @@ def infer() -> pl.DataFrame:
         model_context = ModelContext(
             state=state,
             derived=DerivedContext([]),  # Unused for inference
-            rng=Random(i),  # Use row index for reproducible randomness
             game_context=contexts[game_id],
         )
 

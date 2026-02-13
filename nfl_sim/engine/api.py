@@ -2,7 +2,6 @@
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from random import Random
 
 import numpy as np
 import polars as pl
@@ -50,7 +49,6 @@ def _create_initial_state() -> _GameState:
 
 def _run_game_loop(
     initial_state: _GameState,
-    rng: Random,
     game_context: GameContext,
 ) -> GameTrace:
     """Core game loop. Runs until terminal state."""
@@ -59,7 +57,7 @@ def _run_game_loop(
 
     while not is_terminal(state):
         derived = DerivedContext(trace)
-        context = ModelContext(state, derived, rng, game_context)
+        context = ModelContext(state, derived, game_context)
         intent, outcome = outcome_model(context)
         new_state = apply_outcome(state, intent, outcome)
 
@@ -79,7 +77,6 @@ def _simulate_game(
     home: str,
     away: str,
     *,
-    seed: int,
     context: GameContext,
 ) -> GameResult:
     """Simulate a single game.
@@ -87,16 +84,14 @@ def _simulate_game(
     Args:
         home: Home team identifier
         away: Away team identifier
-        seed: Random seed for reproducibility
         context: GameContext with spread and other features
 
     Returns:
         GameResult with final score and full play trace
 
     """
-    rng = Random(seed)
     initial_state = _create_initial_state()
-    trace = _run_game_loop(initial_state, rng, context)
+    trace = _run_game_loop(initial_state, context)
 
     # Extract final score from last play
     final_state = trace[-1].state_after
@@ -115,17 +110,13 @@ def _run_one_game(
     game_id: str,
     context: GameContext,
     n: int,
-    seed: int | None,
 ) -> tuple[str, list[GameTrace]]:
     """Simulate all n iterations of a single game. Unit of parallel work."""
-    rng = Random(seed)
     traces: list[GameTrace] = []
     for _ in range(n):
-        iter_seed = rng.randint(0, 2**31)
         result = _simulate_game(
             context.home,
             context.away,
-            seed=iter_seed,
             context=context,
         )
         traces.append(result.trace)
@@ -137,7 +128,6 @@ def sim_games(
     games: dict[str, GameContext],
     *,
     n: int = 1,
-    base_seed: int | None = None,
     max_workers: int | None = None,
 ) -> dict[str, list[GameTrace]]:
     """Simulate multiple games n times each.
@@ -148,7 +138,6 @@ def sim_games(
     Args:
         games: Dict mapping game_id to GameContext
         n: Number of simulations per game
-        base_seed: Base seed (each game derives a deterministic seed)
         max_workers: Process count. Defaults to min(num_games, cpu_count).
             Set to 1 to force sequential execution.
 
@@ -158,30 +147,24 @@ def sim_games(
     """
     game_items = list(games.items())
 
-    # Deterministic per-game seeds so results don't depend on execution order
-    seeds = [None if base_seed is None else base_seed + 77 + i for i in range(len(game_items))]
-
     # workers = 1  # TODO: Figure this one out
     import os
 
     workers = max_workers or min(len(game_items), (os.cpu_count() or 1))
 
-    def _submit(gid: str, ctx: GameContext, seed: int | None) -> tuple[str, list[GameTrace]]:
-        return _run_one_game(gid, ctx, n, seed)
+    def _submit(gid: str, ctx: GameContext) -> tuple[str, list[GameTrace]]:
+        return _run_one_game(gid, ctx, n)
 
     # Skip process overhead when it can't help
     if workers <= 1 or len(game_items) <= 1:
-        return dict(_submit(gid, ctx, seed) for (gid, ctx), seed in zip(game_items, seeds))
+        return dict(_submit(gid, ctx) for (gid, ctx) in game_items)
 
     results: dict[str, list[GameTrace]] = {}
     with Progress() as progress:
         task = progress.add_task("Simulating games", total=len(game_items))
 
         with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = {
-                pool.submit(_run_one_game, gid, ctx, n, seed): gid
-                for (gid, ctx), seed in zip(game_items, seeds)
-            }
+            futures = {pool.submit(_run_one_game, gid, ctx, n): gid for (gid, ctx) in game_items}
             for future in as_completed(futures):
                 gid, traces = future.result()
                 results[gid] = traces
