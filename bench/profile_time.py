@@ -32,6 +32,7 @@ FUNCTIONS = (
     apply_outcome,
     ## Models:
     OutcomeModel.__call__,
+    OutcomeModel._predict_cvae,
     ## DataFrame conversion:
     traces_to_dataframe,
     _event_from_play,
@@ -46,9 +47,6 @@ def main() -> None:
     # Create profiler and add functions to profile
     profiler = LineProfiler()
 
-    for fn in FUNCTIONS:
-        profiler.add_function(fn)
-
     # Build a simple context for profiling
     context = GameContext(
         game_id="KC_NYJ",
@@ -56,6 +54,12 @@ def main() -> None:
         away="NYJ",
         features=GameFeatures(spread=-3.0, epa_home=1, epa_away=-1),
     )
+
+    # Need to warm up; loads all the modules and models
+    sim_games({context.game_id: context}, n = 1, max_workers=1)
+
+    for fn in FUNCTIONS:
+        profiler.add_function(fn)
 
     # Profile N simulations
     n_sims = 1

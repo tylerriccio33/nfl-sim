@@ -177,7 +177,8 @@ class OutcomeModel:
         """Generate yards + turnover (+ completion for PASS) from a CVAE."""
         import torch
 
-        torch.manual_seed(rng.randint(0, 2**31))
+        # Used to need this, but why?
+        # torch.manual_seed(rng.randint(0, 2**31))
 
         x = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
         if art.feat_mean is not None:
