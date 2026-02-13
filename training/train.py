@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torchmetrics import Accuracy, MeanAbsoluteError
 
 from nfl_sim.engine.state import Intent
-from nfl_sim.pipeline_config import ARTIFACT_PATHS, CVAE_DEFAULTS
+from nfl_sim.pipeline_config import ARTIFACT_PATHS, get_cvae_config
 from training.cvae import CVAE, CvaeConfig, cvae_loss
 from training.prepare import prepare
 
@@ -31,9 +31,12 @@ console = Console()
 
 INTENT_ARTIFACT_DIR = ARTIFACT_PATHS.intent_dir
 BESTMODELS_FILE = Path("training/bestmodels")
-EPOCHS = CVAE_DEFAULTS["epochs"]
-BATCH_SIZE = CVAE_DEFAULTS["batch_size"]
-LR = CVAE_DEFAULTS["learning_rate"]
+
+# Load CVAE hyperparameters (both RUN and PASS use the same defaults)
+_CVAE_CFG = get_cvae_config("run")
+EPOCHS = _CVAE_CFG["epochs"]
+BATCH_SIZE = _CVAE_CFG["batch_size"]
+LR = _CVAE_CFG["learning_rate"]
 
 # Intent value → (route name, artifact dir) — only CVAE routes
 ROUTES: dict[int, tuple[str, Path]] = {

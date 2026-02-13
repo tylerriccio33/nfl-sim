@@ -1,6 +1,7 @@
 """Central pipeline configuration loaded from pipeline.toml.
 
 Every model explicitly declares:
+- Artifact location(s)
 - Input features (from GameState + GameContext)
 - Output outcomes (what it produces)
 
@@ -12,21 +13,13 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, field
-from dataclasses import fields as dc_fields
 from pathlib import Path
 from typing import Any
-
-from nfl_sim.engine.state import Outcome
 
 _TOML_PATH = Path(__file__).parent / "pipeline.toml"
 
 with _TOML_PATH.open("rb") as _f:
     CONFIG: dict[str, Any] = tomllib.load(_f)
-
-# ── Feature Lists ────────────────────────────────────────────────
-
-STATE_FEATURE_NAMES: list[str] = CONFIG["state_features"]
-GAME_FEATURE_NAMES: list[str] = CONFIG["game_features"]
 
 # ── Intents ──────────────────────────────────────────────────────
 
@@ -37,40 +30,26 @@ INTENT_TO_ROUTE: dict[str, str] = {k: v["route"] for k, v in CONFIG["intents"].i
 
 PLAY_TYPE_MAP: dict[str, str] = CONFIG["play_type_map"]
 
-# ── Route configs (outcome sub-models) ────────────────────────────
-
-ROUTE_CONFIGS: dict[str, Any] = CONFIG["routes"]
-
 # ── Models with their features and outcomes ──────────────────────
+# All models are in [models.*] sections and declare:
+# - artifact: location of trained model (file or directory)
+# - features: input feature names
+# - outcomes: output outcome names
+# - (optional) hyperparameters for training
 
+MODELS: dict[str, Any] = CONFIG["models"]
 
-@dataclass(frozen=True)
-class ModelConfig:
-    """A model's input features and output outcomes."""
+# Convenience accessors for key models
+INTENT_MODEL_FEATURES: list[str] = MODELS["intent"]["features"]
+RUN_FEATURES: list[str] = MODELS["run"]["features"]
+RUN_OUTCOMES: list[str] = MODELS["run"]["outcomes"]
+PASS_FEATURES: list[str] = MODELS["pass"]["features"]
+PASS_OUTCOMES: list[str] = MODELS["pass"]["outcomes"]
+PUNT_FEATURES: list[str] = MODELS["punt"]["features"]
+PUNT_OUTCOMES: list[str] = MODELS["punt"]["outcomes"]
 
-    name: str
-    features: list[str]
-    outcomes: list[str]
-
-
-# Intent model
-INTENT_MODEL_FEATURES: list[str] = CONFIG["intent_model"]["features"]
-
-# Outcome sub-models (RUN, PASS, ST.PUNT) declare features and outcomes
-RUN_FEATURES: list[str] = CONFIG["routes"]["RUN"]["features"]
-RUN_OUTCOMES: list[str] = CONFIG["routes"]["RUN"]["outcomes"]
-
-PASS_FEATURES: list[str] = CONFIG["routes"]["PASS"]["features"]
-PASS_OUTCOMES: list[str] = CONFIG["routes"]["PASS"]["outcomes"]
-
-PUNT_FEATURES: list[str] = CONFIG["routes"]["ST"]["PUNT"]["features"]
-PUNT_OUTCOMES: list[str] = CONFIG["routes"]["ST"]["PUNT"]["outcomes"]
-
-# Time model: takes state features + outcome conditioning fields
-TIME_MODEL_BASE_FEATURES: list[str] = CONFIG["time_model"]["base_features"]
-TIME_MODEL_OUTCOME_CONDITIONING: list[str] = CONFIG["time_model"]["outcome_conditioning"]
-TIME_MODEL_FEATURES: list[str] = CONFIG["time_model"]["features"]
-TIME_MODEL_OUTCOMES: list[str] = CONFIG["time_model"]["outcomes"]
+TIME_MODEL_FEATURES: list[str] = MODELS["time"]["features"]
+TIME_MODEL_OUTCOMES: list[str] = MODELS["time"]["outcomes"]
 
 # ── Artifact paths ───────────────────────────────────────────────
 
@@ -82,61 +61,43 @@ class ArtifactPaths:
     base: Path = Path("training/artifacts")
 
     # Intent model
-    intent_dir: Path = field(default_factory=lambda: Path(CONFIG["intent_model"]["artifact_dir"]))
-    intent_compiled: str = CONFIG["intent_model"]["compiled_artifact"]
-    intent_meta: str = CONFIG["intent_model"]["meta_artifact"]
+    intent_dir: Path = field(default_factory=lambda: Path(MODELS["intent"]["artifact"]))
+    intent_compiled: str = MODELS["intent"]["compiled"]
+    intent_meta: str = MODELS["intent"]["metadata"]
 
-    # Time model
-    time_dir: Path = field(default_factory=lambda: Path(CONFIG["time_model"]["artifact_dir"]))
-    time_file: str = CONFIG["time_model"]["artifact_file"]
+    # Time model - split path into dir and filename for compatibility
+    time_path: Path = field(default_factory=lambda: Path(MODELS["time"]["artifact"]))
+    time_dir: Path = field(default_factory=lambda: Path(MODELS["time"]["artifact"]).parent)
+    time_file: str = field(default_factory=lambda: Path(MODELS["time"]["artifact"]).name)
 
     # CVAE models (per route)
-    cvae_run_dir: Path = field(
-        default_factory=lambda: Path(CONFIG["routes"]["RUN"]["artifact_dir"])
-    )
-    cvae_pass_dir: Path = field(
-        default_factory=lambda: Path(CONFIG["routes"]["PASS"]["artifact_dir"])
-    )
+    cvae_run_dir: Path = field(default_factory=lambda: Path(MODELS["run"]["artifact"]))
+    cvae_pass_dir: Path = field(default_factory=lambda: Path(MODELS["pass"]["artifact"]))
 
     # ST models
-    punt_yards_path: Path = field(
-        default_factory=lambda: Path(CONFIG["routes"]["ST"]["PUNT"]["artifact_path"])
-    )
+    punt_yards_path: Path = field(default_factory=lambda: Path(MODELS["punt"]["artifact"]))
 
 
 ARTIFACT_PATHS = ArtifactPaths()
-
-# ── Outcome validation ────────────────────────────────────────────
-# Outcome is hand-written in state.py for type safety, but the TOML is the
-# source of truth for field names. This validation runs at import time to
-# catch any drift between the two.
-
-OUTCOME_FIELDS: list[str] = list(CONFIG["outcome_fields"].keys())
-
-
-def _validate_outcome_class() -> None:
-    """Verify that the Outcome dataclass matches pipeline.toml [outcome_fields.*]."""
-    dc_field_names = {f.name for f in dc_fields(Outcome)}
-    toml_field_names = set(OUTCOME_FIELDS)
-
-    missing_in_class = toml_field_names - dc_field_names
-    extra_in_class = dc_field_names - toml_field_names
-
-    if missing_in_class or extra_in_class:
-        msg = "Outcome class and pipeline.toml [outcome_fields.*] are out of sync:\n"
-        if missing_in_class:
-            msg += f"  Missing from Outcome class: {missing_in_class}\n"
-        if extra_in_class:
-            msg += f"  Extra in Outcome class (not in TOML): {extra_in_class}\n"
-        raise RuntimeError(msg)
-
-
-_validate_outcome_class()
 
 # ── Training config ──────────────────────────────────────────────
 
 TRAINING_CONFIG: dict[str, Any] = CONFIG["training"]
 
-# ── CVAE defaults ────────────────────────────────────────────────
+# ── CVAE defaults (per-model, fallback to defaults if needed) ────
+# Models can override these in their [models.*] sections
 
-CVAE_DEFAULTS: dict[str, Any] = CONFIG["cvae_defaults"]
+
+def get_cvae_config(model_name: str) -> dict[str, Any]:
+    """Get CVAE hyperparameters for a model (RUN, PASS, etc)."""
+    model_cfg = MODELS[model_name]
+    # These fields may be in the model config or use defaults
+    return {
+        "latent_dim": model_cfg.get("latent_dim", 16),
+        "hidden_dim": model_cfg.get("hidden_dim", 64),
+        "cat_emb_dim": model_cfg.get("cat_emb_dim", 8),
+        "beta": model_cfg.get("beta", 1.0),
+        "epochs": model_cfg.get("epochs", 100),
+        "batch_size": model_cfg.get("batch_size", 256),
+        "learning_rate": model_cfg.get("learning_rate", 1e-3),
+    }

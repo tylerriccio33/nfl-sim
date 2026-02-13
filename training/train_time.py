@@ -21,8 +21,8 @@ from sklearn.linear_model import LinearRegression
 from nfl_sim.engine.state import Intent
 from nfl_sim.pipeline_config import (
     ARTIFACT_PATHS,
-    TIME_MODEL_BASE_FEATURES,
-    TIME_MODEL_OUTCOME_CONDITIONING,
+    RUN_FEATURES,
+    TIME_MODEL_FEATURES,
 )
 from training.prepare import prepare
 
@@ -54,15 +54,18 @@ def train_time_model(
     """
     # Use only the base features available at inference time (state + game features).
     # Training data from prepare() may have more features, so we slice to match inference.
-    base_feature_count = len(TIME_MODEL_BASE_FEATURES)
+    base_feature_count = len(RUN_FEATURES)
     features = features[:, :base_feature_count]
 
     # Append outcome conditioning fields (yards_gained, completion, etc.) as defined in pipeline.toml.
     # At inference, these come from the outcome model.
     if completion is None:
         completion = np.ones(len(features), dtype=np.int32)
+
+    # Conditioning fields are TIME_MODEL_FEATURES minus the base features
+    conditioning_fields = TIME_MODEL_FEATURES[base_feature_count:]
     conditioning_arrays = {"yards_gained": yards, "completion": completion}
-    for field_name in TIME_MODEL_OUTCOME_CONDITIONING:
+    for field_name in conditioning_fields:
         arr = conditioning_arrays[field_name]
         features = np.concatenate([features, arr.reshape(-1, 1)], axis=1)
 

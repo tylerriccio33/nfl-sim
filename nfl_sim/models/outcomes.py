@@ -50,8 +50,8 @@ from nfl_sim.models.features import build_features
 from nfl_sim.pipeline_config import (
     ARTIFACT_PATHS,
     PUNT_FEATURES,
-    TIME_MODEL_BASE_FEATURES,
-    TIME_MODEL_OUTCOME_CONDITIONING,
+    RUN_FEATURES,
+    TIME_MODEL_FEATURES,
 )
 
 # Training data uses 0/1/2 for turnover_type, but the enum uses auto() → 1/2/3.
@@ -247,12 +247,18 @@ class OutcomeModel:
 
         Uses pre-trained linear regression coefficients for instant numpy inference.
         """
-        base_feature_count = len(TIME_MODEL_BASE_FEATURES)
+        # RUN/PASS features are the base (state + game context).
+        # TIME_MODEL_FEATURES = base + outcome conditioning fields.
+        base_feature_count = len(RUN_FEATURES)
         base = features[:base_feature_count]
+
+        # Append conditioning fields from the outcome (e.g., yards_gained, completion)
+        conditioning_fields = TIME_MODEL_FEATURES[base_feature_count:]
         extras = []
-        for field_name in TIME_MODEL_OUTCOME_CONDITIONING:
+        for field_name in conditioning_fields:
             val = getattr(outcome, field_name)
             extras.append(int(val) if isinstance(val, bool) else val)
+
         full_features = np.concatenate([base, np.array(extras)])
         raw = float(np.dot(full_features, self._time_coef) + self._time_intercept)
         return max(1, round(raw)) if math.isfinite(raw) else 20

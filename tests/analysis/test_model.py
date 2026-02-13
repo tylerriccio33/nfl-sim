@@ -20,10 +20,8 @@ from nfl_sim.models.context import (
 from nfl_sim.models.features import (
     _gen_feature_names,
     build_features,
-    features_from_state,
 )
 from nfl_sim.models.outcomes import outcome_model
-from nfl_sim.pipeline_config import STATE_FEATURE_NAMES
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -244,12 +242,6 @@ def test_feature_order_matches_canonical():
 
 
 # ── Feature name / function alignment ────────────────────────────────────
-
-
-def test_feature_name_counts_match_extraction_functions():
-    """State feature name list length must equal its function output length."""
-    state = _make_state()
-    assert len(STATE_FEATURE_NAMES) == len(features_from_state(state))
 
 
 def test_gen_feature_names_covers_build_features():
