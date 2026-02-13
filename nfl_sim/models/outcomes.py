@@ -15,25 +15,26 @@ artifacts to exist on disk.  At runtime the first call to ``outcome_model()``
 triggers loading; if any artifact is missing it fails loudly right there.
 """
 
+import json
 import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    import torch
-    import treelite
+import joblib
+import numpy as np
+import torch
+import treelite
+import treelite.gtil
 
-    from training.cvae import CVAE
+from training.cvae import CVAE, CvaeConfig
 
 # Treelite and torch both bundle their own libomp. Without this, importing both
 # in the same process aborts with "libomp.dylib already initialized". We also
 # pass nthread=1 to all treelite.gtil.predict() calls to avoid the actual
 # segfault that occurs when both runtimes try to use OpenMP threads.
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-
-import numpy as np
 
 from nfl_sim.engine.state import (
     _CLK,
@@ -61,11 +62,11 @@ _TURNOVER_INDEX = [TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FU
 class _CvaeArtifact:
     """A trained CVAE and its normalization tensors (None = pre-standardization)."""
 
-    model: "CVAE"
-    feat_mean: "torch.Tensor | None"
-    feat_std: "torch.Tensor | None"
-    cont_mean: "torch.Tensor | None"
-    cont_std: "torch.Tensor | None"
+    model: CVAE
+    feat_mean: torch.Tensor | None
+    feat_std: torch.Tensor | None
+    cont_mean: torch.Tensor | None
+    cont_std: torch.Tensor | None
 
 
 class OutcomeModel:
@@ -90,15 +91,17 @@ class OutcomeModel:
         "_intent_model",
         "_loaded",
         "_punt_yards",
-        "_time",
+        "_time_coef",
+        "_time_intercept",
     )
 
     _cvae: dict[Route, _CvaeArtifact]
     _intent_classes: list[Intent]
-    _intent_model: "treelite.Model"  # TODO: Why is this quoted
+    _intent_model: treelite.Model
     _loaded: bool
     _punt_yards: Any  # sklearn estimator (joblib.load returns Any)
-    _time: Any  # sklearn estimator (joblib.load returns Any)
+    _time_coef: np.ndarray
+    _time_intercept: float
 
     def __init__(self) -> None:
         self._loaded = False
@@ -109,11 +112,6 @@ class OutcomeModel:
 
     def _load(self) -> None:
         """Load every artifact into attributes, or fail loudly."""
-        import json  # noqa: PLC0415
-
-        import joblib  # noqa: PLC0415
-        import treelite  # noqa: PLC0415
-
         # Intent (treelite-compiled RF)
         intent_dir = ARTIFACT_PATHS.intent_dir
         self._intent_model = treelite.Model.deserialize(
@@ -131,17 +129,18 @@ class OutcomeModel:
         # Simple sklearn models — just store the raw estimator, call .predict()
         # inline in the inference methods below.
         self._punt_yards = joblib.load(ARTIFACT_PATHS.punt_yards_path)
-        self._time = joblib.load(ARTIFACT_PATHS.time_dir / ARTIFACT_PATHS.time_file)
+
+        # Time model (LinearRegression with coefficients stored as numpy arrays)
+        time_model_path = ARTIFACT_PATHS.time_dir / ARTIFACT_PATHS.time_file
+        model_dict = json.loads(time_model_path.read_text())
+        self._time_coef = np.array(model_dict["coef"], dtype=np.float64)
+        self._time_intercept = float(model_dict["intercept"])
 
         self._loaded = True
 
     @staticmethod
     def _load_cvae(artifact_dir: Path) -> _CvaeArtifact:
         """Load a single CVAE and its normalization tensors."""
-        import torch  # noqa: PLC0415
-
-        from training.cvae import CVAE, CvaeConfig  # noqa: PLC0415
-
         d = artifact_dir
         cfg = CvaeConfig.load(d / "meta.json")
         model = CVAE(cfg)
@@ -163,8 +162,6 @@ class OutcomeModel:
 
     def _predict_intent(self, features: np.ndarray) -> Intent:
         """Predict the highest-probability intent from the RF model."""
-        import treelite.gtil  # noqa: PLC0415
-
         probs = treelite.gtil.predict(
             self._intent_model,
             features.reshape(1, -1).astype(np.float32),
@@ -176,8 +173,6 @@ class OutcomeModel:
     @staticmethod
     def _predict_cvae(art: _CvaeArtifact, features: np.ndarray) -> Outcome:
         """Generate yards + turnover (+ completion for PASS) from a CVAE."""
-        import torch  # noqa: PLC0415
-
         x = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
         if art.feat_mean is not None:
             assert art.feat_std is not None
@@ -246,14 +241,16 @@ class OutcomeModel:
 
         Time is predicted as a function of game state/context (base features) plus
         conditioning fields defined in pipeline.toml (e.g. yards, completion).
+
+        Uses pre-trained linear regression coefficients for instant numpy inference.
         """
         base = features[:BASE_FEATURE_COUNT]
         extras = []
         for field_name in TIME_CONDITIONING:
             val = getattr(outcome, field_name)
             extras.append(int(val) if isinstance(val, bool) else val)
-        full_features = np.concatenate([base, np.array(extras)]).reshape(1, -1)
-        raw = self._time.predict(full_features)[0]
+        full_features = np.concatenate([base, np.array(extras)])
+        raw = float(np.dot(full_features, self._time_coef) + self._time_intercept)
         return max(1, round(raw)) if math.isfinite(raw) else 20
 
     # ------------------------------------------------------------------

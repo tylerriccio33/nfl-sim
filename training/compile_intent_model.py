@@ -49,6 +49,9 @@ def main() -> None:
     else:
         print("Skipping special teams model (not trained in current pipeline)")
 
+    # Note: Time model uses LinearRegression with JSON-serialized coefficients
+    # for instant numpy inference, no treelite compilation needed
+
 
 if __name__ == "__main__":
     main()

@@ -2,6 +2,8 @@
 
 import fire
 
+from nfl_sim.web import create_app
+
 
 class Main:  # pragma: no cover
     """Main class for interacting with NFL simulations."""
@@ -16,8 +18,6 @@ class Main:  # pragma: no cover
             debug: Enable Flask debug mode.
 
         """
-        from nfl_sim.web import create_app  # noqa: PLC0415
-
         app = create_app()
         app.run(host=host, port=port, debug=debug)
 

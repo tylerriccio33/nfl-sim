@@ -96,7 +96,7 @@ meta_artifact     = "meta.json"
 # ── Time Model ────────────────────────────────────────────────────
 [time_model]
 artifact_dir  = "training/artifacts/time"
-artifact_file = "model.joblib"
+artifact_file = "model.json"
 
 # Outcome fields appended as extra features after the base features.
 # Order here IS the appended feature order.

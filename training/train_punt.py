@@ -18,6 +18,7 @@ from sklearn.tree import DecisionTreeRegressor
 
 from nfl_sim.engine.state import Intent
 from nfl_sim.pipeline_config import ARTIFACT_PATHS, BASE_FEATURE_COUNT
+from training.prepare import prepare
 
 console = Console()
 
@@ -91,8 +92,6 @@ def train_punt_yards_model(features: np.ndarray, intent: np.ndarray, yards: np.n
 
 def main() -> None:
     """Train the punt yards model."""
-    from training.prepare import prepare  # noqa: PLC0415
-
     print("Preparing training data...")
     data = prepare()
 

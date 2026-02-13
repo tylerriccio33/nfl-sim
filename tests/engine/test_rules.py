@@ -12,6 +12,7 @@ from nfl_sim.engine.state import (
     _SC,
     _YL,
     GameTrace,
+    Intent,
     PlayEvent,
 )
 
@@ -112,8 +113,6 @@ def check_score_changes_only_on_scoring(trace: GameTrace) -> None:
         score_changed = before[_SC] != after[_SC]
         scoring_event = event.outcome.touchdown
         # Field goals also change score
-        from nfl_sim.engine.state import Intent  # noqa: PLC0415
-
         if event.intent == Intent.FIELD_GOAL and not event.outcome.turnover:
             scoring_event = True
         if score_changed:
@@ -177,8 +176,6 @@ def check_turnover_flips_possession(trace: GameTrace) -> None:
 
 def check_punt_flips_possession(trace: GameTrace) -> None:
     """After a punt, receiving team has possession."""
-    from nfl_sim.engine.state import Intent  # noqa: PLC0415
-
     for event in trace:
         if event.intent == Intent.PUNT:
             before, after = event.state_before, event.state_after
@@ -275,8 +272,6 @@ def check_distance_lte_yardline(trace: GameTrace) -> None:
 
 def check_fourth_down_failure_ends_possession(trace: GameTrace) -> None:
     """4th down failure (no first down, no score) ends possession."""
-    from nfl_sim.engine.state import Intent  # noqa: PLC0415
-
     for event in trace:
         before, after = event.state_before, event.state_after
         if before[_DN] != 4:
@@ -318,8 +313,6 @@ def check_touchdown_gives_7(trace: GameTrace) -> None:
 
 def check_field_goal_gives_3(trace: GameTrace) -> None:
     """Successful field goal adds exactly 3 points."""
-    from nfl_sim.engine.state import Intent  # noqa: PLC0415
-
     for event in trace:
         if event.intent != Intent.FIELD_GOAL:
             continue
@@ -384,8 +377,6 @@ TIME_RULES: tuple[RuleChecker, ...] = (
 
 def check_possession_flip_has_reason(trace: GameTrace) -> None:
     """Possession only flips on punt, turnover, or score."""
-    from nfl_sim.engine.state import Intent  # noqa: PLC0415
-
     for event in trace:
         before, after = event.state_before, event.state_after
         if before[_OFF] == after[_OFF]:

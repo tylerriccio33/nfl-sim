@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import polars as pl
 
+from nfl_sim.web import create_app
 from nfl_sim.web.routes import _compute_histogram
 
 
@@ -49,15 +50,11 @@ class TestCreateApp:
     """Tests for Flask app factory."""
 
     def test_create_app_returns_flask_instance(self):
-        from nfl_sim.web import create_app  # noqa: PLC0415
-
         app = create_app()
         assert app is not None
         assert app.name == "nfl_sim.web"
 
     def test_create_app_registers_blueprint(self):
-        from nfl_sim.web import create_app  # noqa: PLC0415
-
         app = create_app()
         assert "main" in app.blueprints
 

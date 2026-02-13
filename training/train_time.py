@@ -11,13 +11,16 @@ At inference, yards come from the outcome model (CVAE or ST) so time is
 predicted AFTER we know the play outcome.
 """
 
-import joblib
+import json
+
 import numpy as np
 from rich.console import Console
 from rich.table import Table
-from sklearn.tree import DecisionTreeRegressor
+from sklearn.linear_model import LinearRegression
 
+from nfl_sim.engine.state import Intent
 from nfl_sim.pipeline_config import ARTIFACT_PATHS, BASE_FEATURE_COUNT, TIME_CONDITIONING
+from training.prepare import prepare
 
 console = Console()
 
@@ -30,11 +33,11 @@ def train_time_model(
     yards: np.ndarray,
     completion: np.ndarray | None = None,
 ) -> float:
-    """Train and save a decision tree (CART) model for time elapsed prediction.
+    """Train and save a linear regression model for time elapsed prediction.
 
     Time is conditioned on game state/context (9 features), yards gained, and
-    completion status. This captures that incomplete passes take different time
-    than completions, and different yard gains consume different time.
+    completion status. Linear regression allows us to store coefficients directly
+    as numpy arrays for near-instant inference (no sklearn overhead).
 
     Args:
         features: Game state + context features, shape (N, M) where M >= 9
@@ -79,8 +82,8 @@ def train_time_model(
     console.print("\n==============[bold]Training Time Model[/bold]")
     console.print(f"  Train samples: {len(train_x):,} | Eval samples: {len(eval_x):,}\n")
 
-    # Train decision tree regression (CART)
-    model = DecisionTreeRegressor(max_depth=10, min_samples_leaf=5, random_state=42)
+    # Train linear regression (fast, interpretable, coefficients are serializable)
+    model = LinearRegression()
     model.fit(train_x, train_y)
 
     # Evaluate
@@ -97,10 +100,17 @@ def train_time_model(
 
     console.print(metrics_table)
 
-    # Save model
+    # Save model as coefficients + intercept for fast numpy inference
     TIME_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
-    joblib.dump(model, TIME_ARTIFACT_DIR / ARTIFACT_PATHS.time_file)
+    # Save as JSON (coefficients + intercept) - will be loaded as numpy arrays
+    model_dict = {
+        "coef": model.coef_.tolist(),
+        "intercept": float(model.intercept_),
+    }
+    with (TIME_ARTIFACT_DIR / ARTIFACT_PATHS.time_file).open("w") as f:
+        json.dump(model_dict, f)
+
     console.print(f"  Saved to {TIME_ARTIFACT_DIR}\n")
 
     return mae
@@ -108,9 +118,6 @@ def train_time_model(
 
 def main() -> None:
     """Train the time model."""
-    from nfl_sim.engine.state import Intent  # noqa: PLC0415
-    from training.prepare import prepare  # noqa: PLC0415
-
     print("Preparing training data...")
     data = prepare()
 
