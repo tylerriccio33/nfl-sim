@@ -1,23 +1,19 @@
-"""Train intent (RF) and outcome (CVAE) models.
+"""Train outcome (CVAE) models.
 
 Usage: uv run training/train.py (or `make train`)
 
-1. Trains a RandomForest classifier for Intent prediction.
-   Saves to training/artifacts/rf/intent/.
-2. Trains one CVAE per route for outcome generation.
-   Saves to training/artifacts/cvae/{run,pass}/.
+Trains one CVAE per route for outcome generation.
+Saves to training/artifacts/cvae/{run,pass}/.
+
+Note: Intent model training has been moved to training/train_intent.py
 """
 
-import json
 from pathlib import Path
 
-import joblib
 import numpy as np
 import torch
 from rich.console import Console
 from rich.table import Table
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, f1_score
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader, TensorDataset
 from torchmetrics import Accuracy, MeanAbsoluteError
@@ -28,9 +24,6 @@ from training.cvae import CVAE, CvaeConfig, cvae_loss
 from training.prepare import prepare
 
 console = Console()
-
-INTENT_ARTIFACT_DIR = ARTIFACT_PATHS.intent_dir
-BESTMODELS_FILE = Path("training/bestmodels")
 
 # Load CVAE hyperparameters (both RUN and PASS use the same defaults)
 _CVAE_CFG = get_cvae_config("run")
@@ -43,57 +36,6 @@ ROUTES: dict[int, tuple[str, Path]] = {
     Intent.RUN.value: ("run", ARTIFACT_PATHS.cvae_run_dir),
     Intent.PASS.value: ("pass", ARTIFACT_PATHS.cvae_pass_dir),
 }
-
-
-def _load_bestmodels() -> dict[str, float]:
-    """Load best model scores from file."""
-    if not BESTMODELS_FILE.exists():
-        return {}
-
-    best_scores = {}
-    for line in BESTMODELS_FILE.read_text().strip().split("\n"):
-        if line.strip():
-            parts = line.split()
-            if len(parts) == 2:
-                route, score = parts
-                best_scores[route] = float(score)
-    return best_scores
-
-
-def _save_bestmodels(scores: dict[str, float]) -> None:
-    """Save best model scores to file."""
-    lines = [f"{route} {score:.4f}" for route, score in sorted(scores.items())]
-    BESTMODELS_FILE.write_text("\n".join(lines) + "\n")
-
-
-def _update_bestmodels(model_name: str, metric: float, is_better: bool) -> bool:
-    """Update bestmodels file if metric is better. Returns True if updated."""
-    best_scores = _load_bestmodels()
-
-    if model_name not in best_scores:
-        # First time seeing this model, always save it
-        best_scores[model_name] = metric
-        _save_bestmodels(best_scores)
-        console.print(f"  [green]New model '{model_name}' saved: {metric:.4f}[/green]")
-        return True
-    elif is_better:
-        # Improved over previous best
-        old_score = best_scores[model_name]
-        best_scores[model_name] = metric
-        _save_bestmodels(best_scores)
-        improvement = old_score - metric  # For MAE, lower is better
-        console.print(
-            f"  [green]✓ New best '{model_name}': {metric:.4f} (improved by {improvement:.4f})[/green]"
-        )
-        return True
-    else:
-        # Did not improve
-        old_score = best_scores[model_name]
-        gap = metric - old_score  # For MAE, lower is better
-        console.print(
-            f"  [yellow]Did not improve '{model_name}': {metric:.4f} (best is {old_score:.4f}, gap: {gap:.4f})[/yellow]"
-        )
-        return False
 
 
 def _nan_guard(
@@ -318,70 +260,47 @@ def _train_route(
     return yards_mae
 
 
-def _train_intent(features: np.ndarray, intent: np.ndarray) -> float:
-    """Train a RandomForest classifier for Intent prediction. Returns weighted F1 score."""
-    console.print("\n==============[bold]Training RF Intent Model[/bold]")
-
-    # Hold out last 10% for evaluation (same split strategy as CVAEs)
-    n = len(features)
-    split = int(n * 0.9)
-    train_x, eval_x = features[:split], features[split:]
-    train_y, eval_y = intent[:split], intent[split:]
-
-    console.print(f"  Train samples: {len(train_x):,} | Eval samples: {len(eval_x):,}\n")
-
-    rf = RandomForestClassifier(n_estimators=50, max_depth=20, min_samples_leaf=10, n_jobs=-1)
-    rf.fit(train_x, train_y)
-
-    # Eval
-    eval_pred = rf.predict(eval_x)
-    intent_names = {v.value: v.name for v in Intent}
-    target_names = [intent_names[c] for c in rf.classes_]
-    report = classification_report(eval_y, eval_pred, target_names=target_names)
-    console.print(report)
-
-    # Compute weighted F1 score as primary metric (higher is better)
-    weighted_f1 = f1_score(eval_y, eval_pred, average="weighted")
-
-    # Save
-    INTENT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump(rf, INTENT_ARTIFACT_DIR / "model.joblib")
-    meta = {"classes": rf.classes_.tolist()}  # type: ignore[union-attr]
-    (INTENT_ARTIFACT_DIR / "meta.json").write_text(json.dumps(meta, indent=2))
-    console.print(f"  Saved to {INTENT_ARTIFACT_DIR}")
-
-    return weighted_f1
-
-
 def main() -> None:
-    """Train intent RF and outcome CVAEs."""
+    """Train outcome CVAEs."""
     print("Preparing training data...")
     data = prepare()
 
-    # Load existing best models
-    best_scores = _load_bestmodels()
-
-    # Train intent model (higher F1 is better)
-    intent_f1 = _train_intent(data.features, data.intent)
-    intent_is_better = "action" not in best_scores or intent_f1 > best_scores.get("action", 0)
-    _update_bestmodels("action", intent_f1, intent_is_better)
+    best_scores = {}
+    if Path("training/bestmodels").exists():
+        for line in Path("training/bestmodels").read_text().strip().split("\n"):
+            if line.strip():
+                parts = line.split()
+                if len(parts) == 2:
+                    route, score = parts
+                    best_scores[route] = float(score)
 
     # Train route-specific CVAEs (lower MAE is better)
     for intent_val, (route_name, artifact_dir) in ROUTES.items():
-        mask = data.intent == intent_val
-        if mask.sum() == 0:
+        # Select pre-built features for this route
+        if intent_val == Intent.RUN.value:
+            route_features = data.features_run
+            route_mask = data.intent == Intent.RUN.value
+        elif intent_val == Intent.PASS.value:
+            route_features = data.features_pass
+            route_mask = data.intent == Intent.PASS.value
+        else:
+            continue
+
+        if len(route_features) == 0:
             print(f"No samples for route {route_name}, skipping.")
             continue
 
         # PASS route gets completion as a second categorical target
-        route_completion = data.complete_pass[mask] if intent_val == Intent.PASS.value else None
+        route_completion = (
+            data.complete_pass[route_mask] if intent_val == Intent.PASS.value else None
+        )
 
         yards_mae = _train_route(
             name=route_name,
             artifact_dir=artifact_dir,
-            features=data.features[mask],
-            yards=data.yards_gained[mask],
-            turnover_type=data.turnover_type[mask],
+            features=route_features,
+            yards=data.yards_gained[route_mask],
+            turnover_type=data.turnover_type[route_mask],
             completion=route_completion,
         )
 
@@ -389,7 +308,27 @@ def main() -> None:
         route_is_better = route_name not in best_scores or yards_mae < best_scores.get(
             route_name, float("inf")
         )
-        _update_bestmodels(route_name, yards_mae, route_is_better)
+
+        if route_is_better:
+            old_score = best_scores.get(route_name)
+            best_scores[route_name] = yards_mae
+            if old_score:
+                improvement = old_score - yards_mae
+                console.print(
+                    f"  [green]✓ New best '{route_name}': {yards_mae:.4f} (improved by {improvement:.4f})[/green]"
+                )
+            else:
+                console.print(f"  [green]New model '{route_name}' saved: {yards_mae:.4f}[/green]")
+        else:
+            old_score = best_scores.get(route_name, float("inf"))
+            gap = yards_mae - old_score
+            console.print(
+                f"  [yellow]Did not improve '{route_name}': {yards_mae:.4f} (best is {old_score:.4f}, gap: {gap:.4f})[/yellow]"
+            )
+
+        # Save best scores
+        lines = [f"{route} {score:.4f}" for route, score in sorted(best_scores.items())]
+        Path("training/bestmodels").write_text("\n".join(lines) + "\n")
 
     print("\nDone.")
 

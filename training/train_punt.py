@@ -17,7 +17,7 @@ from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.tree import DecisionTreeRegressor
 
 from nfl_sim.engine.state import Intent
-from nfl_sim.pipeline_config import ARTIFACT_PATHS, PUNT_FEATURES
+from nfl_sim.pipeline_config import ARTIFACT_PATHS
 from training.prepare import prepare
 
 console = Console()
@@ -25,43 +25,42 @@ console = Console()
 PUNT_ARTIFACT_DIR = ARTIFACT_PATHS.punt_yards_path.parent
 
 
-def train_punt_yards_model(features: np.ndarray, intent: np.ndarray, yards: np.ndarray) -> float:
+def train_punt_yards_model(features_punt: np.ndarray, yards_punt: np.ndarray) -> float:
     """Train and save a decision tree model for punt yards prediction.
 
-    Returns R² score on held-out evaluation data.
-    """
-    # Filter to only punt plays
-    punt_mask = intent == Intent.PUNT.value
-    features_punt = features[punt_mask]
-    yards_punt = yards[punt_mask]
+    Args:
+        features_punt: Punt-specific features (already filtered to PUNT plays)
+        yards_punt: Yards gained for punt plays
 
+    Returns R² score on held-out evaluation data.
+
+    """
     if len(features_punt) == 0:
         raise ValueError("No punt samples found in training data")
 
-    # Use only the features available at inference time (state + game features)
-    # as declared in the punt model config
-    punt_feature_count = len(PUNT_FEATURES)
-    features_punt = features_punt[:, :punt_feature_count]
+    # Features are already filtered to punts and built with the correct shape
+    # (all 9 features as declared in pipeline.toml for the punt model)
+    features_punt_filtered = features_punt
 
     # Drop NaN/inf rows
-    bad = ~np.isfinite(features_punt).all(axis=1) | ~np.isfinite(yards_punt)
+    bad = ~np.isfinite(features_punt_filtered).all(axis=1) | ~np.isfinite(yards_punt)
     n_bad = int(bad.sum())
     if n_bad > 0:
         console.print(f"  Dropped {n_bad} rows with NaN/inf values")
 
-    features_punt = features_punt[~bad]
-    yards_punt = yards_punt[~bad]
+    features_punt_valid = features_punt_filtered[~bad]
+    yards_punt_valid = yards_punt[~bad]
 
-    if len(features_punt) == 0:
+    if len(features_punt_valid) == 0:
         raise ValueError("No valid punt samples after filtering NaN values")
 
     # Hold out last 10% for evaluation
-    n = len(features_punt)
+    n = len(features_punt_valid)
     split = int(n * 0.9)
-    train_x = features_punt[:split]
-    eval_x = features_punt[split:]
-    train_yards = yards_punt[:split]
-    eval_yards = yards_punt[split:]
+    train_x = features_punt_valid[:split]
+    eval_x = features_punt_valid[split:]
+    train_yards = yards_punt_valid[:split]
+    eval_yards = yards_punt_valid[split:]
 
     console.print("\n==============[bold]Training Punt Yards Model[/bold]")
     console.print(f"  Train samples: {len(train_x):,} | Eval samples: {len(eval_x):,}\n")
@@ -97,7 +96,8 @@ def main() -> None:
     print("Preparing training data...")
     data = prepare()
 
-    train_punt_yards_model(data.features, data.intent, data.yards_gained)
+    # Pass pre-filtered punt features (already built with unified API)
+    train_punt_yards_model(data.features_punt, data.yards_gained[data.intent == Intent.PUNT.value])
 
     print("Done.")
 

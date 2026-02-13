@@ -18,7 +18,7 @@ import polars.selectors as cs
 
 from nfl_sim.engine.state import GameState
 from nfl_sim.models.context import DerivedContext, ModelContext
-from nfl_sim.models.features import _gen_feature_names
+from nfl_sim.models.features import get_feature_names
 from nfl_sim.models.outcomes import outcome_model
 from training.prepare import (
     _PLAY_TYPE_TO_INTENT,
@@ -161,10 +161,10 @@ def infer() -> pl.DataFrame:
 
     # Build output DataFrame
     print("Assembling output...")
-    feature_names = _gen_feature_names()
+    feature_names = get_feature_names("intent")
 
-    # Extract feature values from first n_preds rows
-    feature_cols = {name: data.features[:n_preds, i] for i, name in enumerate(feature_names)}
+    # Extract feature values from prepared data (pre-built intent features)
+    feature_cols = {name: data.features_intent[:n_preds, i] for i, name in enumerate(feature_names)}
 
     # Convert ordinal values back to categorical names
     pred_intent_names = np.array([_INTENT_MAP.get(int(v), "UNKNOWN") for v in pred_intents])

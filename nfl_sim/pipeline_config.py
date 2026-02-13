@@ -101,3 +101,46 @@ def get_cvae_config(model_name: str) -> dict[str, Any]:
         "batch_size": model_cfg.get("batch_size", 256),
         "learning_rate": model_cfg.get("learning_rate", 1e-3),
     }
+
+
+def get_model_features(model_name: str) -> list[str]:
+    """Get the feature names for a specific model from TOML.
+
+    Args:
+        model_name: Model name ("intent", "run", "pass", "punt", "time")
+
+    Returns:
+        List of feature names as declared in pipeline.toml
+
+    """
+    if model_name not in MODELS:
+        raise ValueError(f"Unknown model: {model_name}")
+    return MODELS[model_name].get("features", [])
+
+
+# ── Registry Validation (runs at import time) ───────────────────────────
+
+
+def _validate_feature_registry() -> None:
+    """Ensure all features declared in TOML exist in the feature registry.
+
+    This validation runs at import time to catch configuration errors early.
+    If a feature is declared in pipeline.toml but not implemented in
+    FEATURE_REGISTRY, this will raise a clear error.
+    """
+    # Import here to avoid circular dependency
+    from nfl_sim.models.features import FEATURE_REGISTRY  # noqa: PLC0415
+
+    for model_name, model_cfg in MODELS.items():
+        feature_names = model_cfg.get("features", [])
+        for fname in feature_names:
+            if fname not in FEATURE_REGISTRY:
+                raise ValueError(
+                    f"Feature '{fname}' used by model '{model_name}' "
+                    f"is not defined in FEATURE_REGISTRY. "
+                    f"Available features: {sorted(FEATURE_REGISTRY.keys())}"
+                )
+
+
+# Run validation at import time
+_validate_feature_registry()

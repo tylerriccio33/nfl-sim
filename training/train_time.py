@@ -18,12 +18,7 @@ from rich.console import Console
 from rich.table import Table
 from sklearn.linear_model import LinearRegression
 
-from nfl_sim.engine.state import Intent
-from nfl_sim.pipeline_config import (
-    ARTIFACT_PATHS,
-    RUN_FEATURES,
-    TIME_MODEL_FEATURES,
-)
+from nfl_sim.pipeline_config import ARTIFACT_PATHS
 from training.prepare import prepare
 
 console = Console()
@@ -32,42 +27,26 @@ TIME_ARTIFACT_DIR = ARTIFACT_PATHS.time_dir
 
 
 def train_time_model(
-    features: np.ndarray,
+    features_time: np.ndarray,
     time_elapsed: np.ndarray,
-    yards: np.ndarray,
-    completion: np.ndarray | None = None,
 ) -> float:
     """Train and save a linear regression model for time elapsed prediction.
 
-    Time is conditioned on game state/context (9 features), yards gained, and
-    completion status. Linear regression allows us to store coefficients directly
-    as numpy arrays for near-instant inference (no sklearn overhead).
+    Time is conditioned on game state/context (9 features) plus outcome fields
+    (yards_gained, completion). Linear regression allows us to store coefficients
+    directly as numpy arrays for near-instant inference (no sklearn overhead).
 
     Args:
-        features: Game state + context features, shape (N, M) where M >= 9
+        features_time: Pre-built time model features from prepare(),
+                       shape (N, 11) = [9 base + yards_gained + completion]
         time_elapsed: Target time in seconds, shape (N,)
-        yards: Actual yards gained from each play, shape (N,)
-        completion: Binary completion status (0/1), shape (N,). If None, defaults to 1 (complete).
 
     Returns the MAE on held-out evaluation data.
 
     """
-    # Use only the base features available at inference time (state + game features).
-    # Training data from prepare() may have more features, so we slice to match inference.
-    base_feature_count = len(RUN_FEATURES)
-    features = features[:, :base_feature_count]
-
-    # Append outcome conditioning fields (yards_gained, completion, etc.) as defined in pipeline.toml.
-    # At inference, these come from the outcome model.
-    if completion is None:
-        completion = np.ones(len(features), dtype=np.int32)
-
-    # Conditioning fields are TIME_MODEL_FEATURES minus the base features
-    conditioning_fields = TIME_MODEL_FEATURES[base_feature_count:]
-    conditioning_arrays = {"yards_gained": yards, "completion": completion}
-    for field_name in conditioning_fields:
-        arr = conditioning_arrays[field_name]
-        features = np.concatenate([features, arr.reshape(-1, 1)], axis=1)
+    # Features are already built with the correct shape from prepare()
+    # No manual slicing/concatenation needed
+    features = features_time
 
     # Drop NaN/inf rows
     bad = ~np.isfinite(features).all(axis=1) | ~np.isfinite(time_elapsed)
@@ -129,13 +108,8 @@ def main() -> None:
     print("Preparing training data...")
     data = prepare()
 
-    # For RUN/ST plays, completion is always True (1). For PASS plays, use actual completion.
-    # This lets the model learn that incomplete passes consume different time than completions.
-    completion = np.ones(len(data.intent), dtype=np.int32)
-    pass_mask = data.intent == Intent.PASS.value
-    completion[pass_mask] = data.complete_pass[pass_mask]
-
-    train_time_model(data.features, data.time_elapsed, data.yards_gained, completion)
+    # Use pre-built time model features (already includes yards + completion conditioning)
+    train_time_model(data.features_time, data.time_elapsed)
 
     print("Done.")
 

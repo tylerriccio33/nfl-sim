@@ -42,17 +42,11 @@ from nfl_sim.engine.state import (
     Outcome,
     Route,
     TurnoverType,
-    _GameState,
     route_from_intent,
 )
 from nfl_sim.models.context import ModelContext
-from nfl_sim.models.features import build_features
-from nfl_sim.pipeline_config import (
-    ARTIFACT_PATHS,
-    PUNT_FEATURES,
-    RUN_FEATURES,
-    TIME_MODEL_FEATURES,
-)
+from nfl_sim.models.features import build_features_for_model
+from nfl_sim.pipeline_config import ARTIFACT_PATHS
 
 # Training data uses 0/1/2 for turnover_type, but the enum uses auto() → 1/2/3.
 # This list maps CVAE output index → TurnoverType enum value.
@@ -204,13 +198,13 @@ class OutcomeModel:
             completion=completion,
         )
 
-    def _predict_st(self, features: np.ndarray, intent: Intent, state: _GameState) -> Outcome:
+    def _predict_st(self, context: ModelContext, intent: Intent) -> Outcome:
         """Predict special-teams outcome (FG or punt).
 
         Blocked probability is fixed at 0.05% (0.0005) for both FGs and punts.
         """
         blocked_prob = 0.0005  # 0.05%
-        yardline = state[6]  # _YL index
+        yardline = context.state[6]  # _YL index
 
         rng = np.random.default_rng()
 
@@ -225,9 +219,8 @@ class OutcomeModel:
                 if blocked:
                     yards_gained = -35  # blocked: defense returns
                 else:
-                    # Use only punt model features (state + game context)
-                    punt_feature_count = len(PUNT_FEATURES)
-                    x = features[:punt_feature_count].reshape(1, -1)
+                    # Use unified feature API to build punt features
+                    x = build_features_for_model("punt", context).reshape(1, -1)
                     yards_gained = max(0, round(float(self._punt_yards.predict(x)[0])))
             case _:
                 raise ValueError(f"Unexpected ST intent: {intent}")
@@ -239,7 +232,7 @@ class OutcomeModel:
             time_elapsed=20,
         )
 
-    def _predict_time(self, features: np.ndarray, outcome: Outcome) -> int:
+    def _predict_time(self, context: ModelContext, outcome: Outcome) -> int:
         """Predict seconds consumed by the play, conditioned on outcome fields.
 
         Time is predicted as a function of game state/context (base features) plus
@@ -247,19 +240,8 @@ class OutcomeModel:
 
         Uses pre-trained linear regression coefficients for instant numpy inference.
         """
-        # RUN/PASS features are the base (state + game context).
-        # TIME_MODEL_FEATURES = base + outcome conditioning fields.
-        base_feature_count = len(RUN_FEATURES)
-        base = features[:base_feature_count]
-
-        # Append conditioning fields from the outcome (e.g., yards_gained, completion)
-        conditioning_fields = TIME_MODEL_FEATURES[base_feature_count:]
-        extras = []
-        for field_name in conditioning_fields:
-            val = getattr(outcome, field_name)
-            extras.append(int(val) if isinstance(val, bool) else val)
-
-        full_features = np.concatenate([base, np.array(extras)])
+        # Use unified feature API to build time model features (includes conditioning)
+        full_features = build_features_for_model("time", context, outcome)
         raw = float(np.dot(full_features, self._time_coef) + self._time_intercept)
         return max(1, round(raw)) if math.isfinite(raw) else 20
 
@@ -278,26 +260,25 @@ class OutcomeModel:
         if not self._loaded:
             self._load()
 
-        # Load all features:
-        # This is an array of state and game features.
-        features = build_features(context)
+        # Build intent model features (9 base features: state + game context)
+        features = build_features_for_model("intent", context)
 
-        ## First, we predict intent which is mapped to a route.
+        # First, we predict intent which is mapped to a route.
         intent = self._predict_intent(features)
         route = route_from_intent(intent)
 
         # If Run/Pass, we predict using the corresponding neural net.
-        # If we go the ST route, we pass the features, state and intent to that function.
+        # If we go the ST route, we predict using special teams logic.
         match route:
             case Route.RUN | Route.PASS:
                 cvae_model: _CvaeArtifact = self._cvae[route]
                 outcome = self._predict_cvae(cvae_model, features)
                 # Time for offensive plays is conditioned on outcome fields (yards_gained, completion, etc.)
                 outcome.time_elapsed = min(
-                    self._predict_time(features, outcome), context.state[_CLK]
+                    self._predict_time(context, outcome), context.state[_CLK]
                 )
             case Route.ST:
-                outcome = self._predict_st(features, intent, context.state)
+                outcome = self._predict_st(context, intent)
                 # ST plays use fixed 20 seconds, but cap at remaining clock time
                 outcome.time_elapsed = min(outcome.time_elapsed, context.state[_CLK])
 

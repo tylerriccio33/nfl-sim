@@ -58,11 +58,14 @@ converge: ## Run convergence benchmark
 
 train: train-all  ## Alias for train-all
 
-train-all: ## Run model training script
+train-all: ## Run all model training scripts
+	@uv run training/train_intent.py
 	@uv run training/train.py
-	@uv run training/compile_intent_model.py
 	@uv run training/train_time.py
 	@uv run training/train_punt.py
+
+train-intent: ## Train and compile intent (RF) model
+	@uv run training/train_intent.py
 
 train-time: ## Train time model
 	@uv run training/train_time.py
