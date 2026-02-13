@@ -10,8 +10,6 @@ Uses only the first 9 features (state + game features) that match what's
 available at inference time. Ignores any additional training-time features.
 """
 
-from pathlib import Path
-
 import numpy as np
 from rich.console import Console
 from rich.table import Table
@@ -25,9 +23,11 @@ from sklearn.metrics import (
 )
 from sklearn.tree import DecisionTreeRegressor
 
+from nfl_sim.pipeline_config import ARTIFACT_PATHS, BASE_FEATURE_COUNT
+
 console = Console()
 
-PUNT_ARTIFACT_DIR = Path("training/artifacts/punt")
+PUNT_ARTIFACT_DIR = ARTIFACT_PATHS.punt_blocked_path.parent
 
 
 def train_punt_models(
@@ -48,8 +48,8 @@ def train_punt_models(
     if len(features_punt) == 0:
         raise ValueError("No punt samples found in training data")
 
-    # Use only the features available at inference time (9: 7 state + 2 game features)
-    features_punt = features_punt[:, :9]
+    # Use only the features available at inference time (state + game features)
+    features_punt = features_punt[:, :BASE_FEATURE_COUNT]
 
     # Drop NaN/inf rows
     bad = (
@@ -124,8 +124,8 @@ def train_punt_models(
     PUNT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     import joblib
 
-    joblib.dump(blocked_model, PUNT_ARTIFACT_DIR / "blocked.joblib")
-    joblib.dump(yards_model, PUNT_ARTIFACT_DIR / "yards.joblib")
+    joblib.dump(blocked_model, ARTIFACT_PATHS.punt_blocked_path)
+    joblib.dump(yards_model, ARTIFACT_PATHS.punt_yards_path)
     console.print(f"  Saved to {PUNT_ARTIFACT_DIR}\n")
 
     return blocked_accuracy, yards_r2

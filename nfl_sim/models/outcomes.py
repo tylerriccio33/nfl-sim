@@ -41,12 +41,15 @@ from nfl_sim.engine.state import (
 )
 from nfl_sim.models.context import ModelContext
 from nfl_sim.models.features import build_features
+from nfl_sim.pipeline_config import (
+    ARTIFACT_PATHS,
+    BASE_FEATURE_COUNT,
+    TIME_CONDITIONING,
+)
 
 # Training data uses 0/1/2 for turnover_type, but the enum uses auto() → 1/2/3.
 # This list maps CVAE output index → TurnoverType enum value.
 _TURNOVER_INDEX = [TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FUMBLE]
-
-_ARTIFACTS = Path("training/artifacts")
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,34 +106,36 @@ class OutcomeModel:
         import treelite
 
         # Intent (treelite-compiled RF)
-        intent_dir = _ARTIFACTS / "rf/intent"
-        self._intent_model = treelite.Model.deserialize(str(intent_dir / "model.tl"))
-        meta = json.loads((intent_dir / "meta.json").read_text())
+        intent_dir = ARTIFACT_PATHS.intent_dir
+        self._intent_model = treelite.Model.deserialize(
+            str(intent_dir / ARTIFACT_PATHS.intent_compiled)
+        )
+        meta = json.loads((intent_dir / ARTIFACT_PATHS.intent_meta).read_text())
         self._intent_classes = [Intent(c) for c in meta["classes"]]
 
         # CVAE outcome models (one per offensive route)
         self._cvae: dict[Route, _CvaeArtifact] = {
-            Route.RUN: self._load_cvae("run"),
-            Route.PASS: self._load_cvae("pass"),
+            Route.RUN: self._load_cvae(ARTIFACT_PATHS.cvae_run_dir),
+            Route.PASS: self._load_cvae(ARTIFACT_PATHS.cvae_pass_dir),
         }
 
         # Simple sklearn models — just store the raw estimator, call .predict()
         # inline in the inference methods below.
-        self._fg = joblib.load(_ARTIFACTS / "fg/model.joblib")
-        self._punt_blocked = joblib.load(_ARTIFACTS / "punt/blocked.joblib")
-        self._punt_yards = joblib.load(_ARTIFACTS / "punt/yards.joblib")
-        self._time = joblib.load(_ARTIFACTS / "time/model.joblib")
+        self._fg = joblib.load(ARTIFACT_PATHS.fg_path)
+        self._punt_blocked = joblib.load(ARTIFACT_PATHS.punt_blocked_path)
+        self._punt_yards = joblib.load(ARTIFACT_PATHS.punt_yards_path)
+        self._time = joblib.load(ARTIFACT_PATHS.time_dir / ARTIFACT_PATHS.time_file)
 
         self._loaded = True
 
     @staticmethod
-    def _load_cvae(route_name: str) -> _CvaeArtifact:
+    def _load_cvae(artifact_dir: Path) -> _CvaeArtifact:
         """Load a single CVAE and its normalization tensors."""
         import torch
 
         from training.cvae import CVAE, CvaeConfig
 
-        d = _ARTIFACTS / "cvae" / route_name
+        d = artifact_dir
         cfg = CvaeConfig.load(d / "meta.json")
         model = CVAE(cfg)
         model.load_state_dict(torch.load(d / "model.pt", weights_only=True))
@@ -169,12 +174,11 @@ class OutcomeModel:
 
     @staticmethod
     def _predict_cvae(art: _CvaeArtifact, features: np.ndarray, rng: Random) -> Outcome:
-        """Generate yards + turnover from a CVAE."""
+        """Generate yards + turnover (+ completion for PASS) from a CVAE."""
         import torch
 
         torch.manual_seed(rng.randint(0, 2**31))
 
-        # TODO: document
         x = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
         if art.feat_mean is not None:
             x = (x - art.feat_mean) / art.feat_std
@@ -184,16 +188,28 @@ class OutcomeModel:
             cont = cont * art.cont_std + art.cont_mean
 
         raw_yards = cont[0, 0].item()
+        yards = round(raw_yards) if math.isfinite(raw_yards) else 0
+
+        # Number of categorical heads depends on the route config:
+        # RUN has [turnover], PASS has [turnover, completion]
+        if len(cat_samples) > 1:
+            completion = bool(cat_samples[1][0].item() == 1)
+            if not completion:
+                yards = 0
+        else:
+            completion = True
+
         return Outcome(
-            yards=round(raw_yards) if math.isfinite(raw_yards) else 0,
+            yards=yards,
             turnover_type=_TURNOVER_INDEX[int(cat_samples[0][0].item())],
             touchdown=False,
             time_elapsed=0,
+            completion=completion,
         )
 
     def _predict_st(self, features: np.ndarray, intent: Intent, state: _GameState) -> Outcome:
         """Predict special-teams outcome (FG or punt)."""
-        x = features[:9].reshape(1, -1)
+        x = features[:BASE_FEATURE_COUNT].reshape(1, -1)
         match intent:
             case Intent.FIELD_GOAL:
                 fg_made = bool(self._fg.predict(x)[0] == 1)
@@ -214,16 +230,18 @@ class OutcomeModel:
             time_elapsed=20,
         )
 
-    def _predict_time(self, features: np.ndarray, yards: int) -> int:
-        """Predict seconds consumed by the play, conditioned on yards gained.
+    def _predict_time(self, features: np.ndarray, outcome: Outcome) -> int:
+        """Predict seconds consumed by the play, conditioned on outcome fields.
 
-        Time is predicted as a function of both game state/context (9 features)
-        and the actual yards gained. This captures that a 5-yard play takes
-        different time than a 50-yard play with the same game state.
+        Time is predicted as a function of game state/context (base features) plus
+        conditioning fields defined in pipeline.toml (e.g. yards, completion).
         """
-        # Append yards as 10th feature (yards come from outcome model)
-        # features is 1D array of shape (9,), reshape to 2D for predict
-        full_features = np.concatenate([features[:9], np.array([yards])]).reshape(1, -1)
+        base = features[:BASE_FEATURE_COUNT]
+        extras = []
+        for field_name in TIME_CONDITIONING:
+            val = getattr(outcome, field_name)
+            extras.append(int(val) if isinstance(val, bool) else val)
+        full_features = np.concatenate([base, np.array(extras)]).reshape(1, -1)
         raw = self._time.predict(full_features)[0]
         return max(1, round(raw)) if math.isfinite(raw) else 20
 
@@ -234,10 +252,10 @@ class OutcomeModel:
     def __call__(self, context: ModelContext) -> tuple[Intent, Outcome]:
         """Run the full model graph for a single play.
 
-        features → intent (RF) → route → outcome (CVAE/ST) → time (conditioned on yards)
+        features → intent (RF) → route → outcome (CVAE/ST) → time (conditioned on yards & completion)
 
         Time is predicted after outcome is known, so it can be conditioned on
-        the actual yards gained (a 5-yard play takes different time than 50-yard).
+        the actual yards gained and whether a PASS was completed.
         """
         if not self._loaded:
             self._load()
@@ -256,9 +274,9 @@ class OutcomeModel:
             case Route.RUN | Route.PASS:
                 cvae_model: _CvaeArtifact = self._cvae[route]
                 outcome = self._predict_cvae(cvae_model, features, context.rng)
-                # Time for offensive plays is conditioned on yards gained
+                # Time for offensive plays is conditioned on outcome fields (yards, completion, etc.)
                 outcome.time_elapsed = min(
-                    self._predict_time(features, outcome.yards), context.state[_CLK]
+                    self._predict_time(features, outcome), context.state[_CLK]
                 )
             case Route.ST:
                 outcome = self._predict_st(features, intent, context.state)

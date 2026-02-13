@@ -21,11 +21,11 @@ from nfl_sim.models.context import (
 )
 from nfl_sim.models.features import (
     _gen_feature_names,
-    _state_feature_names,
     build_features,
     features_from_state,
 )
 from nfl_sim.models.outcomes import outcome_model
+from nfl_sim.pipeline_config import STATE_FEATURE_NAMES as _state_feature_names
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 

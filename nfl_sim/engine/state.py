@@ -92,16 +92,21 @@ class TurnoverType(Enum):
 
 @dataclass
 class Outcome:
-    """Decision/play outcome itself. Used to calculate future GameState."""
+    """Decision/play outcome itself. Used to calculate future GameState.
+
+    Fields are defined in pipeline.toml [outcome.*] — if you add a field here,
+    add it there too. Runtime validation in pipeline_config catches drift.
+    """
 
     yards: int
     turnover_type: TurnoverType
     touchdown: bool
     time_elapsed: int
+    completion: bool = True
 
     @property
     def turnover(self) -> bool:
-        """Backward compat - True if any turnover occurred."""
+        """True if any turnover occurred."""
         return self.turnover_type != TurnoverType.NONE
 
 

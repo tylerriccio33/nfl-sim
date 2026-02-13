@@ -23,22 +23,22 @@ from torch.utils.data import DataLoader, TensorDataset
 from torchmetrics import Accuracy, MeanAbsoluteError
 
 from nfl_sim.engine.state import Intent
+from nfl_sim.pipeline_config import ARTIFACT_PATHS, CVAE_DEFAULTS
 from training.cvae import CVAE, CvaeConfig, cvae_loss
 from training.prepare import prepare
 
 console = Console()
 
-INTENT_ARTIFACT_DIR = Path("training/artifacts/rf/intent")
-ARTIFACT_DIR = Path("training/artifacts/cvae")
+INTENT_ARTIFACT_DIR = ARTIFACT_PATHS.intent_dir
 BESTMODELS_FILE = Path("training/bestmodels")
-EPOCHS = 100
-BATCH_SIZE = 256
-LR = 1e-3
+EPOCHS = CVAE_DEFAULTS["epochs"]
+BATCH_SIZE = CVAE_DEFAULTS["batch_size"]
+LR = CVAE_DEFAULTS["learning_rate"]
 
-# Intent value → (route name, artifact subdirectory)
-ROUTES = {
-    Intent.RUN.value: "run",
-    Intent.PASS.value: "pass",
+# Intent value → (route name, artifact dir) — only CVAE routes
+ROUTES: dict[int, tuple[str, Path]] = {
+    Intent.RUN.value: ("run", ARTIFACT_PATHS.cvae_run_dir),
+    Intent.PASS.value: ("pass", ARTIFACT_PATHS.cvae_pass_dir),
 }
 
 
@@ -97,25 +97,31 @@ def _nan_guard(
     features: np.ndarray,
     yards: np.ndarray,
     turnover_type: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    completion: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
     """Drop rows containing NaN or inf in features or continuous targets."""
     bad = np.any(~np.isfinite(features), axis=1) | ~np.isfinite(yards)
     n_bad = int(bad.sum())
     if n_bad > 0:
         print(f"  Dropped {n_bad} rows with NaN/inf values")
     good = ~bad
-    return features[good], yards[good], turnover_type[good]
+    filtered_completion = completion[good] if completion is not None else None
+    return features[good], yards[good], turnover_type[good], filtered_completion
 
 
 def _train_route(
     name: str,
+    artifact_dir: Path,
     features: np.ndarray,
     yards: np.ndarray,
     turnover_type: np.ndarray,
+    completion: np.ndarray | None = None,
 ) -> float:
     """Train and save a single CVAE for one route. Returns yards_mae metric."""
     # --- NaN guard ---
-    features, yards, turnover_type = _nan_guard(features, yards, turnover_type)
+    features, yards, turnover_type, completion = _nan_guard(
+        features, yards, turnover_type, completion
+    )
 
     # --- Standardize features ---
     feat_mean = features.mean(axis=0)
@@ -137,11 +143,21 @@ def _train_route(
     train_cont, eval_cont = cont_normed[:split], cont_normed[split:]
     train_cat, eval_cat = turnover_type[:split], turnover_type[split:]
 
+    # Split completion if provided (PASS route only)
+    if completion is not None:
+        train_completion, eval_completion = completion[:split], completion[split:]
+    else:
+        train_completion, eval_completion = None, None
+
+    # PASS route gets a second categorical head for completion (2 classes: incomplete/complete)
+    cat_cards = (3, 2) if completion is not None else (3,)
+
     cfg = CvaeConfig(
         feat_mean=feat_mean.tolist(),
         feat_std=feat_std.tolist(),
         cont_mean=cont_mean.tolist(),
         cont_std=cont_std.tolist(),
+        cat_cards=cat_cards,
     )
     model = CVAE(cfg)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
@@ -150,7 +166,13 @@ def _train_route(
     state_t = torch.tensor(train_feats, dtype=torch.float32)
     cont_t = torch.tensor(train_cont, dtype=torch.float32)
     cat_t = torch.tensor(train_cat, dtype=torch.long)
-    dataset = TensorDataset(state_t, cont_t, cat_t)
+
+    # Build categorical target lists (turnover always, completion for PASS)
+    if train_completion is not None:
+        comp_t = torch.tensor(train_completion, dtype=torch.long)
+        dataset = TensorDataset(state_t, cont_t, cat_t, comp_t)
+    else:
+        dataset = TensorDataset(state_t, cont_t, cat_t)
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     console.print(f"\n==============[bold]Training CVAE for route: {name}[/bold]")
@@ -160,13 +182,23 @@ def _train_route(
     eval_state_t = torch.tensor(eval_feats, dtype=torch.float32)
     eval_cont_t = torch.tensor(eval_cont, dtype=torch.float32)
     eval_cat_t = torch.tensor(eval_cat, dtype=torch.long)
+    eval_comp_t = (
+        torch.tensor(eval_completion, dtype=torch.long) if eval_completion is not None else None
+    )
 
     for epoch in range(EPOCHS):
         total_loss = 0.0
         n_batches = 0
-        for state_b, cont_b, cat_b in loader:
-            cont_out, cat_logits, mu, logvar = model(cont_b, [cat_b], state_b)
-            loss = cvae_loss(cont_out, cont_b, cat_logits, [cat_b], mu, logvar, beta=cfg.beta)
+        for batch in loader:
+            if train_completion is not None:  # TODO: Weird this being here
+                state_b, cont_b, cat_b, comp_b = batch
+                cat_targets = [cat_b, comp_b]
+            else:
+                state_b, cont_b, cat_b = batch
+                cat_targets = [cat_b]
+
+            cont_out, cat_logits, mu, logvar = model(cont_b, cat_targets, state_b)
+            loss = cvae_loss(cont_out, cont_b, cat_logits, cat_targets, mu, logvar, beta=cfg.beta)
 
             optimizer.zero_grad()
             loss.backward()
@@ -181,15 +213,16 @@ def _train_route(
         # Compute validation loss every 10 epochs
         if (epoch + 1) % 10 == 0 or epoch == 0:
             model.eval()
+            eval_cat_targets = [eval_cat_t] + ([eval_comp_t] if eval_comp_t is not None else [])
             with torch.no_grad():
                 cont_pred_val, cat_logits_val, mu_val, logvar_val = model(
-                    eval_cont_t, [eval_cat_t], eval_state_t
+                    eval_cont_t, eval_cat_targets, eval_state_t
                 )
                 val_loss = cvae_loss(
                     cont_pred_val,
                     eval_cont_t,
                     cat_logits_val,
-                    [eval_cat_t],
+                    eval_cat_targets,
                     mu_val,
                     logvar_val,
                     beta=cfg.beta,
@@ -247,6 +280,16 @@ def _train_route(
             f"Classification accuracy across {int(eval_cat.max()) + 1} classes",
         )
 
+        # Completion accuracy (PASS route only — has 2nd categorical head)
+        if eval_comp_t is not None:
+            comp_acc_metric = Accuracy(task="binary")
+            comp_acc = float(comp_acc_metric(cat_samples[1], eval_comp_t))
+            metrics_table.add_row(
+                "Completion Accuracy",
+                f"{comp_acc:.1%}",
+                "Binary: 0=incomplete, 1=complete",
+            )
+
         # Create predictions table
         pred_table = Table(
             title="Prediction Distribution", show_header=True, header_style="bold cyan"
@@ -263,8 +306,7 @@ def _train_route(
         console.print(metrics_table)
         console.print(pred_table)
 
-    # Save artifacts
-    out_dir = ARTIFACT_DIR / name
+    out_dir = artifact_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), out_dir / "model.pt")
     cfg.save(out_dir / "meta.json")
@@ -322,17 +364,22 @@ def main() -> None:
     _update_bestmodels("action", intent_f1, intent_is_better)
 
     # Train route-specific CVAEs (lower MAE is better)
-    for intent_val, route_name in ROUTES.items():
+    for intent_val, (route_name, artifact_dir) in ROUTES.items():
         mask = data.intent == intent_val
         if mask.sum() == 0:
             print(f"No samples for route {route_name}, skipping.")
             continue
 
+        # PASS route gets completion as a second categorical target
+        route_completion = data.complete_pass[mask] if intent_val == Intent.PASS.value else None
+
         yards_mae = _train_route(
             name=route_name,
+            artifact_dir=artifact_dir,
             features=data.features[mask],
             yards=data.yards[mask],
             turnover_type=data.turnover_type[mask],
+            completion=route_completion,
         )
 
         # Update best models tracking (lower MAE is better)

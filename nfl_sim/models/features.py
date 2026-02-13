@@ -10,9 +10,8 @@ enforced by deriving FEATURE_NAMES from GameFeatures automatically.
 import numpy as np
 
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, _GameState
-from nfl_sim.models.context import GameFeatures, ModelContext
-
-_state_feature_names = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go"]
+from nfl_sim.models.context import ModelContext
+from nfl_sim.pipeline_config import GAME_FEATURE_NAMES, STATE_FEATURE_NAMES
 
 
 def features_from_state(s: _GameState) -> list[float]:
@@ -43,4 +42,4 @@ def build_features(context: ModelContext) -> np.ndarray:
 
 
 def _gen_feature_names():  # pragma: no cover
-    return _state_feature_names + GameFeatures.feature_names
+    return STATE_FEATURE_NAMES + GAME_FEATURE_NAMES

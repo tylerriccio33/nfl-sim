@@ -17,9 +17,10 @@ import polars as pl
 from nfl_sim.engine.state import GameState, Intent
 from nfl_sim.models.context import DerivedContext, GameContext, ModelContext, ctx_from_game_id
 from nfl_sim.models.features import build_features
+from nfl_sim.pipeline_config import PLAY_TYPE_MAP, TRAINING_CONFIG
 
-DATA_PATH = Path("data/pbp.parquet")
-SCHEDULE_PATH = Path("data/schedules.parquet")
+DATA_PATH = Path(TRAINING_CONFIG["pbp_path"])
+SCHEDULE_PATH = Path(TRAINING_CONFIG["schedule_path"])
 
 # Columns we need from pbp to extract features + targets
 REQUIRED_COLS = [
@@ -45,15 +46,12 @@ REQUIRED_COLS = [
     "desc",
     "field_goal_result",
     "punt_blocked",
+    "complete_pass",
 ]
 
-# Map play_type string → Intent enum
+# Map play_type string → Intent enum (driven by pipeline.toml)
 _PLAY_TYPE_TO_INTENT: dict[str, Intent] = {
-    "run": Intent.RUN,
-    "pass": Intent.PASS,
-    "qb_kneel": Intent.RUN,
-    "punt": Intent.PUNT,
-    "field_goal": Intent.FIELD_GOAL,
+    play_type: Intent[intent_name] for play_type, intent_name in PLAY_TYPE_MAP.items()
 }
 
 
@@ -68,6 +66,7 @@ class TrainingData:
     turnover_type: np.ndarray  # (N,) int: 0=none, 1=interception, 2=fumble
     fg_success: np.ndarray  # (N,) int: 1=FG made, 0=FG miss/blocked (for FG plays only)
     punt_blocked: np.ndarray  # (N,) int: 1=punt blocked, 0=not blocked (for punt plays only)
+    complete_pass: np.ndarray  # (N,) int: 1=complete, 0=incomplete (for pass plays only)
     desc: list[str]  # (N,) str: play description
     game_ids: list[str]  # (N,) str: game_id for each row (needed for inference)
 
@@ -171,6 +170,9 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
         .astype(int)
     )
     target_punt_blocked = df["punt_blocked"].to_numpy().astype(int)
+    target_complete_pass = (
+        df.select(pl.col("complete_pass").fill_null(0)).to_numpy().flatten().astype(int)
+    )
     target_desc = df["desc"].to_list()  # TODO: Not a target
 
     ## MODEL CONTEXT BUILT HERE ##
@@ -214,6 +216,7 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
         turnover_type=target_turnover,
         fg_success=target_fg_success,
         punt_blocked=target_punt_blocked,
+        complete_pass=target_complete_pass,
         desc=target_desc,
         game_ids=game_ids_list,
     )

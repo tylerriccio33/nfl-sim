@@ -9,17 +9,17 @@ Uses only the first 9 features (state + game features) that match what's
 available at inference time. Ignores any additional training-time features.
 """
 
-from pathlib import Path
-
 import numpy as np
 from rich.console import Console
 from rich.table import Table
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score
 
+from nfl_sim.pipeline_config import ARTIFACT_PATHS, BASE_FEATURE_COUNT
+
 console = Console()
 
-FG_ARTIFACT_DIR = Path("training/artifacts/fg")
+FG_ARTIFACT_DIR = ARTIFACT_PATHS.fg_path.parent
 
 
 def train_fg_model(features: np.ndarray, intent: np.ndarray, fg_success: np.ndarray) -> float:
@@ -37,8 +37,8 @@ def train_fg_model(features: np.ndarray, intent: np.ndarray, fg_success: np.ndar
     if len(features_fg) == 0:
         raise ValueError("No field goal samples found in training data")
 
-    # Use only the features available at inference time (9: 7 state + 2 game features)
-    features_fg = features_fg[:, :9]
+    # Use only the features available at inference time (state + game features)
+    features_fg = features_fg[:, :BASE_FEATURE_COUNT]
 
     # Drop NaN/inf rows
     bad = ~np.isfinite(features_fg).all(axis=1) | ~np.isfinite(fg_success_fg)
@@ -86,7 +86,7 @@ def train_fg_model(features: np.ndarray, intent: np.ndarray, fg_success: np.ndar
     FG_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     import joblib
 
-    joblib.dump(model, FG_ARTIFACT_DIR / "model.joblib")
+    joblib.dump(model, ARTIFACT_PATHS.fg_path)
     console.print(f"  Saved to {FG_ARTIFACT_DIR}\n")
 
     return accuracy

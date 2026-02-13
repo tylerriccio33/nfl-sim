@@ -11,40 +11,52 @@ At inference, yards come from the outcome model (CVAE or ST) so time is
 predicted AFTER we know the play outcome.
 """
 
-from pathlib import Path
-
 import numpy as np
 from rich.console import Console
 from rich.table import Table
 from sklearn.tree import DecisionTreeRegressor
 
+from nfl_sim.pipeline_config import ARTIFACT_PATHS, BASE_FEATURE_COUNT, TIME_CONDITIONING
 from training.prepare import prepare
 
 console = Console()
 
-TIME_ARTIFACT_DIR = Path("training/artifacts/time")
+TIME_ARTIFACT_DIR = ARTIFACT_PATHS.time_dir
 
 
-def train_time_model(features: np.ndarray, time_elapsed: np.ndarray, yards: np.ndarray) -> float:
+def train_time_model(
+    features: np.ndarray,
+    time_elapsed: np.ndarray,
+    yards: np.ndarray,
+    completion: np.ndarray | None = None,
+) -> float:
     """Train and save a decision tree (CART) model for time elapsed prediction.
 
-    Time is conditioned on both game state/context (9 features) and yards gained.
-    This captures that yard gains of different magnitudes consume different time.
+    Time is conditioned on game state/context (9 features), yards gained, and
+    completion status. This captures that incomplete passes take different time
+    than completions, and different yard gains consume different time.
 
     Args:
         features: Game state + context features, shape (N, M) where M >= 9
         time_elapsed: Target time in seconds, shape (N,)
         yards: Actual yards gained from each play, shape (N,)
+        completion: Binary completion status (0/1), shape (N,). If None, defaults to 1 (complete).
 
     Returns the MAE on held-out evaluation data.
 
     """
-    # Use only the features available at inference time (9: 7 state + 2 game features)
-    # Training data from prepare() may have more features, so we slice to match inference
-    features = features[:, :9]
+    # Use only the features available at inference time (state + game features).
+    # Training data from prepare() may have more features, so we slice to match inference.
+    features = features[:, :BASE_FEATURE_COUNT]
 
-    # Append yards as 10th feature. At inference, yards come from the outcome model.
-    features = np.concatenate([features, yards.reshape(-1, 1)], axis=1)
+    # Append conditioning fields (yards, completion, etc.) as defined in pipeline.toml.
+    # At inference, these come from the outcome model.
+    if completion is None:
+        completion = np.ones(len(features), dtype=np.int32)
+    conditioning_arrays = {"yards": yards, "completion": completion}
+    for field_name in TIME_CONDITIONING:
+        arr = conditioning_arrays[field_name]
+        features = np.concatenate([features, arr.reshape(-1, 1)], axis=1)
 
     # Drop NaN/inf rows
     bad = ~np.isfinite(features).all(axis=1) | ~np.isfinite(time_elapsed)
@@ -89,7 +101,7 @@ def train_time_model(features: np.ndarray, time_elapsed: np.ndarray, yards: np.n
     TIME_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     import joblib
 
-    joblib.dump(model, TIME_ARTIFACT_DIR / "model.joblib")
+    joblib.dump(model, TIME_ARTIFACT_DIR / ARTIFACT_PATHS.time_file)
     console.print(f"  Saved to {TIME_ARTIFACT_DIR}\n")
 
     return mae
@@ -97,10 +109,18 @@ def train_time_model(features: np.ndarray, time_elapsed: np.ndarray, yards: np.n
 
 def main() -> None:
     """Train the time model."""
+    from nfl_sim.engine.state import Intent
+
     print("Preparing training data...")
     data = prepare()
 
-    train_time_model(data.features, data.time_elapsed, data.yards)
+    # For RUN/ST plays, completion is always True (1). For PASS plays, use actual completion.
+    # This lets the model learn that incomplete passes consume different time than completions.
+    completion = np.ones(len(data.intent), dtype=np.int32)
+    pass_mask = data.intent == Intent.PASS.value
+    completion[pass_mask] = data.complete_pass[pass_mask]
+
+    train_time_model(data.features, data.time_elapsed, data.yards, completion)
 
     print("Done.")
 

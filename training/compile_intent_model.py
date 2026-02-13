@@ -13,7 +13,9 @@ import joblib
 import treelite.model
 import treelite.sklearn
 
-ARTIFACT_DIR = Path("training/artifacts/rf/intent")
+from nfl_sim.pipeline_config import ARTIFACT_PATHS
+
+ARTIFACT_DIR = ARTIFACT_PATHS.intent_dir
 ST_ARTIFACT_DIR = Path("training/artifacts/rf/st")
 
 
