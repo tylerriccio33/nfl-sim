@@ -1,48 +1,37 @@
-"""Train models for punt outcome prediction.
+"""Train a model for punt yards prediction.
 
 Usage: uv run training/train_punt.py (or `make train-punt`)
 
-Two-step approach:
-  1. Logistic regression: predict if punt is blocked
-  2. Decision tree regression: predict punt yards when not blocked
+Trains a decision tree to predict punt yards. Blocked outcomes are sampled
+at a fixed 0.05% probability during inference (no training needed).
 
 Uses only the first 9 features (state + game features) that match what's
 available at inference time. Ignores any additional training-time features.
 """
 
+import joblib
 import numpy as np
 from rich.console import Console
 from rich.table import Table
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    accuracy_score,
-    mean_absolute_error,
-    precision_score,
-    r2_score,
-    recall_score,
-)
+from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.tree import DecisionTreeRegressor
 
+from nfl_sim.engine.state import Intent
 from nfl_sim.pipeline_config import ARTIFACT_PATHS, BASE_FEATURE_COUNT
 
 console = Console()
 
-PUNT_ARTIFACT_DIR = ARTIFACT_PATHS.punt_blocked_path.parent
+PUNT_ARTIFACT_DIR = ARTIFACT_PATHS.punt_yards_path.parent
 
 
-def train_punt_models(
-    features: np.ndarray, intent: np.ndarray, punt_blocked: np.ndarray, yards: np.ndarray
-) -> tuple[float, float]:
-    """Train and save models for punt outcome prediction.
+def train_punt_yards_model(features: np.ndarray, intent: np.ndarray, yards: np.ndarray) -> float:
+    """Train and save a decision tree model for punt yards prediction.
 
-    Returns tuple of (blocked_accuracy, yards_r2).
+    Returns R² score on held-out evaluation data.
     """
-    from nfl_sim.engine.state import Intent
-
     # Filter to only punt plays
     punt_mask = intent == Intent.PUNT.value
     features_punt = features[punt_mask]
-    punt_blocked_punt = punt_blocked[punt_mask]
     yards_punt = yards[punt_mask]
 
     if len(features_punt) == 0:
@@ -52,17 +41,12 @@ def train_punt_models(
     features_punt = features_punt[:, :BASE_FEATURE_COUNT]
 
     # Drop NaN/inf rows
-    bad = (
-        ~np.isfinite(features_punt).all(axis=1)
-        | ~np.isfinite(punt_blocked_punt)
-        | ~np.isfinite(yards_punt)
-    )
+    bad = ~np.isfinite(features_punt).all(axis=1) | ~np.isfinite(yards_punt)
     n_bad = int(bad.sum())
     if n_bad > 0:
         console.print(f"  Dropped {n_bad} rows with NaN/inf values")
 
     features_punt = features_punt[~bad]
-    punt_blocked_punt = punt_blocked_punt[~bad]
     yards_punt = yards_punt[~bad]
 
     if len(features_punt) == 0:
@@ -71,43 +55,19 @@ def train_punt_models(
     # Hold out last 10% for evaluation
     n = len(features_punt)
     split = int(n * 0.9)
-    train_X = features_punt[:split]
-    eval_X = features_punt[split:]
-    train_blocked = punt_blocked_punt[:split]
-    eval_blocked = punt_blocked_punt[split:]
+    train_x = features_punt[:split]
+    eval_x = features_punt[split:]
     train_yards = yards_punt[:split]
     eval_yards = yards_punt[split:]
 
-    console.print("\n==============[bold]Training Punt Models[/bold]")
-    console.print(f"  Train samples: {len(train_X):,} | Eval samples: {len(eval_X):,}\n")
-
-    # Train blocked prediction model (logistic regression)
-    console.print("[cyan]Step 1: Blocked Prediction Model[/cyan]")
-    blocked_model = LogisticRegression(max_iter=1000, random_state=42)
-    blocked_model.fit(train_X, train_blocked)
-
-    eval_blocked_pred = blocked_model.predict(eval_X)
-    blocked_accuracy = float(accuracy_score(eval_blocked, eval_blocked_pred))
-    blocked_precision = float(precision_score(eval_blocked, eval_blocked_pred, zero_division=0))
-    blocked_recall = float(recall_score(eval_blocked, eval_blocked_pred, zero_division=0))
-
-    blocked_table = Table(
-        title="Punt Blocked Prediction", show_header=True, header_style="bold cyan"
-    )
-    blocked_table.add_column("Metric", style="dim")
-    blocked_table.add_column("Value", style="green")
-    blocked_table.add_row("Accuracy", f"{blocked_accuracy:.2%}")
-    blocked_table.add_row("Precision", f"{blocked_precision:.2%}")
-    blocked_table.add_row("Recall", f"{blocked_recall:.2%}")
-    blocked_table.add_row("Blocked Rate", f"{eval_blocked.mean():.1%}")
-    console.print(blocked_table)
+    console.print("\n==============[bold]Training Punt Yards Model[/bold]")
+    console.print(f"  Train samples: {len(train_x):,} | Eval samples: {len(eval_x):,}\n")
 
     # Train yards prediction model (decision tree regression)
-    console.print("\n[cyan]Step 2: Yards Prediction Model (Not Blocked)[/cyan]")
     yards_model = DecisionTreeRegressor(max_depth=8, random_state=42, min_samples_leaf=10)
-    yards_model.fit(train_X, train_yards)
+    yards_model.fit(train_x, train_yards)
 
-    eval_yards_pred = yards_model.predict(eval_X)
+    eval_yards_pred = yards_model.predict(eval_x)
     yards_mae = float(mean_absolute_error(eval_yards, eval_yards_pred))
     yards_r2 = float(r2_score(eval_yards, eval_yards_pred))
 
@@ -120,25 +80,23 @@ def train_punt_models(
     yards_table.add_row("Std Yards", f"{eval_yards.std():.1f}")
     console.print(yards_table)
 
-    # Save models
+    # Save model
     PUNT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    import joblib
 
-    joblib.dump(blocked_model, ARTIFACT_PATHS.punt_blocked_path)
     joblib.dump(yards_model, ARTIFACT_PATHS.punt_yards_path)
     console.print(f"  Saved to {PUNT_ARTIFACT_DIR}\n")
 
-    return blocked_accuracy, yards_r2
+    return yards_r2
 
 
 def main() -> None:
-    """Train the punt models."""
-    from training.prepare import prepare
+    """Train the punt yards model."""
+    from training.prepare import prepare  # noqa: PLC0415
 
     print("Preparing training data...")
     data = prepare()
 
-    train_punt_models(data.features, data.intent, data.punt_blocked, data.yards)
+    train_punt_yards_model(data.features, data.intent, data.yards)
 
     print("Done.")
 

@@ -79,6 +79,14 @@ select = [
   "TRY", # tryceratops
   "UP", # pyupgrade
   "W", # pycodestyle
+  "ERA", # commented out code
+  "ANN401", # No Any
+  "ASYNC", # Flake8 async rules
+  "S",
+  "NPY", # NumPy style docstring rules
+  "N", # Namings
+  "PLC", # Pylint conventions
+  "FURB", # Refurb
 ]
 
 ignore = [
@@ -101,7 +109,9 @@ ignore = [
   "D203",
   "EM102",
   "D213",
-  "D107"
+  "D107",
+  "S101", # Use assert
+  "S105" # Secret keys
 ]
 
 [tool.ruff.lint.per-file-ignores]

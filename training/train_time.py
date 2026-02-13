@@ -11,13 +11,13 @@ At inference, yards come from the outcome model (CVAE or ST) so time is
 predicted AFTER we know the play outcome.
 """
 
+import joblib
 import numpy as np
 from rich.console import Console
 from rich.table import Table
 from sklearn.tree import DecisionTreeRegressor
 
 from nfl_sim.pipeline_config import ARTIFACT_PATHS, BASE_FEATURE_COUNT, TIME_CONDITIONING
-from training.prepare import prepare
 
 console = Console()
 
@@ -73,18 +73,18 @@ def train_time_model(
     # Hold out last 10% for evaluation
     n = len(features)
     split = int(n * 0.9)
-    train_X, eval_X = features[:split], features[split:]
+    train_x, eval_x = features[:split], features[split:]
     train_y, eval_y = time_elapsed[:split], time_elapsed[split:]
 
     console.print("\n==============[bold]Training Time Model[/bold]")
-    console.print(f"  Train samples: {len(train_X):,} | Eval samples: {len(eval_X):,}\n")
+    console.print(f"  Train samples: {len(train_x):,} | Eval samples: {len(eval_x):,}\n")
 
     # Train decision tree regression (CART)
     model = DecisionTreeRegressor(max_depth=10, min_samples_leaf=5, random_state=42)
-    model.fit(train_X, train_y)
+    model.fit(train_x, train_y)
 
     # Evaluate
-    eval_pred = model.predict(eval_X)
+    eval_pred = model.predict(eval_x)
     mae = float(np.mean(np.abs(eval_pred - eval_y)))
 
     metrics_table = Table(title="Time Model Evaluation", show_header=True, header_style="bold cyan")
@@ -99,7 +99,6 @@ def train_time_model(
 
     # Save model
     TIME_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    import joblib
 
     joblib.dump(model, TIME_ARTIFACT_DIR / ARTIFACT_PATHS.time_file)
     console.print(f"  Saved to {TIME_ARTIFACT_DIR}\n")
@@ -109,7 +108,8 @@ def train_time_model(
 
 def main() -> None:
     """Train the time model."""
-    from nfl_sim.engine.state import Intent
+    from nfl_sim.engine.state import Intent  # noqa: PLC0415
+    from training.prepare import prepare  # noqa: PLC0415
 
     print("Preparing training data...")
     data = prepare()

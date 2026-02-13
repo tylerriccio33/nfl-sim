@@ -2,13 +2,15 @@
 server: ## Run the Web Server (live debugging with latest week data)
 	@NFL_SIM_LIVE=1 uv run --no-sync tests/web/test_live_server.py
 
-lint: ## Run ruff and typer
-	@uv run --no-sync ruff check --fix
-	@uv run --no-sync ruff format
-	@uv run --no-sync ty check
+clean: ## Cleans all artifacts including models
+	@rm -rf .venv
+	@rm -rf training/artifacts && mkdir -p training/artifacts
 
-build: ## Run maturin develop
-	@uv run maturin develop --release
+
+lint: ## Run ruff and typer
+	@uv run ruff check --fix
+	@uv run ruff format
+	@uv run ty check
 
 types: ## Generate type stubs for aggregation types
 	@uv run --no-sync python scripts/gen_agg_stubs.py
@@ -60,16 +62,12 @@ train-all: ## Run model training script
 	@uv run training/train.py
 	@uv run training/compile_intent_model.py
 	@uv run training/train_time.py
-	@uv run training/train_fg.py
 	@uv run training/train_punt.py
 
 train-time: ## Train time model
 	@uv run training/train_time.py
 
-train-fg: ## Train field goal success model
-	@uv run training/train_fg.py
-
-train-punt: ## Train punt blocked and yards models
+train-punt: ## Train punt yards model (blocked is sampled at 0.05%)
 	@uv run training/train_punt.py
 
 refresh-data: ## Refresh all data files

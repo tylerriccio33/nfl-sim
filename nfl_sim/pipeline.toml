@@ -76,18 +76,10 @@ categorical_outputs = ["turnover_type", "completion"]
 
 [routes.ST]
 model_type = "dispatch"  # dispatches to sub-models based on intent
+# Blocked probability (0.05%) is hardcoded in outcomes.py, no model needed
 
-[routes.ST.FIELD_GOAL]
-model_type    = "sklearn"
-artifact_path = "training/artifacts/fg/model.joblib"
-target        = "fg_success"
-
-[routes.ST.PUNT.blocked]
-model_type    = "sklearn"
-artifact_path = "training/artifacts/punt/blocked.joblib"
-target        = "punt_blocked"
-
-[routes.ST.PUNT.yards]
+[routes.ST.PUNT]
+# Only the yards model is used; blocked outcome is sampled at 0.05% probability
 model_type    = "sklearn"
 artifact_path = "training/artifacts/punt/yards.joblib"
 target        = "yards"

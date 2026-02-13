@@ -1,5 +1,6 @@
 """Public API for the simulation engine."""
 
+import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 
@@ -146,9 +147,6 @@ def sim_games(
 
     """
     game_items = list(games.items())
-
-    # workers = 1  # TODO: Figure this one out
-    import os
 
     workers = max_workers or min(len(game_items), (os.cpu_count() or 1))
 

@@ -13,6 +13,7 @@ Convergence is reached when the 99% CI half-width drops below a threshold.
 import math
 from pathlib import Path
 
+import plotext as plt
 import polars as pl
 from rich.console import Console
 
@@ -151,8 +152,6 @@ def run_convergence_benchmark() -> pl.DataFrame:
 
 def report_results(results_df: pl.DataFrame) -> None:
     """Plot the mean margin with confidence bands and report convergence."""
-    import plotext as plt
-
     console = Console()
 
     n_sims = results_df["n_sims"].to_list()

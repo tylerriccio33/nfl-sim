@@ -20,7 +20,14 @@ from nfl_sim.engine.state import GameState
 from nfl_sim.models.context import DerivedContext, ModelContext
 from nfl_sim.models.features import _gen_feature_names
 from nfl_sim.models.outcomes import outcome_model
-from training.prepare import SCHEDULE_PATH, ctx_from_game_id, prepare
+from training.prepare import (
+    _PLAY_TYPE_TO_INTENT,
+    DATA_PATH,
+    REQUIRED_COLS,
+    SCHEDULE_PATH,
+    ctx_from_game_id,
+    prepare,
+)
 
 OUTPUT_DIR = Path("training/artifacts/predictions")
 
@@ -41,7 +48,6 @@ def infer() -> pl.DataFrame:
 
     # Build game contexts for all game_ids
     print("Building game contexts...")
-    from training.prepare import DATA_PATH
 
     # Load full pbp data (ctx_from_game_id needs season, week, epa, etc.)
     df_pbp = pl.read_parquet(DATA_PATH)
@@ -56,8 +62,6 @@ def infer() -> pl.DataFrame:
     pred_time = []
 
     # Need to reconstruct GameState for each row to pass to outcome_model
-    from training.prepare import _PLAY_TYPE_TO_INTENT, REQUIRED_COLS
-
     # Prepare df (filter to valid plays, add computed columns)
     df_full = (
         df_pbp.lazy()
@@ -167,9 +171,9 @@ def infer() -> pl.DataFrame:
     actual_intent_names = np.array([_INTENT_MAP.get(v, "UNKNOWN") for v in data.intent[:n_preds]])
     pred_turnover_names = np.array(pred_turnover)  # Already string names from enum
     # Map training turnover values (0/1/2) to names
-    _ACTUAL_TURNOVER_MAP = {0: "NONE", 1: "INTERCEPTION", 2: "FUMBLE"}
+    actual_turnover_map = {0: "NONE", 1: "INTERCEPTION", 2: "FUMBLE"}
     actual_turnover_names = np.array(
-        [_ACTUAL_TURNOVER_MAP[int(v)] for v in data.turnover_type[:n_preds]]
+        [actual_turnover_map[int(v)] for v in data.turnover_type[:n_preds]]
     )
 
     output_df = (

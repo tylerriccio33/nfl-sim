@@ -14,6 +14,8 @@ from dataclasses import fields as dc_fields
 from pathlib import Path
 from typing import Any
 
+from nfl_sim.engine.state import Outcome
+
 _TOML_PATH = Path(__file__).parent / "pipeline.toml"
 
 with _TOML_PATH.open("rb") as _f:
@@ -26,8 +28,8 @@ GAME_FEATURE_NAMES: list[str] = CONFIG["features"]["game"]
 BASE_FEATURE_COUNT: int = len(STATE_FEATURE_NAMES) + len(GAME_FEATURE_NAMES)
 
 # ── Intents ──────────────────────────────────────────────────────
+# Each intent has value (int) and route (str)
 
-# {intent_name: {"value": int, "route": str}}
 INTENT_VALUES: dict[str, int] = {k: v["value"] for k, v in CONFIG["intents"].items()}
 INTENT_TO_ROUTE: dict[str, str] = {k: v["route"] for k, v in CONFIG["intents"].items()}
 
@@ -75,14 +77,8 @@ class ArtifactPaths:
     )
 
     # ST models
-    fg_path: Path = field(
-        default_factory=lambda: Path(CONFIG["routes"]["ST"]["FIELD_GOAL"]["artifact_path"])
-    )
-    punt_blocked_path: Path = field(
-        default_factory=lambda: Path(CONFIG["routes"]["ST"]["PUNT"]["blocked"]["artifact_path"])
-    )
     punt_yards_path: Path = field(
-        default_factory=lambda: Path(CONFIG["routes"]["ST"]["PUNT"]["yards"]["artifact_path"])
+        default_factory=lambda: Path(CONFIG["routes"]["ST"]["PUNT"]["artifact_path"])
     )
 
 
@@ -98,8 +94,6 @@ OUTCOME_FIELDS: list[str] = list(CONFIG["outcome"].keys())
 
 def _validate_outcome_class() -> None:
     """Verify that the Outcome dataclass matches pipeline.toml [outcome.*]."""
-    from nfl_sim.engine.state import Outcome
-
     dc_field_names = {f.name for f in dc_fields(Outcome)}
     toml_field_names = set(OUTCOME_FIELDS)
 

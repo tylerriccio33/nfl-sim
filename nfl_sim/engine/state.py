@@ -12,7 +12,7 @@ type TeamId = Literal["HOME", "AWAY"]
 # _GameState: plain tuple used in the hot loop for zero-overhead construction.
 #
 # Layout (index constants below):
-#   (quarter, clock, offense, defense, down, distance, yardline, score)
+# quarter, clock, offense, defense, down, distance, yardline, score
 #
 # GameState (NamedTuple) is the public API; _GameState is the internal
 # representation returned by apply_outcome and consumed by the game loop.

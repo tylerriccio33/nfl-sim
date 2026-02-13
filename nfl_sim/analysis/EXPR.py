@@ -83,7 +83,7 @@ def _make_team_play_aggs(team: str | None = None, prefix: str | None = None) -> 
     # TODO: if team is home then prefix will always be home_
     # TODO: Overload signature with literals I think
     flt = pl.col("posteam").eq(team) if team else pl.lit(True)
-    prefix = prefix if prefix else ""
+    prefix = prefix or ""
     return [
         # Standard Sums:
         pl.col(*standard_stats).filter(flt).sum().name.prefix(prefix),

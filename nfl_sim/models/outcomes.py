@@ -86,21 +86,17 @@ class OutcomeModel:
 
     __slots__ = (
         "_cvae",
-        "_fg",
         "_intent_classes",
         "_intent_model",
         "_loaded",
-        "_punt_blocked",
         "_punt_yards",
         "_time",
     )
 
     _cvae: dict[Route, _CvaeArtifact]
-    _fg: Any  # sklearn estimator (joblib.load returns Any)
     _intent_classes: list[Intent]
-    _intent_model: "treelite.Model"
+    _intent_model: "treelite.Model"  # TODO: Why is this quoted
     _loaded: bool
-    _punt_blocked: Any  # sklearn estimator (joblib.load returns Any)
     _punt_yards: Any  # sklearn estimator (joblib.load returns Any)
     _time: Any  # sklearn estimator (joblib.load returns Any)
 
@@ -113,10 +109,10 @@ class OutcomeModel:
 
     def _load(self) -> None:
         """Load every artifact into attributes, or fail loudly."""
-        import json
+        import json  # noqa: PLC0415
 
-        import joblib
-        import treelite
+        import joblib  # noqa: PLC0415
+        import treelite  # noqa: PLC0415
 
         # Intent (treelite-compiled RF)
         intent_dir = ARTIFACT_PATHS.intent_dir
@@ -134,8 +130,6 @@ class OutcomeModel:
 
         # Simple sklearn models — just store the raw estimator, call .predict()
         # inline in the inference methods below.
-        self._fg = joblib.load(ARTIFACT_PATHS.fg_path)
-        self._punt_blocked = joblib.load(ARTIFACT_PATHS.punt_blocked_path)
         self._punt_yards = joblib.load(ARTIFACT_PATHS.punt_yards_path)
         self._time = joblib.load(ARTIFACT_PATHS.time_dir / ARTIFACT_PATHS.time_file)
 
@@ -144,9 +138,9 @@ class OutcomeModel:
     @staticmethod
     def _load_cvae(artifact_dir: Path) -> _CvaeArtifact:
         """Load a single CVAE and its normalization tensors."""
-        import torch
+        import torch  # noqa: PLC0415
 
-        from training.cvae import CVAE, CvaeConfig
+        from training.cvae import CVAE, CvaeConfig  # noqa: PLC0415
 
         d = artifact_dir
         cfg = CvaeConfig.load(d / "meta.json")
@@ -169,7 +163,7 @@ class OutcomeModel:
 
     def _predict_intent(self, features: np.ndarray) -> Intent:
         """Predict the highest-probability intent from the RF model."""
-        import treelite.gtil
+        import treelite.gtil  # noqa: PLC0415
 
         probs = treelite.gtil.predict(
             self._intent_model,
@@ -182,7 +176,7 @@ class OutcomeModel:
     @staticmethod
     def _predict_cvae(art: _CvaeArtifact, features: np.ndarray) -> Outcome:
         """Generate yards + turnover (+ completion for PASS) from a CVAE."""
-        import torch
+        import torch  # noqa: PLC0415
 
         x = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
         if art.feat_mean is not None:
@@ -215,17 +209,27 @@ class OutcomeModel:
         )
 
     def _predict_st(self, features: np.ndarray, intent: Intent, state: _GameState) -> Outcome:
-        """Predict special-teams outcome (FG or punt)."""
-        x = features[:BASE_FEATURE_COUNT].reshape(1, -1)
+        """Predict special-teams outcome (FG or punt).
+
+        Blocked probability is fixed at 0.05% (0.0005) for both FGs and punts.
+        """
+        blocked_prob = 0.0005  # 0.05%
+        yardline = state[6]  # _YL index
+
+        rng = np.random.default_rng()
+
         match intent:
             case Intent.FIELD_GOAL:
-                fg_made = bool(self._fg.predict(x)[0] == 1)
-                yardline = state[6]  # _YL index
-                yards = yardline + 10 if fg_made else max(1, yardline - 20)
+                # 0.05% chance of blocked, otherwise made
+                blocked = rng.random() < blocked_prob
+                yards = yardline - 20 if blocked else yardline + 10
             case Intent.PUNT:
-                if bool(self._punt_blocked.predict(x)[0] == 1):
+                # 0.05% chance of blocked, otherwise predict yards
+                blocked = rng.random() < blocked_prob
+                if blocked:
                     yards = -35  # blocked: defense returns
                 else:
+                    x = features[:BASE_FEATURE_COUNT].reshape(1, -1)
                     yards = max(0, round(float(self._punt_yards.predict(x)[0])))
             case _:
                 raise ValueError(f"Unexpected ST intent: {intent}")
