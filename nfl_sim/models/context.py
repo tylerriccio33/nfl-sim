@@ -7,7 +7,6 @@ from typing import ClassVar, Literal, Self
 import polars as pl
 
 from nfl_sim.engine.state import GameTrace, _GameState
-from nfl_sim.pipeline_config import GAME_FEATURE_NAMES
 
 
 # TODO: Right now there are a lot tests with this that should get auto generated in a fixture
@@ -22,7 +21,7 @@ class GameFeatures:
     # home_season_epa, home_12_week_epa, away_*, etc.
     # features that require schedule/meta and pbp
 
-    feature_names: ClassVar[list[str]] = GAME_FEATURE_NAMES
+    feature_names: ClassVar[list[str]] = ["spread", "epa"]
     """For logging feature metadata later on."""
 
     def get(self, key: Literal["HOME", "AWAY"]) -> list[int | float]:

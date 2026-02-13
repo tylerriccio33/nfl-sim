@@ -1,9 +1,11 @@
 """Central pipeline configuration loaded from pipeline.toml.
 
-Every hardcoded constant that wires models together — feature names, artifact
-paths, intent mappings, time-model conditioning fields — lives in the TOML.
-This module loads it once at import time and exposes derived constants that
-the rest of the codebase imports instead of defining locally.
+Every model explicitly declares:
+- Input features (from GameState + GameContext)
+- Output outcomes (what it produces)
+
+This structure makes data flow transparent and prevents drift between models.
+Configuration is loaded once at import time.
 """
 
 from __future__ import annotations
@@ -21,14 +23,12 @@ _TOML_PATH = Path(__file__).parent / "pipeline.toml"
 with _TOML_PATH.open("rb") as _f:
     CONFIG: dict[str, Any] = tomllib.load(_f)
 
-# ── Features ─────────────────────────────────────────────────────
+# ── Feature Lists ────────────────────────────────────────────────
 
-STATE_FEATURE_NAMES: list[str] = CONFIG["features"]["state"]
-GAME_FEATURE_NAMES: list[str] = CONFIG["features"]["game"]
-BASE_FEATURE_COUNT: int = len(STATE_FEATURE_NAMES) + len(GAME_FEATURE_NAMES)
+STATE_FEATURE_NAMES: list[str] = CONFIG["state_features"]
+GAME_FEATURE_NAMES: list[str] = CONFIG["game_features"]
 
 # ── Intents ──────────────────────────────────────────────────────
-# Each intent has value (int) and route (str)
 
 INTENT_VALUES: dict[str, int] = {k: v["value"] for k, v in CONFIG["intents"].items()}
 INTENT_TO_ROUTE: dict[str, str] = {k: v["route"] for k, v in CONFIG["intents"].items()}
@@ -37,18 +37,40 @@ INTENT_TO_ROUTE: dict[str, str] = {k: v["route"] for k, v in CONFIG["intents"].i
 
 PLAY_TYPE_MAP: dict[str, str] = CONFIG["play_type_map"]
 
-# ── Time Model ───────────────────────────────────────────────────
-
-TIME_CONDITIONING: list[str] = CONFIG["time_model"]["conditioning"]
-TIME_CONDITIONING_DEFAULTS: dict[str, int | float] = CONFIG["time_model"]["conditioning_defaults"]
-
-# ── Route configs ────────────────────────────────────────────────
+# ── Route configs (outcome sub-models) ────────────────────────────
 
 ROUTE_CONFIGS: dict[str, Any] = CONFIG["routes"]
 
-# ── CVAE defaults ────────────────────────────────────────────────
+# ── Models with their features and outcomes ──────────────────────
 
-CVAE_DEFAULTS: dict[str, Any] = CONFIG["cvae_defaults"]
+
+@dataclass(frozen=True)
+class ModelConfig:
+    """A model's input features and output outcomes."""
+
+    name: str
+    features: list[str]
+    outcomes: list[str]
+
+
+# Intent model
+INTENT_MODEL_FEATURES: list[str] = CONFIG["intent_model"]["features"]
+
+# Outcome sub-models (RUN, PASS, ST.PUNT) declare features and outcomes
+RUN_FEATURES: list[str] = CONFIG["routes"]["RUN"]["features"]
+RUN_OUTCOMES: list[str] = CONFIG["routes"]["RUN"]["outcomes"]
+
+PASS_FEATURES: list[str] = CONFIG["routes"]["PASS"]["features"]
+PASS_OUTCOMES: list[str] = CONFIG["routes"]["PASS"]["outcomes"]
+
+PUNT_FEATURES: list[str] = CONFIG["routes"]["ST"]["PUNT"]["features"]
+PUNT_OUTCOMES: list[str] = CONFIG["routes"]["ST"]["PUNT"]["outcomes"]
+
+# Time model: takes state features + outcome conditioning fields
+TIME_MODEL_BASE_FEATURES: list[str] = CONFIG["time_model"]["base_features"]
+TIME_MODEL_OUTCOME_CONDITIONING: list[str] = CONFIG["time_model"]["outcome_conditioning"]
+TIME_MODEL_FEATURES: list[str] = CONFIG["time_model"]["features"]
+TIME_MODEL_OUTCOMES: list[str] = CONFIG["time_model"]["outcomes"]
 
 # ── Artifact paths ───────────────────────────────────────────────
 
@@ -89,11 +111,11 @@ ARTIFACT_PATHS = ArtifactPaths()
 # source of truth for field names. This validation runs at import time to
 # catch any drift between the two.
 
-OUTCOME_FIELDS: list[str] = list(CONFIG["outcome"].keys())
+OUTCOME_FIELDS: list[str] = list(CONFIG["outcome_fields"].keys())
 
 
 def _validate_outcome_class() -> None:
-    """Verify that the Outcome dataclass matches pipeline.toml [outcome.*]."""
+    """Verify that the Outcome dataclass matches pipeline.toml [outcome_fields.*]."""
     dc_field_names = {f.name for f in dc_fields(Outcome)}
     toml_field_names = set(OUTCOME_FIELDS)
 
@@ -101,7 +123,7 @@ def _validate_outcome_class() -> None:
     extra_in_class = dc_field_names - toml_field_names
 
     if missing_in_class or extra_in_class:
-        msg = "Outcome class and pipeline.toml [outcome.*] are out of sync:\n"
+        msg = "Outcome class and pipeline.toml [outcome_fields.*] are out of sync:\n"
         if missing_in_class:
             msg += f"  Missing from Outcome class: {missing_in_class}\n"
         if extra_in_class:
@@ -114,3 +136,7 @@ _validate_outcome_class()
 # ── Training config ──────────────────────────────────────────────
 
 TRAINING_CONFIG: dict[str, Any] = CONFIG["training"]
+
+# ── CVAE defaults ────────────────────────────────────────────────
+
+CVAE_DEFAULTS: dict[str, Any] = CONFIG["cvae_defaults"]

@@ -1,8 +1,9 @@
-# ── Features ──────────────────────────────────────────────────────
-# Order here IS the feature vector order. Do not reorder without retraining.
-[features]
-state = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go"]
-game  = ["spread", "epa"]
+# ── Feature Reference ─────────────────────────────────────────
+# These lists document the structure of features used throughout the system.
+# GameState-only features (7 total)
+state_features = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go"]
+# GameContext features (2 total)
+game_features = ["spread", "epa"]
 
 # ── Intents ───────────────────────────────────────────────────────
 [intents.RUN]
@@ -29,85 +30,112 @@ qb_kneel   = "RUN"
 punt       = "PUNT"
 field_goal = "FIELD_GOAL"
 
-# ── Outcome fields ────────────────────────────────────────────────
-# Defines every field on Outcome and how it's sourced.
-
-[outcome.yards_gained]
-kind       = "continuous"
-default    = 0
-pbp_column = "yards_gained"
-
-[outcome.turnover_type]
-kind    = "categorical"
-classes = ["NONE", "INTERCEPTION", "FUMBLE"]
-default = "NONE"
-# Derived from two columns via custom logic in prepare.py
-pbp_columns = ["interception", "fumble_lost"]
-
-[outcome.completion]
-kind          = "boolean"
-default       = true
-pbp_column    = "complete_pass"
-pbp_fill_null = 0
-
-[outcome.touchdown]
-kind    = "boolean"
-default = false
-source  = "engine"  # detected by state machine, not model-predicted
-
-[outcome.time_elapsed]
-kind    = "continuous"
-default = 0
-source  = "time_model"  # predicted by dedicated time model
-
-# ── Routes (Outcome Sub-Models) ──────────────────────────────────
-
-[routes.RUN]
-model_type          = "cvae"
-artifact_dir        = "training/artifacts/cvae/run"
-continuous_outputs  = ["yards_gained"]
-categorical_outputs = ["turnover_type"]
-
-[routes.PASS]
-model_type          = "cvae"
-artifact_dir        = "training/artifacts/cvae/pass"
-continuous_outputs  = ["yards_gained"]
-categorical_outputs = ["turnover_type", "completion"]
-
-[routes.ST]
-model_type = "dispatch"  # dispatches to sub-models based on intent
-# Blocked probability (0.05%) is hardcoded in outcomes.py, no model needed
-
-[routes.ST.PUNT]
-# Only the yards model is used; blocked outcome is sampled at 0.05% probability
-model_type    = "sklearn"
-artifact_path = "training/artifacts/punt/yards.joblib"
-target        = "yards"
-
-[routes.ST.time_override]
-value = 20
-
-# ── Intent Model ──────────────────────────────────────────────────
+# ── Intent Model ──────────────────────────────────────────────────────
 [intent_model]
 artifact_dir      = "training/artifacts/rf/intent"
 compiled_artifact = "model.tl"
 meta_artifact     = "meta.json"
 
-# ── Time Model ────────────────────────────────────────────────────
+# Input features (from GameState + GameContext)
+features = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go", "spread", "epa"]
+outcomes = ["intent"]
+
+# ── Outcome Sub-Models ────────────────────────────────────────────────
+# Each model declares its input features and output outcomes.
+
+[routes.RUN]
+description = "CVAE for RUN plays"
+model_type  = "cvae"
+artifact_dir = "training/artifacts/cvae/run"
+
+# Input features from GameState + GameContext
+features = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go", "spread", "epa"]
+
+# Output outcomes produced by this model
+outcomes = ["yards_gained", "turnover_type", "completion"]
+
+[routes.PASS]
+description = "CVAE for PASS plays"
+model_type  = "cvae"
+artifact_dir = "training/artifacts/cvae/pass"
+
+# Input features from GameState + GameContext
+features = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go", "spread", "epa"]
+
+# Output outcomes produced by this model
+outcomes = ["yards_gained", "turnover_type", "completion"]
+
+[routes.ST]
+description = "Special teams dispatcher (punt/field goal)"
+model_type  = "dispatch"  # routes to sub-models based on intent
+
+[routes.ST.PUNT]
+description = "Decision tree for punt yards"
+model_type  = "sklearn"
+artifact_path = "training/artifacts/punt/yards.joblib"
+target = "yards"
+
+# Blocked probability (0.05%) is hardcoded in outcomes.py, no model needed
+features = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go", "spread", "epa"]
+outcomes = ["yards_gained"]
+
+# ST plays use a fixed time override
+[routes.ST.time_override]
+value = 20
+
+# ── Time Model ────────────────────────────────────────────────────────
 [time_model]
+description = "LinearRegression for time_elapsed given state + outcome"
 artifact_dir  = "training/artifacts/time"
 artifact_file = "model.json"
 
-# Outcome fields appended as extra features after the base features.
-# Order here IS the appended feature order.
-conditioning = ["yards_gained", "completion"]
+# Base features from game state and context
+base_features = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go", "spread", "epa"]
 
-# Defaults when a conditioning field isn't available (e.g., ST plays)
-[time_model.conditioning_defaults]
-yards_gained = 0
-completion   = 1
+# Features from prior outcome models (appended after play is generated)
+outcome_conditioning = ["yards_gained", "completion"]
 
-# ── CVAE Defaults ─────────────────────────────────────────────────
+# Full feature list (base + outcome conditioning, in order)
+features = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go", "spread", "epa", "yards_gained", "completion"]
+
+# Output: time_elapsed
+outcomes = ["time_elapsed"]
+
+# ── Outcome Field Reference ───────────────────────────────────────────
+# Each possible outcome field with its type, default, and data source.
+# This documents the contract for the Outcome dataclass.
+
+[outcome_fields.yards_gained]
+kind       = "continuous"
+default    = 0
+pbp_column = "yards_gained"
+source     = "model"
+
+[outcome_fields.turnover_type]
+kind       = "categorical"
+classes    = ["NONE", "INTERCEPTION", "FUMBLE"]
+default    = "NONE"
+pbp_columns = ["interception", "fumble_lost"]
+source     = "model"
+
+[outcome_fields.completion]
+kind          = "boolean"
+default       = true
+pbp_column    = "complete_pass"
+pbp_fill_null = 0
+source        = "model"
+
+[outcome_fields.touchdown]
+kind   = "boolean"
+default = false
+source = "engine"
+
+[outcome_fields.time_elapsed]
+kind   = "continuous"
+default = 0
+source = "time_model"
+
+# ── CVAE Defaults ─────────────────────────────────────────────────────
 [cvae_defaults]
 latent_dim    = 16
 hidden_dim    = 64
@@ -117,7 +145,7 @@ epochs        = 100
 batch_size    = 256
 learning_rate = 1e-3
 
-# ── Training Data ─────────────────────────────────────────────────
+# ── Training Data ─────────────────────────────────────────────────────
 [training]
 pbp_path      = "data/pbp.parquet"
 schedule_path = "data/schedules.parquet"

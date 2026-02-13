@@ -17,7 +17,7 @@ from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.tree import DecisionTreeRegressor
 
 from nfl_sim.engine.state import Intent
-from nfl_sim.pipeline_config import ARTIFACT_PATHS, BASE_FEATURE_COUNT
+from nfl_sim.pipeline_config import ARTIFACT_PATHS, PUNT_FEATURES
 from training.prepare import prepare
 
 console = Console()
@@ -39,7 +39,9 @@ def train_punt_yards_model(features: np.ndarray, intent: np.ndarray, yards: np.n
         raise ValueError("No punt samples found in training data")
 
     # Use only the features available at inference time (state + game features)
-    features_punt = features_punt[:, :BASE_FEATURE_COUNT]
+    # as declared in the punt model config
+    punt_feature_count = len(PUNT_FEATURES)
+    features_punt = features_punt[:, :punt_feature_count]
 
     # Drop NaN/inf rows
     bad = ~np.isfinite(features_punt).all(axis=1) | ~np.isfinite(yards_punt)

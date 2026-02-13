@@ -19,7 +19,11 @@ from rich.table import Table
 from sklearn.linear_model import LinearRegression
 
 from nfl_sim.engine.state import Intent
-from nfl_sim.pipeline_config import ARTIFACT_PATHS, BASE_FEATURE_COUNT, TIME_CONDITIONING
+from nfl_sim.pipeline_config import (
+    ARTIFACT_PATHS,
+    TIME_MODEL_BASE_FEATURES,
+    TIME_MODEL_OUTCOME_CONDITIONING,
+)
 from training.prepare import prepare
 
 console = Console()
@@ -48,16 +52,17 @@ def train_time_model(
     Returns the MAE on held-out evaluation data.
 
     """
-    # Use only the features available at inference time (state + game features).
+    # Use only the base features available at inference time (state + game features).
     # Training data from prepare() may have more features, so we slice to match inference.
-    features = features[:, :BASE_FEATURE_COUNT]
+    base_feature_count = len(TIME_MODEL_BASE_FEATURES)
+    features = features[:, :base_feature_count]
 
-    # Append conditioning fields (yards_gained, completion, etc.) as defined in pipeline.toml.
+    # Append outcome conditioning fields (yards_gained, completion, etc.) as defined in pipeline.toml.
     # At inference, these come from the outcome model.
     if completion is None:
         completion = np.ones(len(features), dtype=np.int32)
     conditioning_arrays = {"yards_gained": yards, "completion": completion}
-    for field_name in TIME_CONDITIONING:
+    for field_name in TIME_MODEL_OUTCOME_CONDITIONING:
         arr = conditioning_arrays[field_name]
         features = np.concatenate([features, arr.reshape(-1, 1)], axis=1)
 

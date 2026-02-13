@@ -49,8 +49,9 @@ from nfl_sim.models.context import ModelContext
 from nfl_sim.models.features import build_features
 from nfl_sim.pipeline_config import (
     ARTIFACT_PATHS,
-    BASE_FEATURE_COUNT,
-    TIME_CONDITIONING,
+    PUNT_FEATURES,
+    TIME_MODEL_BASE_FEATURES,
+    TIME_MODEL_OUTCOME_CONDITIONING,
 )
 
 # Training data uses 0/1/2 for turnover_type, but the enum uses auto() → 1/2/3.
@@ -224,7 +225,9 @@ class OutcomeModel:
                 if blocked:
                     yards_gained = -35  # blocked: defense returns
                 else:
-                    x = features[:BASE_FEATURE_COUNT].reshape(1, -1)
+                    # Use only punt model features (state + game context)
+                    punt_feature_count = len(PUNT_FEATURES)
+                    x = features[:punt_feature_count].reshape(1, -1)
                     yards_gained = max(0, round(float(self._punt_yards.predict(x)[0])))
             case _:
                 raise ValueError(f"Unexpected ST intent: {intent}")
@@ -244,9 +247,10 @@ class OutcomeModel:
 
         Uses pre-trained linear regression coefficients for instant numpy inference.
         """
-        base = features[:BASE_FEATURE_COUNT]
+        base_feature_count = len(TIME_MODEL_BASE_FEATURES)
+        base = features[:base_feature_count]
         extras = []
-        for field_name in TIME_CONDITIONING:
+        for field_name in TIME_MODEL_OUTCOME_CONDITIONING:
             val = getattr(outcome, field_name)
             extras.append(int(val) if isinstance(val, bool) else val)
         full_features = np.concatenate([base, np.array(extras)])

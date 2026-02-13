@@ -3,15 +3,21 @@
 Runtime extraction from ModelContext via build_features().
 Training-time extraction lives in training/prepare.py.
 
-Both paths must produce the exact same feature vector layout, which is
-enforced by deriving FEATURE_NAMES from GameFeatures automatically.
+Each model declares its features in pipeline.toml. Feature extraction must
+produce a vector matching the order declared for that model.
 """
 
 import numpy as np
 
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, _GameState
 from nfl_sim.models.context import ModelContext
-from nfl_sim.pipeline_config import GAME_FEATURE_NAMES, STATE_FEATURE_NAMES
+from nfl_sim.pipeline_config import (
+    INTENT_MODEL_FEATURES,
+    PASS_FEATURES,
+    PUNT_FEATURES,
+    RUN_FEATURES,
+    TIME_MODEL_FEATURES,
+)
 
 
 def features_from_state(s: _GameState) -> list[float]:
@@ -41,5 +47,27 @@ def build_features(context: ModelContext) -> np.ndarray:
     return np.array(state_feats + game_feats, dtype=np.float32)
 
 
-def _gen_feature_names():  # pragma: no cover
-    return STATE_FEATURE_NAMES + GAME_FEATURE_NAMES
+def _gen_feature_names(model: str = "intent") -> list[str]:  # pragma: no cover
+    """Return feature names for a specific model.
+
+    Args:
+        model: Model name ("intent", "run", "pass", "punt", "time").
+               Defaults to "intent" for backward compatibility.
+
+    Returns:
+        Feature names in the order expected by that model.
+
+    """
+    match model.lower():
+        case "intent":
+            return INTENT_MODEL_FEATURES
+        case "run":
+            return RUN_FEATURES
+        case "pass":
+            return PASS_FEATURES
+        case "punt":
+            return PUNT_FEATURES
+        case "time":
+            return TIME_MODEL_FEATURES
+        case _:
+            raise ValueError(f"Unknown model: {model}")
