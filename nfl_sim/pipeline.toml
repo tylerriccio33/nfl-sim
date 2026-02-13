@@ -61,12 +61,12 @@ learning_rate = 1e-3
 
 [models.punt]
 artifact = "training/artifacts/punt/yards.joblib"
-features = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go", "spread", "epa"]
+features = ["yardline"]
 outcomes = ["yards_gained"]
 
 [models.time]
 artifact = "training/artifacts/time/model.json"
-features = ["down", "dist", "yardline", "score_diff", "quarter", "clock", "goal_to_go", "spread", "epa", "yards_gained", "completion"]
+features = ["yards_gained", "completion"]
 outcomes = ["time_elapsed"]
 
 # ST plays use a fixed time override (no model needed)
