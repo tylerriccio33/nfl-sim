@@ -32,7 +32,7 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
 
     # Apply yards (TD check uses <= 0, so don't clamp the lower bound here)
     # Upper bound: >100 would be safety - clamp to 99 for now (safety handling TBD)
-    new_yardline = min(99, state[_YL] - outcome.yards)
+    new_yardline = min(99, state[_YL] - outcome.yards_gained)
 
     # Handle field goal (special case - points without TD, changes possession)
     if intent == Intent.FIELD_GOAL:
@@ -92,7 +92,7 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
         )
 
     # Handle first down
-    if outcome.yards >= state[_DIST]:
+    if outcome.yards_gained >= state[_DIST]:
         return (
             new_quarter,
             new_clock,
@@ -125,7 +125,7 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
         state[_OFF],
         state[_DEF],
         state[_DN] + 1,
-        state[_DIST] - outcome.yards,
+        state[_DIST] - outcome.yards_gained,
         new_yardline,
         state[_SC],
     )

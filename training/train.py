@@ -377,7 +377,7 @@ def main() -> None:
             name=route_name,
             artifact_dir=artifact_dir,
             features=data.features[mask],
-            yards=data.yards[mask],
+            yards=data.yards_gained[mask],
             turnover_type=data.turnover_type[mask],
             completion=route_completion,
         )

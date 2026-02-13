@@ -141,7 +141,7 @@ def test_zero_features_produce_finite_output():
     ctx = _make_context(quarter=0, clock=0, down=0, distance=0, yardline=0, score=(0, 0))
     intent, out = outcome_model(ctx)
     assert isinstance(intent, Intent)
-    assert isinstance(out.yards, int)
+    assert isinstance(out.yards_gained, int)
 
 
 def test_neutral_state_produces_sane_output():
@@ -158,7 +158,7 @@ def test_neutral_state_produces_sane_output():
     intent, out = outcome_model(ctx)
 
     assert isinstance(intent, Intent)
-    assert -15 <= out.yards <= 100
+    assert -15 <= out.yards_gained <= 100
     assert 1 <= out.time_elapsed <= 450
     assert out.turnover_type in (TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FUMBLE)
 
@@ -192,7 +192,7 @@ def test_edge_inputs_no_nan(kw: dict):
     intent, out = outcome_model(ctx)
 
     assert isinstance(intent, Intent)
-    assert np.isfinite(out.yards), f"yards is not finite: {out.yards}"
+    assert np.isfinite(out.yards_gained), f"yards_gained is not finite: {out.yards_gained}"
     assert np.isfinite(out.time_elapsed), f"time_elapsed is not finite: {out.time_elapsed}"
 
 

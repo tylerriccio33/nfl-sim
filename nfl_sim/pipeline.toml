@@ -32,7 +32,7 @@ field_goal = "FIELD_GOAL"
 # ── Outcome fields ────────────────────────────────────────────────
 # Defines every field on Outcome and how it's sourced.
 
-[outcome.yards]
+[outcome.yards_gained]
 kind       = "continuous"
 default    = 0
 pbp_column = "yards_gained"
@@ -65,13 +65,13 @@ source  = "time_model"  # predicted by dedicated time model
 [routes.RUN]
 model_type          = "cvae"
 artifact_dir        = "training/artifacts/cvae/run"
-continuous_outputs  = ["yards"]
+continuous_outputs  = ["yards_gained"]
 categorical_outputs = ["turnover_type"]
 
 [routes.PASS]
 model_type          = "cvae"
 artifact_dir        = "training/artifacts/cvae/pass"
-continuous_outputs  = ["yards"]
+continuous_outputs  = ["yards_gained"]
 categorical_outputs = ["turnover_type", "completion"]
 
 [routes.ST]
@@ -100,12 +100,12 @@ artifact_file = "model.json"
 
 # Outcome fields appended as extra features after the base features.
 # Order here IS the appended feature order.
-conditioning = ["yards", "completion"]
+conditioning = ["yards_gained", "completion"]
 
 # Defaults when a conditioning field isn't available (e.g., ST plays)
 [time_model.conditioning_defaults]
-yards      = 0
-completion = 1
+yards_gained = 0
+completion   = 1
 
 # ── CVAE Defaults ─────────────────────────────────────────────────
 [cvae_defaults]

@@ -95,7 +95,7 @@ def main() -> None:
     print("Preparing training data...")
     data = prepare()
 
-    train_punt_yards_model(data.features, data.intent, data.yards)
+    train_punt_yards_model(data.features, data.intent, data.yards_gained)
 
     print("Done.")
 

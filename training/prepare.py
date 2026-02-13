@@ -60,7 +60,7 @@ class TrainingData:
 
     features: np.ndarray  # (N, num_features)
     intent: np.ndarray  # (N,) int: Intent ordinal
-    yards: np.ndarray  # (N,) int: yards gained
+    yards_gained: np.ndarray  # (N,) int: yards gained
     time_elapsed: np.ndarray  # (N,) float: estimated seconds per play
     turnover_type: np.ndarray  # (N,) int: 0=none, 1=interception, 2=fumble
     fg_success: np.ndarray  # (N,) int: 1=FG made, 0=FG miss/blocked (for FG plays only)
@@ -209,7 +209,7 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
     return TrainingData(
         features=feat_mat,
         intent=target_intent,
-        yards=target_yards,
+        yards_gained=target_yards,
         time_elapsed=target_time,
         turnover_type=target_turnover,
         fg_success=target_fg_success,

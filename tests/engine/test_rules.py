@@ -215,7 +215,7 @@ def _gained_first_down(event: PlayEvent) -> bool:
     """Check if a play resulted in a first down (same possession, gained enough yards)."""
     before, after = event.state_before, event.state_after
     same_possession = before[_OFF] == after[_OFF]
-    return same_possession and event.outcome.yards >= before[_DIST]
+    return same_possession and event.outcome.yards_gained >= before[_DIST]
 
 
 def check_down_increments_without_first_down(trace: GameTrace) -> None:
@@ -242,7 +242,7 @@ def check_first_down_resets_down(trace: GameTrace) -> None:
         same_possession = before[_OFF] == after[_OFF]
         if not same_possession:
             continue
-        yards_gained = event.outcome.yards
+        yards_gained = event.outcome.yards_gained
         got_first_down = yards_gained >= before[_DIST]
         if got_first_down and not event.outcome.touchdown:
             assert after[_DN] == 1, f"First down but down={after[_DN]}, not 1"
@@ -255,7 +255,7 @@ def check_first_down_resets_distance(trace: GameTrace) -> None:
         same_possession = before[_OFF] == after[_OFF]
         if not same_possession:
             continue
-        yards_gained = event.outcome.yards
+        yards_gained = event.outcome.yards_gained
         got_first_down = yards_gained >= before[_DIST]
         if got_first_down and not event.outcome.touchdown:
             expected = min(10, after[_YL])
@@ -281,7 +281,7 @@ def check_fourth_down_failure_ends_possession(trace: GameTrace) -> None:
             continue
         if event.outcome.touchdown:
             continue
-        yards_gained = event.outcome.yards
+        yards_gained = event.outcome.yards_gained
         got_first_down = yards_gained >= before[_DIST]
         if not got_first_down:
             # Should flip possession (turnover on downs)
@@ -318,8 +318,8 @@ def check_field_goal_gives_3(trace: GameTrace) -> None:
             continue
         before, after = event.state_before, event.state_after
         delta = sum(after[_SC]) - sum(before[_SC])
-        # FG is made when yards >= yardline (reaching the endzone)
-        fg_made = event.outcome.yards >= before[_YL]
+        # FG is made when yards_gained >= yardline (reaching the endzone)
+        fg_made = event.outcome.yards_gained >= before[_YL]
         if fg_made:
             assert delta == 3, f"Made FG gave {delta} points, expected 3"
         else:
@@ -389,7 +389,7 @@ def check_possession_flip_has_reason(trace: GameTrace) -> None:
         # 4th down failure
         is_fourth_down_fail = (
             before[_DN] == 4
-            and event.outcome.yards < before[_DIST]
+            and event.outcome.yards_gained < before[_DIST]
             and event.intent not in (Intent.PUNT, Intent.FIELD_GOAL)
         )
         has_reason = is_punt or is_turnover or is_fg or is_td or is_fourth_down_fail

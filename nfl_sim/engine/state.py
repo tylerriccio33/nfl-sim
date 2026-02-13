@@ -98,7 +98,7 @@ class Outcome:
     add it there too. Runtime validation in pipeline_config catches drift.
     """
 
-    yards: int
+    yards_gained: int
     turnover_type: TurnoverType
     touchdown: bool
     time_elapsed: int

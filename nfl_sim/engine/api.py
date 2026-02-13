@@ -64,7 +64,7 @@ def _run_game_loop(
 
         # Engine detects TDs by yardline - reflect this in the outcome for consumers
         if intent not in (Intent.FIELD_GOAL, Intent.PUNT):
-            new_yardline = state[_YL] - outcome.yards
+            new_yardline = state[_YL] - outcome.yards_gained
             if new_yardline <= 0:
                 outcome.touchdown = True
 
@@ -289,7 +289,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
                     yardline[i] = sb[_YL]
                     posteam[i] = sb[_OFF]
 
-                    yards_gained[i] = play.outcome.yards
+                    yards_gained[i] = play.outcome.yards_gained
                     event[i] = _event_from_play(play)
 
                     home_score[i] = sa[_SC][0]

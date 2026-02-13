@@ -52,11 +52,11 @@ def train_time_model(
     # Training data from prepare() may have more features, so we slice to match inference.
     features = features[:, :BASE_FEATURE_COUNT]
 
-    # Append conditioning fields (yards, completion, etc.) as defined in pipeline.toml.
+    # Append conditioning fields (yards_gained, completion, etc.) as defined in pipeline.toml.
     # At inference, these come from the outcome model.
     if completion is None:
         completion = np.ones(len(features), dtype=np.int32)
-    conditioning_arrays = {"yards": yards, "completion": completion}
+    conditioning_arrays = {"yards_gained": yards, "completion": completion}
     for field_name in TIME_CONDITIONING:
         arr = conditioning_arrays[field_name]
         features = np.concatenate([features, arr.reshape(-1, 1)], axis=1)
@@ -127,7 +127,7 @@ def main() -> None:
     pass_mask = data.intent == Intent.PASS.value
     completion[pass_mask] = data.complete_pass[pass_mask]
 
-    train_time_model(data.features, data.time_elapsed, data.yards, completion)
+    train_time_model(data.features, data.time_elapsed, data.yards_gained, completion)
 
     print("Done.")
 

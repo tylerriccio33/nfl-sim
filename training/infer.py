@@ -151,7 +151,7 @@ def infer() -> pl.DataFrame:
         intent, outcome = outcome_model(model_context)
 
         pred_intents.append(int(intent.value))
-        pred_yards.append(int(outcome.yards))
+        pred_yards.append(int(outcome.yards_gained))
         pred_turnover.append(outcome.turnover_type.name)
         pred_time.append(int(outcome.time_elapsed))
 
@@ -188,7 +188,7 @@ def infer() -> pl.DataFrame:
                 "pred_time": pred_time,
                 # Actual outcomes for comparison
                 "actual_intent": actual_intent_names,
-                "actual_yards": data.yards[:n_preds],
+                "actual_yards": data.yards_gained[:n_preds],
                 "actual_turnover": actual_turnover_names,
                 "actual_time": data.time_elapsed[:n_preds],
                 # Original pbp data

@@ -172,7 +172,7 @@ class OutcomeModel:
 
     @staticmethod
     def _predict_cvae(art: _CvaeArtifact, features: np.ndarray) -> Outcome:
-        """Generate yards + turnover (+ completion for PASS) from a CVAE."""
+        """Generate yards_gained + turnover (+ completion for PASS) from a CVAE."""
         x = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
         if art.feat_mean is not None:
             assert art.feat_std is not None
@@ -183,20 +183,20 @@ class OutcomeModel:
             assert art.cont_std is not None
             cont = cont * art.cont_std + art.cont_mean
 
-        raw_yards = cont[0, 0].item()
-        yards = round(raw_yards) if math.isfinite(raw_yards) else 0
+        raw_yards_gained = cont[0, 0].item()
+        yards_gained = round(raw_yards_gained) if math.isfinite(raw_yards_gained) else 0
 
         # Number of categorical heads depends on the route config:
         # RUN has [turnover], PASS has [turnover, completion]
         if len(cat_samples) > 1:
             completion = bool(cat_samples[1][0].item() == 1)
             if not completion:
-                yards = 0
+                yards_gained = 0
         else:
             completion = True
 
         return Outcome(
-            yards=yards,
+            yards_gained=yards_gained,
             turnover_type=_TURNOVER_INDEX[int(cat_samples[0][0].item())],
             touchdown=False,
             time_elapsed=0,
@@ -217,20 +217,20 @@ class OutcomeModel:
             case Intent.FIELD_GOAL:
                 # 0.05% chance of blocked, otherwise made
                 blocked = rng.random() < blocked_prob
-                yards = yardline - 20 if blocked else yardline + 10
+                yards_gained = yardline - 20 if blocked else yardline + 10
             case Intent.PUNT:
-                # 0.05% chance of blocked, otherwise predict yards
+                # 0.05% chance of blocked, otherwise predict yards_gained
                 blocked = rng.random() < blocked_prob
                 if blocked:
-                    yards = -35  # blocked: defense returns
+                    yards_gained = -35  # blocked: defense returns
                 else:
                     x = features[:BASE_FEATURE_COUNT].reshape(1, -1)
-                    yards = max(0, round(float(self._punt_yards.predict(x)[0])))
+                    yards_gained = max(0, round(float(self._punt_yards.predict(x)[0])))
             case _:
                 raise ValueError(f"Unexpected ST intent: {intent}")
 
         return Outcome(
-            yards=yards,
+            yards_gained=yards_gained,
             turnover_type=TurnoverType.NONE,
             touchdown=False,
             time_elapsed=20,
@@ -260,10 +260,10 @@ class OutcomeModel:
     def __call__(self, context: ModelContext) -> tuple[Intent, Outcome]:
         """Run the full model graph for a single play.
 
-        features → intent (RF) → route → outcome (CVAE/ST) → time (conditioned on yards & completion)
+        features → intent (RF) → route → outcome (CVAE/ST) → time (conditioned on yards_gained & completion)
 
         Time is predicted after outcome is known, so it can be conditioned on
-        the actual yards gained and whether a PASS was completed.
+        the actual yards_gained and whether a PASS was completed.
         """
         if not self._loaded:
             self._load()
@@ -282,7 +282,7 @@ class OutcomeModel:
             case Route.RUN | Route.PASS:
                 cvae_model: _CvaeArtifact = self._cvae[route]
                 outcome = self._predict_cvae(cvae_model, features)
-                # Time for offensive plays is conditioned on outcome fields (yards, completion, etc.)
+                # Time for offensive plays is conditioned on outcome fields (yards_gained, completion, etc.)
                 outcome.time_elapsed = min(
                     self._predict_time(features, outcome), context.state[_CLK]
                 )

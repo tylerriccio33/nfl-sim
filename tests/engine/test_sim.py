@@ -61,7 +61,7 @@ def make_outcome(**kwargs) -> Outcome:
             kwargs["turnover_type"] = TurnoverType.FUMBLE if turnover else TurnoverType.NONE
 
     defaults = Outcome(
-        yards=0,
+        yards_gained=0,
         turnover_type=TurnoverType.NONE,
         touchdown=False,
         time_elapsed=5,
@@ -81,7 +81,7 @@ class TestDownProgression:
     def test_incomplete_pass_advances_down(self):
         """Incomplete pass (0 yards) should advance down without moving."""
         state = make_state(down=1, distance=10, yardline=75)
-        outcome = make_outcome(yards=0)
+        outcome = make_outcome(yards_gained=0)
 
         result = apply_outcome(state, Intent.PASS, outcome)
 
@@ -92,7 +92,7 @@ class TestDownProgression:
     def test_short_gain_advances_down(self):
         """3 yard gain on 1st & 10 → 2nd & 7."""
         state = make_state(down=1, distance=10, yardline=75)
-        outcome = make_outcome(yards=3)
+        outcome = make_outcome(yards_gained=3)
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -103,7 +103,7 @@ class TestDownProgression:
     def test_second_to_third_down(self):
         """2nd & 7 with 2 yard gain → 3rd & 5."""
         state = make_state(down=2, distance=7, yardline=72)
-        outcome = make_outcome(yards=2)
+        outcome = make_outcome(yards_gained=2)
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -114,7 +114,7 @@ class TestDownProgression:
     def test_third_to_fourth_down(self):
         """3rd & 5 with 1 yard gain → 4th & 4."""
         state = make_state(down=3, distance=5, yardline=70)
-        outcome = make_outcome(yards=1)
+        outcome = make_outcome(yards_gained=1)
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -125,7 +125,7 @@ class TestDownProgression:
     def test_loss_of_yards_increases_distance(self):
         """Sack for -5 yards on 2nd & 8 → 3rd & 13."""
         state = make_state(down=2, distance=8, yardline=50)
-        outcome = make_outcome(yards=-5)
+        outcome = make_outcome(yards_gained=-5)
 
         result = apply_outcome(state, Intent.PASS, outcome)
 
@@ -145,7 +145,7 @@ class TestFirstDown:
     def test_exact_first_down(self):
         """Gain exactly the needed yards → new 1st & 10."""
         state = make_state(down=2, distance=7, yardline=50)
-        outcome = make_outcome(yards=7)
+        outcome = make_outcome(yards_gained=7)
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -156,7 +156,7 @@ class TestFirstDown:
     def test_first_down_with_extra_yards(self):
         """Gain more than needed → still new 1st & 10."""
         state = make_state(down=3, distance=4, yardline=40)
-        outcome = make_outcome(yards=15)
+        outcome = make_outcome(yards_gained=15)
 
         result = apply_outcome(state, Intent.PASS, outcome)
 
@@ -167,7 +167,7 @@ class TestFirstDown:
     def test_first_down_on_fourth_down_conversion(self):
         """Converting 4th down gives new set of downs."""
         state = make_state(down=4, distance=1, yardline=30)
-        outcome = make_outcome(yards=3)
+        outcome = make_outcome(yards_gained=3)
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -179,7 +179,7 @@ class TestFirstDown:
     def test_goal_to_go_first_down(self):
         """First down inside 10 yard line → goal to go."""
         state = make_state(down=2, distance=6, yardline=12)
-        outcome = make_outcome(yards=8)
+        outcome = make_outcome(yards_gained=8)
 
         result = apply_outcome(state, Intent.PASS, outcome)
 
@@ -199,7 +199,7 @@ class TestTurnoverOnDowns:
     def test_fourth_down_failure(self):
         """Failing on 4th down → turnover on downs."""
         state = make_state(down=4, distance=5, yardline=50, offense="HOME", defense="AWAY")
-        outcome = make_outcome(yards=2)  # Short of first down
+        outcome = make_outcome(yards_gained=2)  # Short of first down
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -212,7 +212,7 @@ class TestTurnoverOnDowns:
     def test_fourth_down_incomplete_pass(self):
         """Incomplete pass on 4th down → turnover."""
         state = make_state(down=4, distance=10, yardline=65, offense="AWAY", defense="HOME")
-        outcome = make_outcome(yards=0)
+        outcome = make_outcome(yards_gained=0)
 
         result = apply_outcome(state, Intent.PASS, outcome)
 
@@ -233,7 +233,7 @@ class TestTurnovers:
     def test_fumble_changes_possession(self):
         """Fumble on run → defense gets ball at spot."""
         state = make_state(down=1, distance=10, yardline=50, offense="HOME", defense="AWAY")
-        outcome = make_outcome(yards=5, turnover=True)
+        outcome = make_outcome(yards_gained=5, turnover=True)
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -246,7 +246,7 @@ class TestTurnovers:
     def test_interception_changes_possession(self):
         """Interception → defense gets ball."""
         state = make_state(down=2, distance=8, yardline=40, offense="AWAY", defense="HOME")
-        outcome = make_outcome(yards=0, turnover=True)
+        outcome = make_outcome(yards_gained=0, turnover=True)
 
         result = apply_outcome(state, Intent.PASS, outcome)
 
@@ -267,7 +267,7 @@ class TestTouchdowns:
     def test_touchdown_scores_seven_points(self):
         """Reaching the endzone adds 7 points."""
         state = make_state(yardline=5, offense="HOME", defense="AWAY", score=(14, 7))
-        outcome = make_outcome(yards=5)  # Exactly to endzone
+        outcome = make_outcome(yards_gained=5)  # Exactly to endzone
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -276,7 +276,7 @@ class TestTouchdowns:
     def test_away_team_touchdown(self):
         """Away team scoring gets correct score update."""
         state = make_state(yardline=10, offense="AWAY", defense="HOME", score=(7, 14))
-        outcome = make_outcome(yards=15)
+        outcome = make_outcome(yards_gained=15)
 
         result = apply_outcome(state, Intent.PASS, outcome)
 
@@ -285,7 +285,7 @@ class TestTouchdowns:
     def test_touchdown_resets_possession(self):
         """After TD, other team gets ball at their 25."""
         state = make_state(yardline=8, offense="HOME", defense="AWAY")
-        outcome = make_outcome(yards=10)
+        outcome = make_outcome(yards_gained=10)
 
         result = apply_outcome(state, Intent.PASS, outcome)
 
@@ -298,7 +298,7 @@ class TestTouchdowns:
     def test_long_touchdown_run(self):
         """75+ yard TD run from own 25."""
         state = make_state(yardline=75, offense="HOME", score=(0, 0))
-        outcome = make_outcome(yards=80)
+        outcome = make_outcome(yards_gained=80)
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -422,7 +422,7 @@ class TestFieldPositionEdgeCases:
     def test_backed_up_deep_in_own_territory(self):
         """Play from own 5 yard line."""
         state = make_state(yardline=95)  # 5 yards from own endzone
-        outcome = make_outcome(yards=3)
+        outcome = make_outcome(yards_gained=3)
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -431,7 +431,7 @@ class TestFieldPositionEdgeCases:
     def test_near_goal_line(self):
         """Play from opponent's 1 yard line."""
         state = make_state(yardline=1, down=1, distance=1)
-        outcome = make_outcome(yards=0)
+        outcome = make_outcome(yards_gained=0)
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -451,7 +451,7 @@ class TestPossessionContinuity:
     def test_normal_play_keeps_possession(self):
         """Normal plays don't change possession."""
         state = make_state(offense="HOME", defense="AWAY")
-        outcome = make_outcome(yards=5)
+        outcome = make_outcome(yards_gained=5)
 
         result = apply_outcome(state, Intent.RUN, outcome)
 
@@ -461,7 +461,7 @@ class TestPossessionContinuity:
     def test_first_down_keeps_possession(self):
         """Getting first down keeps same possession."""
         state = make_state(down=3, distance=4, offense="AWAY")
-        outcome = make_outcome(yards=6)
+        outcome = make_outcome(yards_gained=6)
 
         result = apply_outcome(state, Intent.PASS, outcome)
 
@@ -483,7 +483,7 @@ class TestIntentTypeIndependence:
     def test_run_and_pass_same_outcome_same_result(self):
         """Same outcome should produce same state regardless of intent."""
         state = make_state()
-        outcome = make_outcome(yards=5, time_elapsed=7)
+        outcome = make_outcome(yards_gained=5, time_elapsed=7)
 
         run_result = apply_outcome(state, Intent.RUN, outcome)
         pass_result = apply_outcome(state, Intent.PASS, outcome)
