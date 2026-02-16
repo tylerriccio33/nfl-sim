@@ -232,7 +232,7 @@ class PosteriorContext:
     """
 
     yards_gained: int
-    completion: bool
+    complete_pass: bool
 
 
 @dataclass

@@ -81,7 +81,7 @@ class Outcome:
     turnover_type: TurnoverType
     touchdown: bool
     time_elapsed: int
-    completion: bool = True
+    complete_pass: bool = True
 
     @property
     def turnover(self) -> bool:

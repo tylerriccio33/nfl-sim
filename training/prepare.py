@@ -129,6 +129,7 @@ def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
     # TODO: I want this to be a lazyframe
 
     # Add derived columns
+    # TODO: probably don't need these
     df = df.with_columns(
         intent=intent_value_mapping,
         score_diff=pl.col("total_home_score") - pl.col("total_away_score"),

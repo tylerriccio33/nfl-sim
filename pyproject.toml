@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=2.0.0",
     "polars>=1.36.1",
     "polars-ds>=0.10.4",
+    "pysuite>=0.1.0",
     "rich>=14.2.0",
     "torch>=2.10.0",
 ]

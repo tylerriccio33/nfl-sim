@@ -54,7 +54,7 @@ def make_state(**kwargs) -> _GameState:
         defaults["distance"],
         defaults["yardline_100"],
         defaults["score"],
-    )  # ty:ignore[invalid-return-type]
+    )  # ty: ignore
 
 
 def make_outcome(**kwargs) -> Outcome:

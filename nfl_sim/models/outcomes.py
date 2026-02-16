@@ -183,18 +183,18 @@ class OutcomeModel:
         # Number of categorical heads depends on the route config:
         # RUN has [turnover], PASS has [turnover, completion]
         if len(cat_samples) > 1:
-            completion = bool(cat_samples[1][0].item() == 1)
-            if not completion:
+            complete_pass = bool(cat_samples[1][0].item() == 1)
+            if not complete_pass:
                 yards_gained = 0
         else:
-            completion = True
+            complete_pass = True
 
         return Outcome(
             yards_gained=yards_gained,
             turnover_type=_TURNOVER_INDEX[int(cat_samples[0][0].item())],
             touchdown=False,
             time_elapsed=0,
-            completion=completion,
+            complete_pass=complete_pass,
         )
 
     def _predict_st(self, context: ModelContext, intent: Intent) -> Outcome:
@@ -242,7 +242,7 @@ class OutcomeModel:
         # Build context with posterior (outcome conditioning) for time model
         context.posterior = PosteriorContext(
             yards_gained=outcome.yards_gained,
-            completion=outcome.completion,
+            complete_pass=outcome.complete_pass,
         )
 
         # Use unified feature API to build time model features (includes conditioning)
