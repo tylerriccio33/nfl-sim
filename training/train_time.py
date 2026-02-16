@@ -2,102 +2,52 @@
 
 Usage: uv run training/train_time.py (or `make train-time`)
 
-The time model predicts time_elapsed conditioned on both game state/context
-and the actual yards gained during the play. This captures the intuition that
-a 5-yard gain takes different time than a 50-yard gain.
+Trains a linear regression model to predict time_elapsed conditioned on both
+game state/context and outcome fields (yards_gained, completion). Linear regression
+allows us to store coefficients directly as JSON for near-instant inference.
 
-Uses 9 base features (state + game context) plus yards_gained and completion
-as conditioning fields (11 total features).
-
-At inference, yards and completion come from the outcome model (CVAE or ST)
-so time is predicted AFTER we know the play outcome.
+Uses 11 features: 9 base (state + game context) plus yards_gained and completion.
 """
 
 import json
+from pathlib import Path
 
 import numpy as np
-from rich.console import Console
-from rich.table import Table
+import polars as pl
+from pysuite import run
 from sklearn.linear_model import LinearRegression
 
-from nfl_sim.pipeline_config import ARTIFACT_PATHS, get_model_features
 from training.prepare import prepare
-
-console = Console()
-
-TIME_ARTIFACT_DIR = ARTIFACT_PATHS.time_dir
+from training.utils import Trainer, train_model
 
 
-def train_time_model(features_time: np.ndarray, time_elapsed: np.ndarray) -> float:
-    """Train and save a linear regression model for time elapsed prediction.
+class TimeTrainer(Trainer):
+    """Trainer for time elapsed prediction using LinearRegression."""
 
-    Time is conditioned on game state/context (9 features) plus outcome fields
-    (yards_gained, completion). Linear regression allows us to store coefficients
-    directly as numpy arrays for near-instant inference (no sklearn overhead).
+    def __init__(self) -> None:
+        """Initialize trainer."""
+        self.model: LinearRegression | None = None
 
-    Args:
-        features_time: Feature matrix for time model,
-                       shape (N, 11) = [9 base + yards_gained + completion]
-        time_elapsed: Target time in seconds, shape (N,)
+    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
+        """Fit the linear regression model."""
+        self.model = LinearRegression()
+        self.model.fit(x, y)
 
-    Returns the MAE on held-out evaluation data.
+    def predict(self, x: np.ndarray) -> np.ndarray:
+        """Predict time elapsed."""
+        assert self.model is not None, "Model not trained yet"
+        return self.model.predict(x)
 
-    """
-    features = features_time
-
-    # Drop NaN/inf rows
-    bad = ~np.isfinite(features).all(axis=1) | ~np.isfinite(time_elapsed)
-    n_bad = int(bad.sum())
-    if n_bad > 0:
-        print(f"  Dropped {n_bad} rows with NaN/inf values")
-
-    features = features[~bad]
-    time_elapsed = time_elapsed[~bad]
-
-    if len(features) == 0:
-        raise ValueError("No valid samples for time model training")
-
-    # Hold out last 10% for evaluation
-    n = len(features)
-    split = int(n * 0.9)
-    train_x, eval_x = features[:split], features[split:]
-    train_y, eval_y = time_elapsed[:split], time_elapsed[split:]
-
-    console.print("\n==============[bold]Training Time Model[/bold]")
-    console.print(f"  Train samples: {len(train_x):,} | Eval samples: {len(eval_x):,}\n")
-
-    # Train linear regression (fast, interpretable, coefficients are serializable)
-    model = LinearRegression()
-    model.fit(train_x, train_y)
-
-    # Evaluate
-    eval_pred = model.predict(eval_x)
-    mae = float(np.mean(np.abs(eval_pred - eval_y)))
-
-    metrics_table = Table(title="Time Model Evaluation", show_header=True, header_style="bold cyan")
-    metrics_table.add_column("Metric", style="dim")
-    metrics_table.add_column("Value", style="green")
-
-    metrics_table.add_row("MAE (seconds)", f"{mae:.2f}")
-    metrics_table.add_row("Actual Mean", f"{eval_y.mean():.1f}")
-    metrics_table.add_row("Actual Std", f"{eval_y.std():.1f}")
-
-    console.print(metrics_table)
-
-    # Save model as coefficients + intercept for fast numpy inference
-    TIME_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Save as JSON (coefficients + intercept) - will be loaded as numpy arrays
-    model_dict = {
-        "coef": model.coef_.tolist(),
-        "intercept": float(model.intercept_),
-    }
-    with (TIME_ARTIFACT_DIR / ARTIFACT_PATHS.time_file).open("w") as f:
-        json.dump(model_dict, f)
-
-    console.print(f"  Saved to {TIME_ARTIFACT_DIR}\n")
-
-    return mae
+    def save(self, path: Path) -> None:
+        """Save model as JSON with coefficients and intercept."""
+        assert self.model is not None, "Model not trained yet"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        model_dict = {
+            "coef": self.model.coef_.tolist(),
+            "intercept": float(self.model.intercept_),
+        }
+        with path.open("w") as f:
+            json.dump(model_dict, f)
 
 
 def main() -> None:
@@ -105,17 +55,19 @@ def main() -> None:
     print("Preparing training data...")
     df = prepare()
 
-    # Get feature names from pipeline config
-    feature_names = get_model_features("time")
+    # Create trainer
+    trainer = TimeTrainer()
 
-    # Extract features and targets
-    features_time = df.select(feature_names).to_numpy()
-    time_elapsed = df.select("time_elapsed").to_numpy().flatten()
+    # Train using unified framework
+    result = train_model("time", df, trainer)
 
-    # Train the model
-    train_time_model(features_time, time_elapsed)
-
-    print("Done.")
+    # Report evaluation metrics
+    run(
+        xeval=pl.DataFrame(result.eval_x, schema=result.feature_names),
+        yeval=pl.Series(result.eval_y),
+        ypred=pl.Series(result.eval_pred),
+        show=True,
+    )
 
 
 if __name__ == "__main__":

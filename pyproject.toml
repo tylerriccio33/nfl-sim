@@ -25,6 +25,9 @@ build-backend = "uv_build"
 module-name = "nfl_sim"
 module-root = ""
 
+[tool.uv.sources]
+pysuite = { git = "https://github.com/tylerriccio33/pysuite" }
+
 [project.scripts]
 nfl-sim = "nfl_sim.__main__:main"
 
@@ -36,6 +39,7 @@ dev = [
     "line-profiler>=4.1.0",
     "nflreadpy>=0.1.5",
     "plotext>=5.3.2",
+    "pysuite",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "pytest-mock>=3.15.1",
