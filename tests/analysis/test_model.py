@@ -13,7 +13,6 @@ from nfl_sim.engine.state import Intent, TurnoverType
 from nfl_sim.models.context import (
     DerivedContext,
     GameContext,
-    GameFeatures,
     ModelContext,
     build_features_for_model,
     ctx_from_game_id,
@@ -58,7 +57,8 @@ def _make_context(
             game_id=game_id,
             home=home,
             away=away,
-            features=GameFeatures(spread_line=spread, epa_home=-1, epa_away=1),
+            spread_line=(spread, -spread),  # (home perspective, away perspective = -home)
+            epa=(-1, 1),  # (home epa, away epa)
         ),
     )
 
@@ -234,12 +234,12 @@ def test_feature_order_matches_canonical():
         "down": 2.0,
         "ydstogo": 5.0,
         "yardline_100": 30.0,
-        "score_diff": 0.0,  # DerivedContext returns 0 when trace is empty
+        "score_diff": 0.0,  # DerivedContext, empty trace
         "qtr": 3.0,
         "game_seconds_remaining": 600.0,
-        "goal_to_go": 0.0,  # distance(5) < yardline_100(30)
-        "spread_line": 0.0,  # DerivedContext returns 0 for unrecognized features when trace is empty
-        "epa": 0.0,  # DerivedContext returns 0 for unrecognized features when trace is empty
+        "goal_to_go": 0.0,  # DerivedContext: distance(5) < yardline_100(30)
+        "spread_line": -2.5,  # GameContext, set in _make_context
+        "epa": -1.0,  # GameContext, epa_home (offense is HOME)
     }
     for i, name in enumerate(feature_names):
         assert feats[i] == pytest.approx(expected[name]), (
@@ -266,16 +266,16 @@ def test_gen_feature_names_covers_build_features():
 
 
 def test_game_features_fields_match__gen_feature_names():
-    """GameFeatures.feature_names must appear at the tail of get_model_features().
+    """GameContext.feature_names must appear at the tail of get_model_features().
 
     This is the contract that keeps build_features_for_model, from_row, and
     training/prepare.py in sync.
     """
     feature_names = get_model_features("intent")
-    tail = feature_names[-len(GameFeatures.feature_names) :]
+    tail = feature_names[-len(GameContext.feature_names) :]
 
-    assert tail == GameFeatures.feature_names, (
-        f"get_model_features() tail {tail} does not match GameFeatures.feature_names {GameFeatures.feature_names}"
+    assert tail == GameContext.feature_names, (
+        f"get_model_features() tail {tail} does not match GameContext.feature_names {GameContext.feature_names}"
     )
 
 

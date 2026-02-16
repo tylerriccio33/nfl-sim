@@ -18,7 +18,7 @@ from nfl_sim.engine.api import (
     traces_to_dataframe,
 )
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _Q, _SC, _YL, Intent
-from nfl_sim.models.context import GameContext, GameFeatures
+from nfl_sim.models.context import GameContext
 
 
 def _test_ctx(home: str, away: str) -> GameContext:
@@ -26,7 +26,8 @@ def _test_ctx(home: str, away: str) -> GameContext:
         game_id=f"{home}_{away}",
         home=home,
         away=away,
-        features=GameFeatures(spread_line=0.0, epa_home=1, epa_away=1),
+        spread_line=(0.0, 0.0),  # (home perspective, away perspective = -home)
+        epa=(1, 1),  # (home epa, away epa)
     )
 
 

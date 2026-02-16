@@ -8,7 +8,7 @@ import pytest
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
 from nfl_sim.engine.api import GameTrace, traces_to_dataframe
-from nfl_sim.models.context import GameFeatures, ctx_from_game_id
+from nfl_sim.models.context import ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
 
@@ -104,13 +104,15 @@ def ctx() -> dict[str, GameContext]:
             game_id="2025_02_KC_BUF",
             home="KC",
             away="BUF",
-            features=GameFeatures(spread_line=-3.0, epa_home=1, epa_away=1),
+            spread_line=(-3.0, 3.0),  # (home perspective, away perspective = -home)
+            epa=(1, 1),  # (home epa, away epa)
         ),
         GameContext(
             game_id="2025_03_BUF_MIA",
             home="BUF",
             away="MIA",
-            features=GameFeatures(spread_line=-7.0, epa_home=1, epa_away=1),
+            spread_line=(-7.0, 7.0),  # (home perspective, away perspective = -home)
+            epa=(1, 1),  # (home epa, away epa)
         ),
     ]
     return {g.game_id: g for g in games}

@@ -1,7 +1,6 @@
 """Module for collecting data relevant to the current game."""
 
 import contextlib
-import dataclasses
 from dataclasses import dataclass
 from typing import ClassVar, Literal, Self
 
@@ -25,35 +24,6 @@ STATE_FEATURE_MAP = {
 }
 
 
-# TODO: Right now there are a lot tests with this that should get auto generated in a fixture
-@dataclass(frozen=True)
-class GameFeatures:
-    """Little container for all features at the game level."""
-
-    spread_line: float
-    ## THESE MUST BE IN ORDER ##
-    epa_home: float
-    epa_away: float
-    # home_season_epa, home_12_week_epa, away_*, etc.
-    # features that require schedule/meta and pbp
-
-    # TODO: Should gt auto-generated I think
-    feature_names: ClassVar[list[str]] = ["spread_line", "epa"]
-    """For logging feature metadata later on."""
-
-    def get(self, key: Literal["HOME", "AWAY"]) -> list[int | float]:
-        """Get the home or away features in order."""
-        ## Pull game-level features, but we use the state to determine which ones to select.
-        ## The GameFeatures come with two stats for Home/Away, so we need to pass the correct
-        ## one to the model. E.g. if offense is currently HOME, we pass the home epa, and if
-        ## offense were away, we would pass the away epa.
-        # TODO: Don't love how this works, would like more type safety in the return
-        # TODO: This really should be auto generated but it's ok for now
-        if key == "HOME":
-            return [self.spread_line, self.epa_home]
-        return [-self.spread_line, self.epa_away]
-
-
 @dataclass
 class GameContext:
     """Features that may be passed down to models (Priority + Model).
@@ -63,16 +33,31 @@ class GameContext:
 
     It's desirable for this to live separate from the constructor since the constructor
     requires a lot of code to engineer everything.
+
+    Attributes:
+        game_id: Unique game identifier.
+        home: Home team abbreviation.
+        away: Away team abbreviation.
+        spread_line: Tuple (home_spread, away_spread) where away_spread = -home_spread.
+            Example: If home favored by 3.0 points, spread_line = (-3.0, 3.0).
+        epa: Tuple (home_epa, away_epa) representing each team's prior week EPA.
+
     """
 
-    # TODO: come to think of it, why do we need game_id, home and away here? If we remove, let's just get rid of `GameFeatures`
     game_id: str
     home: str
     away: str
-    features: GameFeatures
+    spread_line: tuple[float, float]  # (home perspective, away perspective = -home)
+    epa: tuple[float, float]  # (home team epa, away team epa)
+
+    feature_names: ClassVar[list[str]] = ["spread_line", "epa"]
+    """For logging feature metadata later on."""
 
     def get_feature(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
         """Get a game-level feature for the given team.
+
+        Both perspectives for spread_line and epa are pre-computed in the tuple,
+        so this method just indexes directly without additional logic.
 
         Args:
             team: Either "HOME" or "AWAY".
@@ -85,33 +70,39 @@ class GameContext:
             KeyError: If feature is not recognized.
 
         """
+        idx = 0 if team == "HOME" else 1
+
         if feat == "spread_line":
-            # Spread is always from home perspective, flip sign for away
-            if team == "HOME":
-                return self.features.spread_line
-            return -self.features.spread_line
+            return self.spread_line[idx]
         if feat == "epa":
-            # Return EPA for the given team
-            if team == "HOME":
-                return self.features.epa_home
-            return self.features.epa_away
+            return self.epa[idx]
         raise KeyError(f"Feature '{feat}' not recognized in GameContext")
 
     @classmethod
     def from_row(cls, row: dict) -> Self:
         """Construct a game context from a row in a dataframe.
 
-        GameFeatures fields are extracted automatically — column names in the
-        engineered DataFrame must match GameFeatures field names exactly.
+        DataFrame row must contain:
+        - game_id, home_team, away_team, spread_line, epa_home, epa_away
+
+        Pre-computes both home/away perspectives for spread_line (negated for away),
+        and tuples EPA values for direct indexing during feature extraction.
+
+        Args:
+            row: Dictionary from DataFrame with game context fields.
+
+        Returns:
+            GameContext with pre-computed team-relative feature tuples.
+
         """
-        game_features = GameFeatures(
-            **{f.name: row[f.name] for f in dataclasses.fields(GameFeatures)}
-        )
         return cls(
             game_id=row["game_id"],
             home=row["home_team"],
             away=row["away_team"],
-            features=game_features,
+            # Pre-compute perspectives: home value, away perspective (negated)
+            spread_line=(row["spread_line"], -row["spread_line"]),
+            # EPA values are already team-specific, just tuple them
+            epa=(row["epa_home"], row["epa_away"]),
         )
 
 
@@ -201,37 +192,37 @@ class DerivedContext:
     def __init__(self, trace: GameTrace):
         self._trace = trace
 
-    def get_feature(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
-        """Compute or get the feature from the trace.
+    @property
+    def offense(self) -> Literal["HOME", "AWAY"]:
+        """Get the current offense from the last state in the trace."""
+        if len(self._trace) == 0:
+            return "HOME"
+        return self._trace[-1].state_after[_OFF]
 
-        Args:
-            team: Either "HOME" or "AWAY", determines perspective for differential features.
-            feat: Feature name to compute.
-
-        Returns:
-            The computed feature value.
-
-        Raises:
-            KeyError: If feature is not recognized.
-
-        """
+    @property
+    def score_diff(self) -> int | float:
+        """Get the score differential from the offense's perspective."""
         if len(self._trace) == 0:
             return 0
 
-        last_state = self._trace[-1].state_after
+        home_score = self._last_state[_SC][0]
+        away_score = self._last_state[_SC][1]
 
-        if feat == "score_diff":
-            # Get the last state from the trace to access current score
-            home_score = last_state[_SC][0]
-            away_score = last_state[_SC][1]
-            # Return differential from team's perspective
-            if team == "HOME":
-                return home_score - away_score
-            return away_score - home_score
-        if feat == "goal_to_go":
-            return last_state[_DIST] >= last_state[_YL]
+        if self.offense == "HOME":
+            return home_score - away_score
+        return away_score - home_score
 
-        raise KeyError(f"Feature '{feat}' not recognized")
+    @property
+    def goal_to_go(self) -> bool:
+        """Check if it's a goal-to-go situation from the current game state."""
+        if len(self._trace) == 0:
+            return False
+
+        return self._last_state[_DIST] >= self._last_state[_YL]
+
+    @property
+    def _last_state(self) -> _GameState:
+        return self._trace[-1].state_after
 
 
 @dataclass
@@ -244,26 +235,6 @@ class PosteriorContext:
 
     yards_gained: int
     completion: bool
-
-    def get_feature(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
-        """Get a posterior (outcome-derived) feature.
-
-        Args:
-            team: Either "HOME" or "AWAY" (not used for posterior features).
-            feat: Feature name to get.
-
-        Returns:
-            The feature value.
-
-        Raises:
-            KeyError: If feature is not recognized.
-
-        """
-        if feat == "yards_gained":
-            return self.yards_gained
-        if feat == "completion":
-            return float(self.completion)
-        raise KeyError(f"Feature '{feat}' not recognized in PosteriorContext")
 
 
 @dataclass
@@ -296,12 +267,12 @@ class ModelContext:
 
         """
         # 1 - Try State
-        if feat in STATE_FEATURE_MAP:
-            return self.state[STATE_FEATURE_MAP[feat]]  # type: ignore
+        with contextlib.suppress(KeyError):
+            return self.state[STATE_FEATURE_MAP[feat]]  # ty:ignore[invalid-return-type]
 
         # 2 - Try DerivedContext
-        with contextlib.suppress(KeyError):
-            return self.derived.get_feature(team, feat)
+        with contextlib.suppress(AttributeError):
+            return getattr(self.derived, feat)
 
         # 3 - Try GameContext
         with contextlib.suppress(KeyError):
@@ -309,8 +280,8 @@ class ModelContext:
 
         # 4 - Try PosteriorContext
         if self.posterior is not None:
-            with contextlib.suppress(KeyError):
-                return self.posterior.get_feature(team, feat)
+            with contextlib.suppress(AttributeError):
+                return getattr(self.posterior, feat)
 
         raise AttributeError(f"Feature '{feat}' not found in any context")
 
@@ -332,7 +303,7 @@ def build_features_for_model(model_name: str, context) -> np.ndarray:
         ValueError: If feature not recognized or posterior required but missing
 
     """
-    feature_names = get_model_features(model_name)
+    feature_names: list[str] = get_model_features(model_name)
     offense = context.state[_OFF]
 
     values: list[float] = [context.get_features(offense, feat) for feat in feature_names]

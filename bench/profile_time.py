@@ -19,7 +19,7 @@ from nfl_sim.engine.api import (
     traces_to_dataframe,
 )
 from nfl_sim.engine.apply import apply_outcome
-from nfl_sim.models.context import GameContext, GameFeatures, build_features_for_model
+from nfl_sim.models.context import GameContext, build_features_for_model
 from nfl_sim.models.outcomes import OutcomeModel
 
 FUNCTIONS = (
@@ -55,7 +55,8 @@ def main() -> None:
         game_id="KC_NYJ",
         home="KC",
         away="NYJ",
-        features=GameFeatures(spread_line=-3.0, epa_home=1, epa_away=-1),
+        spread_line=(-3.0, 3.0),  # (home perspective, away perspective = -home)
+        epa=(1, -1),  # (home epa, away epa)
     )
 
     # Need to warm up; loads all the modules and models
