@@ -16,7 +16,6 @@ import numpy as np
 import polars as pl
 import polars.selectors as cs
 
-from nfl_sim.engine.state import GameState
 from nfl_sim.models.context import DerivedContext, ModelContext, ctx_from_game_id
 from nfl_sim.models.outcomes import outcome_model
 from nfl_sim.pipeline_config import get_model_features
@@ -127,16 +126,16 @@ def infer() -> pl.DataFrame:
         if game_id not in contexts:
             continue
 
-        # Construct GameState from row
-        state = GameState(
-            quarter=row["qtr"],
-            clock=row["game_seconds_remaining"],
-            offense=row["offense"],
-            defense=row["defense"],
-            down=row["down"],
-            distance=row["ydstogo"],
-            yardline_100=row["yardline_100"],
-            score=(row["total_home_score"], row["total_away_score"]),
+        # Construct state tuple from row
+        state = (
+            row["qtr"],
+            row["game_seconds_remaining"],
+            row["offense"],
+            row["defense"],
+            row["down"],
+            row["ydstogo"],
+            row["yardline_100"],
+            (row["total_home_score"], row["total_away_score"]),
         )
 
         # Build ModelContext (same as training/simulation)

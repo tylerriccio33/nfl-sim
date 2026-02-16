@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Literal, NamedTuple
+from typing import Literal
 
 type TeamId = Literal["HOME", "AWAY"]
 
@@ -14,8 +14,7 @@ type TeamId = Literal["HOME", "AWAY"]
 # Layout (index constants below):
 # quarter, clock, offense, defense, down, distance, yardline_100, score
 #
-# GameState (NamedTuple) is the public API; _GameState is the internal
-# representation returned by apply_outcome and consumed by the game loop.
+# _GameState is returned by apply_outcome and consumed by the game loop.
 # ---------------------------------------------------------------------------
 # TODO: We use this as a dict for features I think
 _Q = 0  # quarter
@@ -28,26 +27,6 @@ _YL = 6  # yardline_100 (yards from endzone)
 _SC = 7  # score  (home, away)
 
 type _GameState = tuple[int, int, TeamId, TeamId, int, int, int, tuple[int, int]]
-
-
-class GameState(NamedTuple):
-    """What the rules care about NOW.
-
-    This is the minimal Markov state needed to advance the game.
-    If removing a field would change the next-play distribution, it belongs here.
-    GameState is rules-complete, not information-complete
-
-    This should be as minimal as possible, it's copied in the hottest loops.
-    """
-
-    quarter: int
-    clock: int  # seconds remaining in quarter
-    offense: TeamId
-    defense: TeamId
-    down: int
-    distance: int
-    yardline_100: int  # yards from endzone
-    score: tuple[int, int]
 
 
 class Intent(Enum):

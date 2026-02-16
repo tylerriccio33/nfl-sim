@@ -24,7 +24,6 @@ from nfl_sim.engine.state import (
     _Q,
     _SC,
     _YL,
-    GameState,
     Intent,
     Outcome,
     TurnoverType,
@@ -35,17 +34,27 @@ from nfl_sim.engine.state import (
 # TODO: These should be fixtures
 def make_state(**kwargs) -> _GameState:
     """Helper to create _GameState with sensible defaults."""
-    default = GameState(
-        quarter=1,
-        clock=900,
-        offense="HOME",
-        defense="AWAY",
-        down=1,
-        distance=10,
-        yardline_100=75,
-        score=(0, 0),
-    )
-    return default._replace(**kwargs)
+    defaults = {
+        "quarter": 1,
+        "clock": 900,
+        "offense": "HOME",
+        "defense": "AWAY",
+        "down": 1,
+        "distance": 10,
+        "yardline_100": 75,
+        "score": (0, 0),
+    }
+    defaults.update(kwargs)
+    return (
+        defaults["quarter"],
+        defaults["clock"],
+        defaults["offense"],
+        defaults["defense"],
+        defaults["down"],
+        defaults["distance"],
+        defaults["yardline_100"],
+        defaults["score"],
+    )  # ty:ignore[invalid-return-type]
 
 
 def make_outcome(**kwargs) -> Outcome:

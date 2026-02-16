@@ -30,26 +30,7 @@ INTENT_TO_ROUTE: dict[str, str] = {k: v["route"] for k, v in CONFIG["intents"].i
 
 PLAY_TYPE_MAP: dict[str, str] = CONFIG["play_type_map"]
 
-# ── Models with their features and outcomes ──────────────────────
-# All models are in [models.*] sections and declare:
-# - artifact: location of trained model (file or directory)
-# - features: input feature names
-# - outcomes: output outcome names
-# - (optional) hyperparameters for training
-
 MODELS: dict[str, Any] = CONFIG["models"]
-
-# Convenience accessors for key models
-INTENT_MODEL_FEATURES: list[str] = MODELS["intent"]["features"]
-RUN_FEATURES: list[str] = MODELS["run"]["features"]
-RUN_OUTCOMES: list[str] = MODELS["run"]["outcomes"]
-PASS_FEATURES: list[str] = MODELS["pass"]["features"]
-PASS_OUTCOMES: list[str] = MODELS["pass"]["outcomes"]
-PUNT_FEATURES: list[str] = MODELS["punt"]["features"]
-PUNT_OUTCOMES: list[str] = MODELS["punt"]["outcomes"]
-
-TIME_MODEL_FEATURES: list[str] = MODELS["time"]["features"]
-TIME_MODEL_OUTCOMES: list[str] = MODELS["time"]["outcomes"]
 
 # ── Artifact paths ───────────────────────────────────────────────
 
