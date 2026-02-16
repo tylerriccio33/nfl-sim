@@ -19,7 +19,7 @@ from nfl_sim.engine.api import (
     traces_to_dataframe,
 )
 from nfl_sim.engine.apply import apply_outcome
-from nfl_sim.models.context import GameContext, GameFeatures
+from nfl_sim.models.context import GameContext, GameFeatures, build_features_for_model
 from nfl_sim.models.outcomes import OutcomeModel
 
 FUNCTIONS = (
@@ -38,6 +38,7 @@ FUNCTIONS = (
     ## DataFrame conversion:
     traces_to_dataframe,
     _event_from_play,
+    build_features_for_model,
 )
 
 logger.remove()

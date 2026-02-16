@@ -5,9 +5,11 @@ import dataclasses
 from dataclasses import dataclass
 from typing import ClassVar, Literal, Self
 
+import numpy as np
 import polars as pl
 
 from nfl_sim.engine.state import _CLK, _DEF, _DIST, _DN, _OFF, _Q, _SC, _YL, GameTrace, _GameState
+from nfl_sim.pipeline_config import get_model_features
 
 # Mapping of feature names to _GameState indices
 # TODO: Make sure these are mirroring the proper naming conventions
@@ -311,3 +313,28 @@ class ModelContext:
                 return self.posterior.get_feature(team, feat)
 
         raise AttributeError(f"Feature '{feat}' not found in any context")
+
+
+def build_features_for_model(model_name: str, context) -> np.ndarray:
+    """Build feature vector for a specific model using direct extraction.
+
+    Direct access to state/game context eliminates function call overhead
+    of the registry-based approach.
+
+    Args:
+        model_name: Model identifier ("intent", "run", "pass", "punt", "time")
+        context: ModelContext with game state + context
+
+    Returns:
+        Feature vector matching the model's declared features in pipeline.toml
+
+    Raises:
+        ValueError: If feature not recognized or posterior required but missing
+
+    """
+    feature_names = get_model_features(model_name)
+    offense = context.state[_OFF]
+
+    values: list[float] = [context.get_features(offense, feat) for feat in feature_names]
+
+    return np.array(values, dtype=np.float32)

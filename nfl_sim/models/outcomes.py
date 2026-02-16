@@ -44,8 +44,7 @@ from nfl_sim.engine.state import (
     TurnoverType,
     route_from_intent,
 )
-from nfl_sim.models.context import ModelContext, PosteriorContext
-from nfl_sim.models.features import build_features_for_model
+from nfl_sim.models.context import ModelContext, PosteriorContext, build_features_for_model
 from nfl_sim.pipeline_config import ARTIFACT_PATHS
 
 # Training data uses 0/1/2 for turnover_type, but the enum uses auto() → 1/2/3.

@@ -16,7 +16,7 @@ from rich.table import Table
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.tree import DecisionTreeRegressor
 
-from nfl_sim.pipeline_config import ARTIFACT_PATHS, 
+from nfl_sim.pipeline_config import ARTIFACT_PATHS
 from training.prepare import prepare
 
 console = Console()
@@ -80,7 +80,7 @@ def main() -> None:
     filtered = df.filter(pl.col("play_type") == "punt")
 
     # Get feature names from pipeline config
-    feature_names = ("punt")
+    feature_names = "punt"
 
     # Extract features and target yards for punt plays
     feat = filtered.select(feature_names).to_numpy()
