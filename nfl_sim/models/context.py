@@ -47,6 +47,7 @@ class GameContext:
     game_id: str
     home: str
     away: str
+    ## FEATURES DESCRIBED HERE --
     spread_line: tuple[float, float]  # (home perspective, away perspective = -home)
     epa: tuple[float, float]  # (home team epa, away team epa)
 
@@ -70,13 +71,9 @@ class GameContext:
             KeyError: If feature is not recognized.
 
         """
-        idx = 0 if team == "HOME" else 1
+        idx: Literal[0, 1] = 0 if team == "HOME" else 1
 
-        if feat == "spread_line":
-            return self.spread_line[idx]
-        if feat == "epa":
-            return self.epa[idx]
-        raise KeyError(f"Feature '{feat}' not recognized in GameContext")
+        return getattr(self, feat)[idx]
 
     @classmethod
     def from_row(cls, row: dict) -> Self:
@@ -99,6 +96,7 @@ class GameContext:
             game_id=row["game_id"],
             home=row["home_team"],
             away=row["away_team"],
+            # TODO: Would love to auto-gen this or something
             # Pre-compute perspectives: home value, away perspective (negated)
             spread_line=(row["spread_line"], -row["spread_line"]),
             # EPA values are already team-specific, just tuple them
@@ -275,7 +273,7 @@ class ModelContext:
             return getattr(self.derived, feat)
 
         # 3 - Try GameContext
-        with contextlib.suppress(KeyError):
+        with contextlib.suppress(AttributeError):
             return self.game_context.get_feature(team, feat)
 
         # 4 - Try PosteriorContext
@@ -286,7 +284,7 @@ class ModelContext:
         raise AttributeError(f"Feature '{feat}' not found in any context")
 
 
-def build_features_for_model(model_name: str, context) -> np.ndarray:
+def build_features_for_model(model_name: str, context: ModelContext) -> np.ndarray:
     """Build feature vector for a specific model using direct extraction.
 
     Direct access to state/game context eliminates function call overhead

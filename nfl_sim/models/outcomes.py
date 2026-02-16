@@ -266,10 +266,10 @@ class OutcomeModel:
             self._load()
 
         # Build intent model features (9 base features: state + game context)
-        features = build_features_for_model("intent", context)
+        intent_features = build_features_for_model("intent", context)
 
         # First, we predict intent which is mapped to a route.
-        intent = self._predict_intent(features)
+        intent = self._predict_intent(intent_features)
         route = route_from_intent(intent)
 
         # If Run/Pass, we predict using the corresponding neural net.
@@ -277,8 +277,14 @@ class OutcomeModel:
         match route:
             case Route.RUN | Route.PASS:
                 cvae_model: _CvaeArtifact = self._cvae[route]
-                outcome = self._predict_cvae(cvae_model, features)
-                # Time for offensive plays is conditioned on outcome fields (yards_gained, completion, etc.)
+
+                if route == Route.RUN:
+                    cvae_features = build_features_for_model("run", context)
+                else:
+                    cvae_features = build_features_for_model("pass", context)
+
+                outcome = self._predict_cvae(cvae_model, cvae_features)
+
                 outcome.time_elapsed = min(
                     self._predict_time(context, outcome), context.state[_CLK]
                 )
