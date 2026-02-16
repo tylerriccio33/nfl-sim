@@ -24,7 +24,7 @@ def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
         game_id="KC_NYJ",
         home="KC",
         away="NYJ",
-        features=GameFeatures(spread=-3.0, epa_away=-1, epa_home=1),
+        features=GameFeatures(spread_line=-3.0, epa_away=-1, epa_home=1),
     )
 
     # Time just the simulation (no data loading overhead)

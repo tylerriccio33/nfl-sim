@@ -68,7 +68,7 @@ def test_play_rate(
     if downs is not None:
         df = df.filter(pl.col("down").is_in(downs))
     if min_yl is not None:
-        df = df.filter(pl.col("yardline") > min_yl)
+        df = df.filter(pl.col("yardline_100") > min_yl)
 
     if len(df) < min_n:
         pytest.skip(f"Only {len(df)} plays in slice")

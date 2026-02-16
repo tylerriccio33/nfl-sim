@@ -152,10 +152,10 @@ def check_drive_starts_with_10_or_goal(trace: GameTrace) -> None:
     """Every drive starts with distance-to-go = 10 (unless goal-to-go)."""
     for drive in _drives(trace):
         state = drive[0].state_before
-        # Goal-to-go: distance should equal yardline
+        # Goal-to-go: distance should equal yardline_100
         if state[_YL] <= 10:
             assert state[_DIST] == state[_YL], (
-                f"Goal-to-go but distance={state[_DIST]}, yardline={state[_YL]}"
+                f"Goal-to-go but distance={state[_DIST]}, yardline_100={state[_YL]}"
             )
         else:
             assert state[_DIST] == 10, f"Drive started with distance={state[_DIST]}, expected 10"
@@ -249,7 +249,7 @@ def check_first_down_resets_down(trace: GameTrace) -> None:
 
 
 def check_first_down_resets_distance(trace: GameTrace) -> None:
-    """Distance resets to 10 after first down (or yardline if goal-to-go)."""
+    """Distance resets to 10 after first down (or yardline_100 if goal-to-go)."""
     for event in trace:
         before, after = event.state_before, event.state_after
         same_possession = before[_OFF] == after[_OFF]
@@ -264,10 +264,10 @@ def check_first_down_resets_distance(trace: GameTrace) -> None:
             )
 
 
-def check_distance_lte_yardline(trace: GameTrace) -> None:
-    """Distance-to-go <= yards-to-goal (yardline)."""
+def check_distance_lte_yardline_100(trace: GameTrace) -> None:
+    """Distance-to-go <= yards-to-goal (yardline_100)."""
     for state in _all_states(trace):
-        assert state[_DIST] <= state[_YL], f"Distance {state[_DIST]} > yardline {state[_YL]}"
+        assert state[_DIST] <= state[_YL], f"Distance {state[_DIST]} > yardline_100 {state[_YL]}"
 
 
 def check_fourth_down_failure_ends_possession(trace: GameTrace) -> None:
@@ -292,7 +292,7 @@ DOWN_DISTANCE_RULES: tuple[RuleChecker, ...] = (
     check_down_increments_without_first_down,
     check_first_down_resets_down,
     check_first_down_resets_distance,
-    check_distance_lte_yardline,
+    check_distance_lte_yardline_100,
     check_fourth_down_failure_ends_possession,
 )
 
@@ -318,7 +318,7 @@ def check_field_goal_gives_3(trace: GameTrace) -> None:
             continue
         before, after = event.state_before, event.state_after
         delta = sum(after[_SC]) - sum(before[_SC])
-        # FG is made when yards_gained >= yardline (reaching the endzone)
+        # FG is made when yards_gained >= yardline_100 (reaching the endzone)
         fg_made = event.outcome.yards_gained >= before[_YL]
         if fg_made:
             assert delta == 3, f"Made FG gave {delta} points, expected 3"
@@ -336,14 +336,14 @@ SCORING_RULES: tuple[RuleChecker, ...] = (
 # =============================================================================
 
 
-def check_yardline_bounds(trace: GameTrace) -> None:
+def check_yardline_100_bounds(trace: GameTrace) -> None:
     """Yardline always in [0, 100]."""
     # Already covered in game level, but explicit here
     for state in _all_states(trace):
         assert 0 <= state[_YL] <= 100, f"Yardline {state[_YL]} out of bounds"
 
 
-FIELD_POSITION_RULES: tuple[RuleChecker, ...] = (check_yardline_bounds,)
+FIELD_POSITION_RULES: tuple[RuleChecker, ...] = (check_yardline_100_bounds,)
 
 # =============================================================================
 # TIME AND PLAY CLOCK

@@ -54,7 +54,7 @@ def main() -> None:
         game_id="KC_NYJ",
         home="KC",
         away="NYJ",
-        features=GameFeatures(spread=-3.0, epa_home=1, epa_away=-1),
+        features=GameFeatures(spread_line=-3.0, epa_home=1, epa_away=-1),
     )
 
     # Need to warm up; loads all the modules and models

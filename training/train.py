@@ -11,6 +11,7 @@ Note: Intent model training has been moved to training/train_intent.py
 from pathlib import Path
 
 import numpy as np
+import polars as pl
 import torch
 from rich.console import Console
 from rich.table import Table
@@ -19,7 +20,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torchmetrics import Accuracy, MeanAbsoluteError
 
 from nfl_sim.engine.state import Intent
-from nfl_sim.pipeline_config import ARTIFACT_PATHS, get_cvae_config
+from nfl_sim.pipeline_config import ARTIFACT_PATHS, get_cvae_config, get_model_features
 from training.cvae import CVAE, CvaeConfig, cvae_loss
 from training.prepare import prepare
 
@@ -263,7 +264,7 @@ def _train_route(
 def main() -> None:
     """Train outcome CVAEs."""
     print("Preparing training data...")
-    data = prepare()
+    df = prepare()
 
     best_scores = {}
     if Path("training/bestmodels").exists():
@@ -276,31 +277,40 @@ def main() -> None:
 
     # Train route-specific CVAEs (lower MAE is better)
     for intent_val, (route_name, artifact_dir) in ROUTES.items():
-        # Select pre-built features for this route
+        # Filter to plays for this route
         if intent_val == Intent.RUN.value:
-            route_features = data.features_run
-            route_mask = data.intent == Intent.RUN.value
+            route_intent_name = "run"
         elif intent_val == Intent.PASS.value:
-            route_features = data.features_pass
-            route_mask = data.intent == Intent.PASS.value
+            route_intent_name = "pass"
         else:
             continue
 
-        if len(route_features) == 0:
+        # Filter DataFrame and extract features for this route
+        filtered_df = df.filter(pl.col("intent") == intent_val)
+
+        if len(filtered_df) == 0:
             print(f"No samples for route {route_name}, skipping.")
             continue
 
+        # Get feature names from pipeline config for this route
+        feature_names = get_model_features(route_intent_name)
+        route_features = filtered_df.select(feature_names).to_numpy()
+
+        # Get outcome targets
+        yards = filtered_df.select("yards_gained").to_numpy().flatten()
+        turnover_type = filtered_df.select("turnover_type").to_numpy().flatten()
+
         # PASS route gets completion as a second categorical target
-        route_completion = (
-            data.complete_pass[route_mask] if intent_val == Intent.PASS.value else None
-        )
+        route_completion = None
+        if intent_val == Intent.PASS.value:
+            route_completion = filtered_df.select("complete_pass").to_numpy().flatten()
 
         yards_mae = _train_route(
             name=route_name,
             artifact_dir=artifact_dir,
             features=route_features,
-            yards=data.yards_gained[route_mask],
-            turnover_type=data.turnover_type[route_mask],
+            yards=yards,
+            turnover_type=turnover_type,
             completion=route_completion,
         )
 

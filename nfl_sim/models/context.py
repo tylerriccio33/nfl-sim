@@ -1,12 +1,26 @@
 """Module for collecting data relevant to the current game."""
 
+import contextlib
 import dataclasses
 from dataclasses import dataclass
 from typing import ClassVar, Literal, Self
 
 import polars as pl
 
-from nfl_sim.engine.state import GameTrace, _GameState
+from nfl_sim.engine.state import _CLK, _DEF, _DIST, _DN, _OFF, _Q, _SC, _YL, GameTrace, _GameState
+
+# Mapping of feature names to _GameState indices
+# TODO: Make sure these are mirroring the proper naming conventions
+STATE_FEATURE_MAP = {
+    "qtr": _Q,
+    "game_seconds_remaining": _CLK,
+    "offense": _OFF,
+    "defense": _DEF,
+    "down": _DN,
+    "ydstogo": _DIST,
+    "yardline_100": _YL,
+    "score": _SC,
+}
 
 
 # TODO: Right now there are a lot tests with this that should get auto generated in a fixture
@@ -14,14 +28,15 @@ from nfl_sim.engine.state import GameTrace, _GameState
 class GameFeatures:
     """Little container for all features at the game level."""
 
-    spread: float
+    spread_line: float
     ## THESE MUST BE IN ORDER ##
     epa_home: float
     epa_away: float
     # home_season_epa, home_12_week_epa, away_*, etc.
     # features that require schedule/meta and pbp
 
-    feature_names: ClassVar[list[str]] = ["spread", "epa"]
+    # TODO: Should gt auto-generated I think
+    feature_names: ClassVar[list[str]] = ["spread_line", "epa"]
     """For logging feature metadata later on."""
 
     def get(self, key: Literal["HOME", "AWAY"]) -> list[int | float]:
@@ -33,8 +48,8 @@ class GameFeatures:
         # TODO: Don't love how this works, would like more type safety in the return
         # TODO: This really should be auto generated but it's ok for now
         if key == "HOME":
-            return [self.spread, self.epa_home]
-        return [-self.spread, self.epa_away]
+            return [self.spread_line, self.epa_home]
+        return [-self.spread_line, self.epa_away]
 
 
 @dataclass
@@ -53,6 +68,32 @@ class GameContext:
     home: str
     away: str
     features: GameFeatures
+
+    def get_feature(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
+        """Get a game-level feature for the given team.
+
+        Args:
+            team: Either "HOME" or "AWAY".
+            feat: Feature name to get.
+
+        Returns:
+            The feature value.
+
+        Raises:
+            KeyError: If feature is not recognized.
+
+        """
+        if feat == "spread_line":
+            # Spread is always from home perspective, flip sign for away
+            if team == "HOME":
+                return self.features.spread_line
+            return -self.features.spread_line
+        if feat == "epa":
+            # Return EPA for the given team
+            if team == "HOME":
+                return self.features.epa_home
+            return self.features.epa_away
+        raise KeyError(f"Feature '{feat}' not recognized in GameContext")
 
     @classmethod
     def from_row(cls, row: dict) -> Self:
@@ -106,7 +147,7 @@ def ctx_from_game_id(
             "game_id",
             "home_team",
             "away_team",
-            pl.col("spread_line").alias("spread"),
+            pl.col("spread_line"),
         )
         .unique()
     )
@@ -141,11 +182,86 @@ def ctx_from_game_id(
     return _rows_to_contexts(joined)
 
 
-class DerivedContext:  # TODO: Overkill
-    """Game context; basically features."""
+class DerivedContext:
+    """Game context that isn't what's brought into the game and not state.
+
+    This is a space for deriving features on the fly describing the game.
+    If the feature contains `cur` or `total`, it probably belongs here.
+    Examples include:
+    - total epa
+    - score differential
+    - 2nd down success
+
+    These features do not influence the rules of the game, but they do infleunce
+    decision making.
+    """
 
     def __init__(self, trace: GameTrace):
         self._trace = trace
+
+    def get_feature(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
+        """Compute or get the feature from the trace.
+
+        Args:
+            team: Either "HOME" or "AWAY", determines perspective for differential features.
+            feat: Feature name to compute.
+
+        Returns:
+            The computed feature value.
+
+        Raises:
+            KeyError: If feature is not recognized.
+
+        """
+        if len(self._trace) == 0:
+            return 0
+
+        last_state = self._trace[-1].state_after
+
+        if feat == "score_diff":
+            # Get the last state from the trace to access current score
+            home_score = last_state[_SC][0]
+            away_score = last_state[_SC][1]
+            # Return differential from team's perspective
+            if team == "HOME":
+                return home_score - away_score
+            return away_score - home_score
+        if feat == "goal_to_go":
+            return last_state[_DIST] >= last_state[_YL]
+
+        raise KeyError(f"Feature '{feat}' not recognized")
+
+
+@dataclass
+class PosteriorContext:
+    """Information derived from play outcome (after CVAE generation).
+
+    These fields are used for time model conditioning - e.g., predicting
+    time elapsed given the yards gained and completion status of the play.
+    """
+
+    yards_gained: int
+    completion: bool
+
+    def get_feature(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
+        """Get a posterior (outcome-derived) feature.
+
+        Args:
+            team: Either "HOME" or "AWAY" (not used for posterior features).
+            feat: Feature name to get.
+
+        Returns:
+            The feature value.
+
+        Raises:
+            KeyError: If feature is not recognized.
+
+        """
+        if feat == "yards_gained":
+            return self.yards_gained
+        if feat == "completion":
+            return float(self.completion)
+        raise KeyError(f"Feature '{feat}' not recognized in PosteriorContext")
 
 
 @dataclass
@@ -155,9 +271,43 @@ class ModelContext:
     Attributes:
     - state (_GameState): Used to guide post-processing of generated play.
     - derived (DerivedContext): Momentum-like variables based off trace.
+    - game_context (GameContext): Game-level features.
+    - posterior (PosteriorContext | None): Outcome conditioning for time model.
 
     """
 
     state: _GameState
     derived: DerivedContext
     game_context: GameContext
+    posterior: PosteriorContext | None = None
+
+    # TODO: Get item?
+    def get_features(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
+        """Get a feature from the context.
+
+        Args:
+            team: Either "HOME" or "AWAY", used for context-dependent features.
+            feat: Feature name to get.
+
+        Returns:
+            The feature value.
+
+        """
+        # 1 - Try State
+        if feat in STATE_FEATURE_MAP:
+            return self.state[STATE_FEATURE_MAP[feat]]  # type: ignore
+
+        # 2 - Try DerivedContext
+        with contextlib.suppress(KeyError):
+            return self.derived.get_feature(team, feat)
+
+        # 3 - Try GameContext
+        with contextlib.suppress(KeyError):
+            return self.game_context.get_feature(team, feat)
+
+        # 4 - Try PosteriorContext
+        if self.posterior is not None:
+            with contextlib.suppress(KeyError):
+                return self.posterior.get_feature(team, feat)
+
+        raise AttributeError(f"Feature '{feat}' not found in any context")

@@ -44,7 +44,7 @@ from nfl_sim.engine.state import (
     TurnoverType,
     route_from_intent,
 )
-from nfl_sim.models.context import ModelContext
+from nfl_sim.models.context import ModelContext, PosteriorContext
 from nfl_sim.models.features import build_features_for_model
 from nfl_sim.pipeline_config import ARTIFACT_PATHS
 
@@ -204,7 +204,7 @@ class OutcomeModel:
         Blocked probability is fixed at 0.05% (0.0005) for both FGs and punts.
         """
         blocked_prob = 0.0005  # 0.05%
-        yardline = context.state[6]  # _YL index
+        yardline_100 = context.state[6]  # _YL index
 
         rng = np.random.default_rng()
 
@@ -212,7 +212,7 @@ class OutcomeModel:
             case Intent.FIELD_GOAL:
                 # 0.05% chance of blocked, otherwise made
                 blocked = rng.random() < blocked_prob
-                yards_gained = yardline - 20 if blocked else yardline + 10
+                yards_gained = yardline_100 - 20 if blocked else yardline_100 + 10
             case Intent.PUNT:
                 # 0.05% chance of blocked, otherwise predict yards_gained
                 blocked = rng.random() < blocked_prob
@@ -240,8 +240,14 @@ class OutcomeModel:
 
         Uses pre-trained linear regression coefficients for instant numpy inference.
         """
+        # Build context with posterior (outcome conditioning) for time model
+        context.posterior = PosteriorContext(
+            yards_gained=outcome.yards_gained,
+            completion=outcome.completion,
+        )
+
         # Use unified feature API to build time model features (includes conditioning)
-        full_features = build_features_for_model("time", context, outcome)
+        full_features = build_features_for_model("time", context)
         raw = float(np.dot(full_features, self._time_coef) + self._time_intercept)
         return max(1, round(raw)) if math.isfinite(raw) else 20
 
@@ -282,7 +288,7 @@ class OutcomeModel:
                 # ST plays use fixed 20 seconds, but cap at remaining clock time
                 outcome.time_elapsed = min(outcome.time_elapsed, context.state[_CLK])
 
-        outcome.touchdown = False  # engine detects via yardline # TODO: Weird right?
+        outcome.touchdown = False  # engine detects via yardline_100 # TODO: Weird right?
         return intent, outcome
 
 

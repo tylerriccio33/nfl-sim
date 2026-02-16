@@ -12,19 +12,19 @@ type TeamId = Literal["HOME", "AWAY"]
 # _GameState: plain tuple used in the hot loop for zero-overhead construction.
 #
 # Layout (index constants below):
-# quarter, clock, offense, defense, down, distance, yardline, score
+# quarter, clock, offense, defense, down, distance, yardline_100, score
 #
 # GameState (NamedTuple) is the public API; _GameState is the internal
 # representation returned by apply_outcome and consumed by the game loop.
 # ---------------------------------------------------------------------------
-
+# TODO: We use this as a dict for features I think
 _Q = 0  # quarter
 _CLK = 1  # clock (seconds remaining in quarter)
 _OFF = 2  # offense TeamId
 _DEF = 3  # defense TeamId
 _DN = 4  # down
 _DIST = 5  # distance
-_YL = 6  # yardline (yards from endzone)
+_YL = 6  # yardline_100 (yards from endzone)
 _SC = 7  # score  (home, away)
 
 type _GameState = tuple[int, int, TeamId, TeamId, int, int, int, tuple[int, int]]
@@ -46,7 +46,7 @@ class GameState(NamedTuple):
     defense: TeamId
     down: int
     distance: int
-    yardline: int  # yards from endzone
+    yardline_100: int  # yards from endzone
     score: tuple[int, int]
 
 

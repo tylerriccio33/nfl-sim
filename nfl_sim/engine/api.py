@@ -48,10 +48,7 @@ def _create_initial_state() -> _GameState:
     return (1, 900, "HOME", "AWAY", 1, 10, 75, (0, 0))
 
 
-def _run_game_loop(
-    initial_state: _GameState,
-    game_context: GameContext,
-) -> GameTrace:
+def _run_game_loop(initial_state: _GameState, game_context: GameContext) -> GameTrace:
     """Core game loop. Runs until terminal state."""
     state = initial_state
     trace: GameTrace = []
@@ -62,10 +59,10 @@ def _run_game_loop(
         intent, outcome = outcome_model(context)
         new_state = apply_outcome(state, intent, outcome)
 
-        # Engine detects TDs by yardline - reflect this in the outcome for consumers
+        # Engine detects TDs by yardline_100 - reflect this in the outcome for consumers
         if intent not in (Intent.FIELD_GOAL, Intent.PUNT):
-            new_yardline = state[_YL] - outcome.yards_gained
-            if new_yardline <= 0:
+            new_yardline_100 = state[_YL] - outcome.yards_gained
+            if new_yardline_100 <= 0:
                 outcome.touchdown = True
 
         trace.append(PlayEvent(state, intent, outcome, new_state))
@@ -175,11 +172,11 @@ def _event_from_play(play: PlayEvent) -> str:
     """Derive the event string from a PlayEvent for summarization.
 
     Event mapping (case-insensitive, matches EXPR.py expectations):
-    - Touchdown: yardline reached endzone
+    - Touchdown: yardline_100 reached endzone
     - Interception: turnover_type == INTERCEPTION
     - FumbleLost: turnover_type == FUMBLE
     - TurnoverOnDowns: 4th down failure (possession changed but no model turnover)
-    - FieldGoalSuccess: FG action + yardline reached 0
+    - FieldGoalSuccess: FG action + yardline_100 reached 0
     - PuntRegular: punt action
     - Play: default (normal run/pass)
     """
@@ -205,7 +202,7 @@ def _event_from_play(play: PlayEvent) -> str:
     if outcome.turnover_type == TurnoverType.FUMBLE:
         return "FumbleLost"
 
-    # Check for touchdown (yardline reached/passed endzone)
+    # Check for touchdown (yardline_100 reached/passed endzone)
     if sa[_YL] == 75 and sa[_OFF] != sb[_OFF]:
         # Possession changed with reset to 75 - could be TD, FG, punt, or turnover
         # Check if score increased for the offense
@@ -236,7 +233,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
 
     Returns:
         DataFrame with columns:
-            game_id, sim_id, play_id, quarter, clock, down, distance, yardline,
+            game_id, sim_id, play_id, quarter, clock, down, distance, yardline_100,
             posteam, yards_gained, event, home_score, away_score
 
     """
@@ -256,7 +253,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
     clock = np.empty(total_rows, dtype=np.int16)
     down = np.empty(total_rows, dtype=np.int8)
     distance = np.empty(total_rows, dtype=np.int8)
-    yardline = np.empty(total_rows, dtype=np.int8)
+    yardline_100 = np.empty(total_rows, dtype=np.int8)
     posteam = np.empty(total_rows, dtype=object)
 
     yards_gained = np.empty(total_rows, dtype=np.int16)
@@ -286,7 +283,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
                     clock[i] = sb[_CLK]
                     down[i] = sb[_DN]
                     distance[i] = sb[_DIST]
-                    yardline[i] = sb[_YL]
+                    yardline_100[i] = sb[_YL]
                     posteam[i] = sb[_OFF]
 
                     yards_gained[i] = play.outcome.yards_gained
@@ -314,7 +311,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
             "clock": clock,
             "down": down,
             "distance": distance,
-            "yardline": yardline,
+            "yardline_100": yardline_100,
             "posteam": posteam,
             "yards_gained": yards_gained,
             "event": event,

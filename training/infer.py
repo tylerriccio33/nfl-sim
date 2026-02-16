@@ -17,15 +17,14 @@ import polars as pl
 import polars.selectors as cs
 
 from nfl_sim.engine.state import GameState
-from nfl_sim.models.context import DerivedContext, ModelContext
-from nfl_sim.models.features import get_feature_names
+from nfl_sim.models.context import DerivedContext, ModelContext, ctx_from_game_id
 from nfl_sim.models.outcomes import outcome_model
+from nfl_sim.pipeline_config import get_model_features
 from training.prepare import (
     _PLAY_TYPE_TO_INTENT,
     DATA_PATH,
     REQUIRED_COLS,
     SCHEDULE_PATH,
-    ctx_from_game_id,
     prepare,
 )
 
@@ -43,7 +42,7 @@ def infer() -> pl.DataFrame:
 
     """
     print("Loading data...")
-    data = prepare()
+    df = prepare()
     schedule_data = pl.read_parquet(SCHEDULE_PATH)
 
     # Build game contexts for all game_ids
@@ -136,7 +135,7 @@ def infer() -> pl.DataFrame:
             defense=row["defense"],
             down=row["down"],
             distance=row["ydstogo"],
-            yardline=row["yardline_100"],
+            yardline_100=row["yardline_100"],
             score=(row["total_home_score"], row["total_away_score"]),
         )
 
@@ -159,22 +158,29 @@ def infer() -> pl.DataFrame:
     n_preds = len(pred_intents)
     print(f"Generated {n_preds:,} predictions")
 
+    # Extract outcome arrays from prepared data
+    intent_col = df.select("intent").to_numpy().flatten().astype(np.int32)
+    turnover_col = df.select("turnover_type").to_numpy().flatten().astype(np.int32)
+    yards_col = df.select("yards_gained").to_numpy().flatten().astype(np.float32)
+    time_col = df.select("time_elapsed").to_numpy().flatten().astype(np.float32)
+    desc_list = df["desc"].to_list()
+
     # Build output DataFrame
     print("Assembling output...")
-    feature_names = get_feature_names("intent")
+    feature_names = get_model_features("intent")
 
-    # Extract feature values from prepared data (pre-built intent features)
-    feature_cols = {name: data.features_intent[:n_preds, i] for i, name in enumerate(feature_names)}
+    # Extract feature values from prepared data
+    feature_cols = {name: df.select(name).to_numpy().flatten()[:n_preds] for name in feature_names}
 
     # Convert ordinal values back to categorical names
     pred_intent_names = np.array([_INTENT_MAP.get(int(v), "UNKNOWN") for v in pred_intents])
-    actual_intent_names = np.array([_INTENT_MAP.get(v, "UNKNOWN") for v in data.intent[:n_preds]])
+    actual_intent_names = np.array(
+        [_INTENT_MAP.get(int(v), "UNKNOWN") for v in intent_col[:n_preds]]
+    )
     pred_turnover_names = np.array(pred_turnover)  # Already string names from enum
     # Map training turnover values (0/1/2) to names
     actual_turnover_map = {0: "NONE", 1: "INTERCEPTION", 2: "FUMBLE"}
-    actual_turnover_names = np.array(
-        [actual_turnover_map[int(v)] for v in data.turnover_type[:n_preds]]
-    )
+    actual_turnover_names = np.array([actual_turnover_map[int(v)] for v in turnover_col[:n_preds]])
 
     output_df = (
         pl.DataFrame(
@@ -188,11 +194,11 @@ def infer() -> pl.DataFrame:
                 "pred_time": pred_time,
                 # Actual outcomes for comparison
                 "actual_intent": actual_intent_names,
-                "actual_yards": data.yards_gained[:n_preds],
+                "actual_yards": yards_col[:n_preds],
                 "actual_turnover": actual_turnover_names,
-                "actual_time": data.time_elapsed[:n_preds],
+                "actual_time": time_col[:n_preds],
                 # Original pbp data
-                "desc": data.desc[:n_preds],
+                "desc": desc_list[:n_preds],
             }
         )
         .with_columns(cs.numeric().fill_nan(pl.lit(None)))

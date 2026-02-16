@@ -21,13 +21,11 @@ new_state = apply_outcome(state, intent, outcome)
 1. Features (`ModelContext`):
     1. Long term memory in the form of embeddings are built for each team. They bring these into the game as a whole. These are things like spread, epa, run success, etc.
     2. State of the current game in the form of time, score, yardline, etc.
-2. `Intent` model (Random Forest) takes the model context and predicts intent.
+2. `Intent` model takes the model context and predicts intent.
 3. `ModelContext` and `Intent` is passed to a CVAE per intent. The CVAE produces the play row as an outcome.
     - ST (special teams) model however is a random forest.
 
-![alt text](docs/models.png)
-
-The outcome for now is ONLY yards gained, but in the future there will be more.
+There are miniature models predicting smaller constrained outputs like punt yards or FG odds.
 
 ## Code Style and Conventions
 

@@ -17,11 +17,9 @@ from nfl_sim.models.context import (
     ModelContext,
     ctx_from_game_id,
 )
-from nfl_sim.models.features import (
-    _gen_feature_names,
-    build_features,
-)
+from nfl_sim.models.features import build_features_for_model
 from nfl_sim.models.outcomes import outcome_model
+from nfl_sim.pipeline_config import get_model_features
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -33,10 +31,10 @@ def _make_state(
     defense: str = "AWAY",
     down: int = 2,
     distance: int = 7,
-    yardline: int = 45,
+    yardline_100: int = 45,
     score: tuple[int, int] = (10, 7),
 ):
-    return (quarter, clock, offense, defense, down, distance, yardline, score)
+    return (quarter, clock, offense, defense, down, distance, yardline_100, score)
 
 
 def _make_context(
@@ -54,7 +52,7 @@ def _make_context(
             game_id=game_id,
             home=home,
             away=away,
-            features=GameFeatures(spread=spread, epa_home=-1, epa_away=1),
+            features=GameFeatures(spread_line=spread, epa_home=-1, epa_away=1),
         ),
     )
 
@@ -83,12 +81,12 @@ def test_determinism():
 
 
 def test_features_only_from_pre_play_state():
-    """build_features uses only the pre-play state tuple, not outcomes."""
+    """build_features_for_model uses only the pre-play state tuple, not outcomes."""
     ctx = _make_context()
-    feats = build_features(ctx)
+    feats = build_features_for_model("intent", ctx)
 
     # The feature vector length must match the canonical list exactly
-    assert len(feats) == len(_gen_feature_names())
+    assert len(feats) == len(get_model_features("intent"))
     assert feats.dtype == np.float32
 
 
@@ -106,8 +104,8 @@ def test_identifier_leakage_game_id():
     ctx_a = _make_context(game_id="2024_01_KC_BUF")
     ctx_b = _make_context(game_id="9999_99_FOO_BAR")
 
-    feats_a = build_features(ctx_a)
-    feats_b = build_features(ctx_b)
+    feats_a = build_features_for_model("intent", ctx_a)
+    feats_b = build_features_for_model("intent", ctx_b)
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
@@ -124,8 +122,8 @@ def test_identifier_leakage_team_names():
     ctx_a = _make_context(home="KC", away="BUF")
     ctx_b = _make_context(home="ZZZZZ", away="YYYYY")
 
-    feats_a = build_features(ctx_a)
-    feats_b = build_features(ctx_b)
+    feats_a = build_features_for_model("intent", ctx_a)
+    feats_b = build_features_for_model("intent", ctx_b)
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
@@ -136,7 +134,7 @@ def test_identifier_leakage_team_names():
 
 def test_zero_features_produce_finite_output():
     """Model should handle a zeroed-out state without crashing."""
-    ctx = _make_context(quarter=0, clock=0, down=0, distance=0, yardline=0, score=(0, 0))
+    ctx = _make_context(quarter=0, clock=0, down=0, distance=0, yardline_100=0, score=(0, 0))
     intent, out = outcome_model(ctx)
     assert isinstance(intent, Intent)
     assert isinstance(out.yards_gained, int)
@@ -149,7 +147,7 @@ def test_neutral_state_produces_sane_output():
         clock=450,
         down=1,
         distance=10,
-        yardline=50,
+        yardline_100=50,
         score=(0, 0),
         spread=0.0,
     )
@@ -168,8 +166,8 @@ def test_neutral_state_produces_sane_output():
 @pytest.mark.parametrize(
     "kw",
     [
-        {"yardline": 99, "distance": 30, "down": 4},
-        {"yardline": 1, "distance": 1, "down": 1},
+        {"yardline_100": 99, "distance": 30, "down": 4},
+        {"yardline_100": 1, "distance": 1, "down": 1},
         {"clock": 1, "quarter": 4},
         {"clock": 900, "quarter": 1, "score": (50, 0)},
         {"spread": 25.0},
@@ -200,14 +198,15 @@ def test_edge_inputs_no_nan(kw: dict):
 def test_features_shape_and_dtype():
     """Feature vector must have the correct shape and dtype."""
     ctx = _make_context()
-    feats = build_features(ctx)
+    feats = build_features_for_model("intent", ctx)
+    feature_names = get_model_features("intent")
 
-    assert feats.shape == (len(_gen_feature_names()),)
+    assert feats.shape == (len(feature_names),)
     assert feats.dtype == np.float32
 
 
 def test_feature_order_matches_canonical():
-    """Feature values should land in the canonical _gen_feature_names() order.
+    """Feature values should land in the canonical feature order.
 
     We construct a known state and verify each feature position.
     """
@@ -215,27 +214,28 @@ def test_feature_order_matches_canonical():
         quarter=3,
         clock=600,
         down=2,
-        distance=5,
-        yardline=30,
+        ydstogo=5,
+        yardline_100=30,
         score=(14, 7),
         spread=-2.5,
         offense="HOME",
         defense="AWAY",
     )
-    feats = build_features(ctx)
+    feats = build_features_for_model("intent", ctx)
+    feature_names = get_model_features("intent")
 
     expected = {
         "down": 2.0,
         "dist": 5.0,
-        "yardline": 30.0,
+        "yardline_100": 30.0,
         "score_diff": 7.0,  # HOME offense: 14 - 7
         "quarter": 3.0,
         "clock": 600.0,
-        "goal_to_go": 0.0,  # distance(5) < yardline(30)
+        "goal_to_go": 0.0,  # distance(5) < yardline_100(30)
         "spread": -2.5,
         "epa": -1.0,
     }
-    for i, name in enumerate(_gen_feature_names()):
+    for i, name in enumerate(feature_names):
         assert feats[i] == pytest.approx(expected[name]), (
             f"Feature {name!r} at index {i}: expected {expected[name]}, got {feats[i]}"
         )
@@ -245,13 +245,13 @@ def test_feature_order_matches_canonical():
 
 
 def test_gen_feature_names_covers_build_features():
-    """_gen_feature_names() must produce exactly one name per value in build_features()."""
+    """Feature names must match build_features_for_model output."""
     ctx = _make_context()
-    feats = build_features(ctx)
-    names = _gen_feature_names()
+    feats = build_features_for_model("intent", ctx)
+    names = get_model_features("intent")
 
     assert len(names) == len(feats), (
-        f"_gen_feature_names() has {len(names)} names but build_features() produced {len(feats)} values"
+        f"get_model_features() has {len(names)} names but build_features_for_model() produced {len(feats)} values"
     )
     assert len(names) == len(set(names)), f"Duplicate feature names: {names}"
 
@@ -260,15 +260,16 @@ def test_gen_feature_names_covers_build_features():
 
 
 def test_game_features_fields_match__gen_feature_names():
-    """GameFeatures.feature_names must appear at the tail of _gen_feature_names().
+    """GameFeatures.feature_names must appear at the tail of get_model_features().
 
-    This is the contract that keeps build_features, from_row, and
+    This is the contract that keeps build_features_for_model, from_row, and
     training/prepare.py in sync.
     """
-    tail = _gen_feature_names()[-len(GameFeatures.feature_names) :]
+    feature_names = get_model_features("intent")
+    tail = feature_names[-len(GameFeatures.feature_names) :]
 
     assert tail == GameFeatures.feature_names, (
-        f"_gen_feature_names() tail {tail} does not match GameFeatures.feature_names {GameFeatures.feature_names}"
+        f"get_model_features() tail {tail} does not match GameFeatures.feature_names {GameFeatures.feature_names}"
     )
 
 
@@ -276,6 +277,13 @@ def test_feature_engineering_e2e(
     raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame, latest_rand_game_id
 ):
     ctx_from_game_id(raw_pbp, raw_schedules, game_ids=[latest_rand_game_id])
+
+
+@pytest.mark.xfail
+def test_model_2nd_down_problem():
+    # Test the model can identify if a team is sacked on 2nd down 100% of the time.
+    # It should predict a sack
+    raise NotImplementedError
 
 
 if __name__ == "__main__":

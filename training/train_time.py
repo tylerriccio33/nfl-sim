@@ -1,4 +1,4 @@
-"""Train a decision tree model for time elapsed prediction.
+"""Train a linear regression model for time elapsed prediction.
 
 Usage: uv run training/train_time.py (or `make train-time`)
 
@@ -6,9 +6,11 @@ The time model predicts time_elapsed conditioned on both game state/context
 and the actual yards gained during the play. This captures the intuition that
 a 5-yard gain takes different time than a 50-yard gain.
 
-Uses first 9 features (state + game features) plus yards as a 10th feature.
-At inference, yards come from the outcome model (CVAE or ST) so time is
-predicted AFTER we know the play outcome.
+Uses 9 base features (state + game context) plus yards_gained and completion
+as conditioning fields (11 total features).
+
+At inference, yards and completion come from the outcome model (CVAE or ST)
+so time is predicted AFTER we know the play outcome.
 """
 
 import json
@@ -18,7 +20,7 @@ from rich.console import Console
 from rich.table import Table
 from sklearn.linear_model import LinearRegression
 
-from nfl_sim.pipeline_config import ARTIFACT_PATHS
+from nfl_sim.pipeline_config import ARTIFACT_PATHS, get_model_features
 from training.prepare import prepare
 
 console = Console()
@@ -26,10 +28,7 @@ console = Console()
 TIME_ARTIFACT_DIR = ARTIFACT_PATHS.time_dir
 
 
-def train_time_model(
-    features_time: np.ndarray,
-    time_elapsed: np.ndarray,
-) -> float:
+def train_time_model(features_time: np.ndarray, time_elapsed: np.ndarray) -> float:
     """Train and save a linear regression model for time elapsed prediction.
 
     Time is conditioned on game state/context (9 features) plus outcome fields
@@ -37,15 +36,13 @@ def train_time_model(
     directly as numpy arrays for near-instant inference (no sklearn overhead).
 
     Args:
-        features_time: Pre-built time model features from prepare(),
+        features_time: Feature matrix for time model,
                        shape (N, 11) = [9 base + yards_gained + completion]
         time_elapsed: Target time in seconds, shape (N,)
 
     Returns the MAE on held-out evaluation data.
 
     """
-    # Features are already built with the correct shape from prepare()
-    # No manual slicing/concatenation needed
     features = features_time
 
     # Drop NaN/inf rows
@@ -106,10 +103,17 @@ def train_time_model(
 def main() -> None:
     """Train the time model."""
     print("Preparing training data...")
-    data = prepare()
+    df = prepare()
 
-    # Use pre-built time model features (already includes yards + completion conditioning)
-    train_time_model(data.features_time, data.time_elapsed)
+    # Get feature names from pipeline config
+    feature_names = get_model_features("time")
+
+    # Extract features and targets
+    features_time = df.select(feature_names).to_numpy()
+    time_elapsed = df.select("time_elapsed").to_numpy().flatten()
+
+    # Train the model
+    train_time_model(features_time, time_elapsed)
 
     print("Done.")
 

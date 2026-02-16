@@ -104,13 +104,13 @@ def ctx() -> dict[str, GameContext]:
             game_id="2025_02_KC_BUF",
             home="KC",
             away="BUF",
-            features=GameFeatures(spread=-3.0, epa_home=1, epa_away=1),
+            features=GameFeatures(spread_line=-3.0, epa_home=1, epa_away=1),
         ),
         GameContext(
             game_id="2025_03_BUF_MIA",
             home="BUF",
             away="MIA",
-            features=GameFeatures(spread=-7.0, epa_home=1, epa_away=1),
+            features=GameFeatures(spread_line=-7.0, epa_home=1, epa_away=1),
         ),
     ]
     return {g.game_id: g for g in games}
@@ -130,7 +130,7 @@ def _real_pbp_to_sim_schema(pbp: pl.DataFrame) -> pl.DataFrame:
     """Map real nflfastR play-by-play data into the same schema the sim engine produces.
 
     The sim engine emits: game_id, sim_id, play_id, quarter, clock, down, distance,
-    yardline, posteam (HOME/AWAY), yards_gained, event, home_score, away_score.
+    yardline_100, posteam (HOME/AWAY), yards_gained, event, home_score, away_score.
 
     Real PBP has all the raw info but in a different shape. This function bridges
     the gap so `understand()` can consume both real and simulated data identically.

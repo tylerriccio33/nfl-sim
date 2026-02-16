@@ -26,7 +26,7 @@ def _test_ctx(home: str, away: str) -> GameContext:
         game_id=f"{home}_{away}",
         home=home,
         away=away,
-        features=GameFeatures(spread=0.0, epa_home=1, epa_away=1),
+        features=GameFeatures(spread_line=0.0, epa_home=1, epa_away=1),
     )
 
 
@@ -214,7 +214,7 @@ class TestTracesToDataframe:
             "clock",
             "down",
             "distance",
-            "yardline",
+            "yardline_100",
             "posteam",
             "yards_gained",
             "event",

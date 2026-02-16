@@ -1,32 +1,37 @@
 """Prepare training data from play-by-play parquet.
 
-Loads data/pbp.parquet, filters to real plays, extracts features
-and targets in a format ready for backend training.
+Loads data/pbp.parquet, filters to real plays, and builds all feature columns
+using the unified feature building API. This ensures training and inference
+feature extraction never diverge.
 
-Uses the same code paths as runtime inference (build_features_for_model + ctx_from_game_id)
-so training features can never silently diverge from what the model sees at inference.
+Steps:
+  1. Filter to real plays in regulation (quarters 1-4)
+  2. Compute time_elapsed and turnover_type
+  3. Derive offense/defense and score_diff
+  4. Build GameContext for each game (spread, epa)
+  5. For each play, extract features using build_features_for_model()
+  6. Add feature columns to DataFrame
+  7. Extract outcome arrays (intent, yards_gained, etc.)
+  8. Return DataFrame with features + outcome arrays
 """
 
-from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import polars as pl
 
-from nfl_sim.engine.state import (
-    Intent,
-    Outcome,
-    TurnoverType,
-    _GameState,
+from nfl_sim.models.context import DerivedContext, ModelContext, ctx_from_game_id
+from nfl_sim.pipeline_config import (
+    INTENT_VALUES,
+    PLAY_TYPE_MAP,
+    TRAINING_CONFIG,
+    get_model_features,
 )
-from nfl_sim.models.context import DerivedContext, GameContext, ModelContext, ctx_from_game_id
-from nfl_sim.models.features import build_features_for_model
-from nfl_sim.pipeline_config import PLAY_TYPE_MAP, TRAINING_CONFIG
 
 DATA_PATH = Path(TRAINING_CONFIG["pbp_path"])
 SCHEDULE_PATH = Path(TRAINING_CONFIG["schedule_path"])
 
-# Columns we need from pbp to extract features + targets
+# Columns we need from pbp for feature and target extraction
+# (Used by infer.py for backwards compatibility)
 REQUIRED_COLS = [
     "play_type",
     "down",
@@ -57,85 +62,22 @@ REQUIRED_COLS = [
 _PLAY_TYPE_TO_INTENT: dict[str, str] = PLAY_TYPE_MAP
 
 
-@dataclass
-class PreparedData:
-    """Prepared training data: feature matrices for each model + targets."""
-
-    # Feature matrices (built using build_features_for_model)
-    # Each has shape (n_samples, n_features) for that model
-    features_intent: np.ndarray  # Shape: (n_samples, 9) - all plays
-    features_run: np.ndarray  # Shape: (n_run_samples, 9) - RUN plays only
-    features_pass: np.ndarray  # Shape: (n_pass_samples, 9) - PASS plays only
-    features_punt: np.ndarray  # Shape: (n_punt_samples, 9) - PUNT plays only
-    features_time: np.ndarray  # Shape: (n_samples, 11) - includes yards + completion conditioning
-
-    # Target arrays (all have shape (n_samples,))
-    intent: np.ndarray  # Intent enum values
-    yards_gained: np.ndarray
-    time_elapsed: np.ndarray
-    turnover_type: np.ndarray
-    complete_pass: np.ndarray
-    punt_blocked: np.ndarray
-
-    # Metadata
-    game_ids: list[str]
-    df: pl.DataFrame  # Keep for debugging
-    contexts: dict[str, GameContext]  # Game context lookup by game_id
-
-    @property
-    def desc(self) -> np.ndarray:
-        """Play description from original pbp data."""
-        return self.df["desc"].to_numpy()
-
-
-def _row_to_state(row: dict) -> _GameState:
-    """Build _GameState tuple from DataFrame row.
-
-    Must match the indices: (_Q, _CLK, _OFF, _DEF, _DN, _DIST, _YL, _SC)
-    """
-    return (
-        row["qtr"],  # _Q
-        row["game_seconds_remaining"],  # _CLK
-        row["offense"],  # _OFF (HOME/AWAY, set by prepare())
-        row["defense"],  # _DEF (HOME/AWAY, set by prepare())
-        row["down"],  # _DN
-        row["ydstogo"],  # _DIST
-        row["yardline_100"],  # _YL
-        (row["total_home_score"], row["total_away_score"]),  # _SC
-    )
-
-
-def _row_to_outcome(row: dict) -> Outcome:
-    """Build a lightweight Outcome from DataFrame row for time model conditioning.
-
-    Only sets fields used by the time model: yards_gained, completion.
-    Other fields are set to safe defaults.
-    """
-    return Outcome(
-        yards_gained=row["yards_gained"],
-        completion=bool(row["complete_pass"]),
-        turnover_type=TurnoverType.NONE,  # Not used for time model
-        time_elapsed=0,  # Not used for time model
-        touchdown=False,  # Not used for time model
-    )
-
-
-# TODO: Remove defaults
-def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> PreparedData:
+def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
     """Load and prepare training data from pbp parquet.
 
-    Steps:
-      1. Filter to real plays in regulation (quarters 1-4)
-      2. Drop rows with nulls on key columns
-      3. Engineer game-level features via ctx_from_game_id (same as runtime)
-      4. Filter to valid game_ids and play_types
-      5. Build feature matrices using build_features_for_model (same as runtime)
-      6. Extract targets as numpy arrays
+    Loads play-by-play data, applies transformations (time_elapsed, turnover_type,
+    offense/defense), builds GameContext for all games, and extracts features
+    using the unified feature building API.
+
+    Returns:
+        DataFrame containing all features, outcome columns, and original pbp data.
+
     """
+    # Load and filter pbp
     df = (
         pl.scan_parquet(pbp_path)
         .with_columns(
-            # Time elapsed: previous play's game_seconds_remaining - current game_seconds_remaining
+            # Time elapsed: previous play's game_seconds_remaining - current
             time_elapsed=pl.col("game_seconds_remaining").shift(1).over("game_id")
             - pl.col("game_seconds_remaining"),
             # Turnover type: 0=none, 1=interception, 2=fumble
@@ -167,102 +109,122 @@ def prepare(pbp_path: Path = DATA_PATH, schedule_path: Path = SCHEDULE_PATH) -> 
                 "time_elapsed",
             ]
         )
+        .filter(pl.col("play_type").is_in(set(_PLAY_TYPE_TO_INTENT.keys())))
+        .with_columns(
+            offense=pl.when(pl.col("posteam_type") == "home")
+            .then(pl.lit("HOME"))
+            .otherwise(pl.lit("AWAY")),
+            defense=pl.when(pl.col("posteam_type") == "home")
+            .then(pl.lit("AWAY"))
+            .otherwise(pl.lit("HOME")),
+        )
         .collect()
     )
-    schedule_data = pl.read_parquet(schedule_path)
 
-    # Engineer game-level features using the same code path as runtime
-    # ctx_from_game_id expects a collected DataFrame
-    game_ids = df["game_id"].unique().to_list()
-    contexts: dict[str, GameContext] = ctx_from_game_id(df, schedule_data, game_ids)
-
-    # Filter to valid game_ids and play_types
-    valid_game_ids = set(contexts.keys())
-    valid_play_types = set(_PLAY_TYPE_TO_INTENT.keys())
-
-    df = df.filter(
-        pl.col("game_id").is_in(list(valid_game_ids)),
-        pl.col("play_type").is_in(list(valid_play_types)),
+    # Map play_type → intent value
+    intent_name_mapping = pl.col("play_type").map_elements(
+        lambda pt: _PLAY_TYPE_TO_INTENT.get(pt, "RUN"), return_dtype=pl.String
+    )
+    intent_value_mapping = intent_name_mapping.map_elements(
+        lambda name: INTENT_VALUES.get(name, 1), return_dtype=pl.Int32
     )
 
-    # Derive offense/defense as HOME/AWAY based on posteam_type
+    # Add derived columns
     df = df.with_columns(
-        offense=pl.when(pl.col("posteam_type") == "home")
-        .then(pl.lit("HOME"))
-        .otherwise(pl.lit("AWAY")),
-        defense=pl.when(pl.col("posteam_type") == "home")
-        .then(pl.lit("AWAY"))
-        .otherwise(pl.lit("HOME")),
+        intent=intent_value_mapping,
+        score_diff=pl.col("total_home_score") - pl.col("total_away_score"),
     )
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Build feature matrices using the unified API
-    # Each row builds its own ModelContext, then extracts features for each model
-    # ─────────────────────────────────────────────────────────────────────────
+    # Build GameContext for all games
+    game_ids = df["game_id"].unique().to_list()
+    schedule = pl.read_parquet(SCHEDULE_PATH)
+    contexts = ctx_from_game_id(df, schedule, game_ids)
 
-    features_intent_list = []
-    features_time_list = []
-    intent_list = []
-    game_ids_list = []
+    # Extract features for all plays
+    print("Building feature columns...")
+    feature_names_by_model = {
+        "intent": get_model_features("intent"),
+        "run": get_model_features("run"),
+        "pass": get_model_features("pass"),
+        "punt": get_model_features("punt"),
+        "time": get_model_features("time"),
+    }
 
-    for row in df.iter_rows(named=True):
+    # Collect all unique feature names across all models
+    all_feature_names = sorted(set().union(*feature_names_by_model.values()))
+
+    # Map pbp-style feature names to context feature names
+    # Context uses: "dist", "quarter", "clock", "spread"
+    # TOML/training uses: "ydstogo", "qtr", "game_seconds_remaining", "spread_line"
+    pbp_to_context_name = {
+        "ydstogo": "dist",
+        "qtr": "quarter",
+        "game_seconds_remaining": "clock",
+        "spread_line": "spread",
+    }
+
+    # Map feature names to pbp column names for outcome conditioning fields
+    feature_name_to_pbp_col = {
+        "completion": "complete_pass",
+    }
+
+    # Extract features for each row
+    feature_dict = {fname: [] for fname in all_feature_names}
+    kept_row_indices = []
+
+    for idx, row in enumerate(df.iter_rows(named=True)):
+        # Build ModelContext for this play
         game_id = row["game_id"]
-        state = _row_to_state(row)
+        if game_id not in contexts:
+            # Skip games without context (Week 1 or missing EPA data)
+            continue
+
+        kept_row_indices.append(idx)
+
+        # Build state tuple (must match _GameState indices)
+        state = (
+            row["qtr"],
+            row["game_seconds_remaining"],
+            row["offense"],
+            row["defense"],
+            row["down"],
+            row["ydstogo"],
+            row["yardline_100"],
+            (row["total_home_score"], row["total_away_score"]),
+        )
+
         context = ModelContext(
             state=state,
             derived=DerivedContext(trace=[]),
             game_context=contexts[game_id],
         )
 
-        # Build intent features (9 base features)
-        feats_intent = build_features_for_model("intent", context)
-        features_intent_list.append(feats_intent)
+        # Extract each feature
+        for fname in all_feature_names:
+            # Map pbp feature names to context names
+            context_fname = pbp_to_context_name.get(fname, fname)
+            try:
+                value = context.get_features(row["offense"], context_fname)
+                feature_dict[fname].append(value)
+            except KeyError:
+                # Feature not available from context (e.g., outcome conditioning fields)
+                # For outcome fields like yards_gained, completion, use pbp values directly
+                pbp_col = feature_name_to_pbp_col.get(fname, fname)
+                if pbp_col in row:
+                    feature_dict[fname].append(row[pbp_col])
+                else:
+                    feature_dict[fname].append(None)
 
-        # Build time model features (11: base 9 + yards + completion)
-        outcome_lightweight = _row_to_outcome(row)
-        feats_time = build_features_for_model("time", context, outcome_lightweight)
-        features_time_list.append(feats_time)
+    # Filter df to only include plays we could build context for
+    n_rows_before = len(df)
+    n_rows_after = len(kept_row_indices)
 
-        # Track intent for later filtering
-        play_type = row["play_type"]
-        intent_value = Intent[_PLAY_TYPE_TO_INTENT[play_type]].value
-        intent_list.append(intent_value)
-        game_ids_list.append(game_id)
+    if n_rows_after < n_rows_before:
+        print(f"  Note: Filtered {n_rows_before - n_rows_after} rows without game context (Week 1)")
+        df = df.filter(pl.col("game_id").is_in(contexts.keys()))
 
-    # Stack all features into matrices
-    features_intent = np.vstack(features_intent_list).astype(np.float32)
-    features_time = np.vstack(features_time_list).astype(np.float32)
-    intent_arr = np.array(intent_list, dtype=np.int64)
+    # Add feature columns to DataFrame
+    for fname in all_feature_names:
+        df = df.with_columns(pl.Series(fname, feature_dict[fname], dtype=pl.Float32))
 
-    # Filter features by intent to create route-specific matrices
-    run_mask = intent_arr == Intent.RUN.value
-    pass_mask = intent_arr == Intent.PASS.value
-    punt_mask = intent_arr == Intent.PUNT.value
-
-    features_run = features_intent[run_mask]
-    features_pass = features_intent[pass_mask]
-    features_punt = features_intent[punt_mask]
-
-    # Extract target arrays (same shape as intent_arr)
-    yards_gained = df["yards_gained"].to_numpy()
-    time_elapsed = df["time_elapsed"].to_numpy()
-    turnover_type = df["turnover_type"].to_numpy()
-    complete_pass = df["complete_pass"].fill_null(0).to_numpy()
-    punt_blocked = df["punt_blocked"].fill_null(0).to_numpy()
-
-    return PreparedData(
-        features_intent=features_intent,
-        features_run=features_run,
-        features_pass=features_pass,
-        features_punt=features_punt,
-        features_time=features_time,
-        intent=intent_arr,
-        yards_gained=yards_gained,
-        time_elapsed=time_elapsed,
-        turnover_type=turnover_type,
-        complete_pass=complete_pass,
-        punt_blocked=punt_blocked,
-        game_ids=game_ids_list,
-        df=df,
-        contexts=contexts,
-    )
+    return df

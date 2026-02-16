@@ -32,11 +32,11 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
 
     # Apply yards (TD check uses <= 0, so don't clamp the lower bound here)
     # Upper bound: >100 would be safety - clamp to 99 for now (safety handling TBD)
-    new_yardline = min(99, state[_YL] - outcome.yards_gained)
+    new_yardline_100 = min(99, state[_YL] - outcome.yards_gained)
 
     # Handle field goal (special case - points without TD, changes possession)
     if intent == Intent.FIELD_GOAL:
-        fg_made = new_yardline <= 0
+        fg_made = new_yardline_100 <= 0
         score = state[_SC]
         if fg_made:
             offense_idx = 0 if state[_OFF] == "HOME" else 1
@@ -54,23 +54,23 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
         punt_landing = state[_YL] - punt_distance
         if punt_landing <= 0:
             # Into or past endzone - touchback at the 25
-            receiving_yardline = 75
+            receiving_yardline_100 = 75
         else:
             # Receiving team gets ball at the landing spot (flipped perspective)
-            receiving_yardline = 100 - punt_landing
+            receiving_yardline_100 = 100 - punt_landing
         return (
             new_quarter,
             new_clock,
             state[_DEF],
             state[_OFF],
             1,
-            min(10, receiving_yardline),
-            receiving_yardline,
+            min(10, receiving_yardline_100),
+            receiving_yardline_100,
             state[_SC],
         )
 
-    # Handle touchdown (yardline reached endzone)
-    if new_yardline <= 0:
+    # Handle touchdown (yardline_100 reached endzone)
+    if new_yardline_100 <= 0:
         offense_idx = 0 if state[_OFF] == "HOME" else 1
         sc = state[_SC]
         score = (sc[0] + 7, sc[1]) if offense_idx == 0 else (sc[0], sc[1] + 7)
@@ -79,15 +79,15 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
 
     # Handle turnover (interception/fumble from outcome model)
     if outcome.turnover:
-        flipped_yardline = 100 - new_yardline
+        flipped_yardline_100 = 100 - new_yardline_100
         return (
             new_quarter,
             new_clock,
             state[_DEF],
             state[_OFF],
             1,
-            min(10, flipped_yardline),
-            flipped_yardline,
+            min(10, flipped_yardline_100),
+            flipped_yardline_100,
             state[_SC],
         )
 
@@ -99,22 +99,22 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
             state[_OFF],
             state[_DEF],
             1,
-            min(10, new_yardline),
-            new_yardline,
+            min(10, new_yardline_100),
+            new_yardline_100,
             state[_SC],
         )
 
     # Handle turnover on downs
     if state[_DN] == 4:
-        flipped_yardline = 100 - new_yardline
+        flipped_yardline_100 = 100 - new_yardline_100
         return (
             new_quarter,
             new_clock,
             state[_DEF],
             state[_OFF],
             1,
-            min(10, flipped_yardline),
-            flipped_yardline,
+            min(10, flipped_yardline_100),
+            flipped_yardline_100,
             state[_SC],
         )
 
@@ -126,7 +126,7 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
         state[_DEF],
         state[_DN] + 1,
         state[_DIST] - outcome.yards_gained,
-        new_yardline,
+        new_yardline_100,
         state[_SC],
     )
 
