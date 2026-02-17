@@ -8,7 +8,8 @@ import pytest
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
 from nfl_sim.engine.api import GameTrace, traces_to_dataframe
-from nfl_sim.models.context import ctx_from_game_id
+from nfl_sim.engine.state import Outcome, _GameState
+from nfl_sim.models.context import DerivedContext, ModelContext, ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
 
@@ -142,6 +143,7 @@ def _real_pbp_to_sim_schema(pbp: pl.DataFrame) -> pl.DataFrame:
         pl.col("play_type").is_in(["pass", "run", "punt", "field_goal", "qb_kneel", "qb_spike"])
     )
 
+    # TODO: Weird right
     # Build the event column from real PBP binary flags.
     # Order matters: more specific events checked first.
     event_expr = (
@@ -222,3 +224,58 @@ def build_comparison_data(
     sim_stats_combined = _stats_to_avg_std(sim_stats)
 
     return real_stats_combined, sim_stats_combined
+
+
+# =============================================================================
+# ModelContext Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def game_state() -> _GameState:
+    """A minimal GameState tuple for testing context access.
+
+    State layout: [qtr, clock, offense, defense, down, dist, yardline_100, score]
+    """
+    return (
+        2,  # qtr
+        600,  # clock (game_seconds_remaining)
+        "HOME",  # offense
+        "AWAY",  # defense
+        2,  # down
+        7,  # ydstogo
+        50,  # yardline_100
+        (10, 7),  # score (home, away)
+    )
+
+
+@pytest.fixture
+def model_context(game_state: _GameState) -> ModelContext:
+    """ModelContext with game state and game-level features."""
+    game_context = GameContext(
+        game_id="test_game_001",
+        home="KC",
+        away="BUF",
+        spread_line=(-3.0, 3.0),
+        epa=(0.5, -0.5),
+    )
+    derived = DerivedContext([])
+    return ModelContext(
+        state=game_state,
+        derived=derived,
+        game_context=game_context,
+        outcome=None,
+    )
+
+
+@pytest.fixture
+def model_context_with_outcome(model_context: ModelContext) -> ModelContext:
+    """ModelContext with outcome for outcome-dependent feature tests."""
+    model_context.outcome = Outcome(
+        yards_gained=15,
+        turnover_type=None,  # type: ignore[arg-type]
+        touchdown=False,
+        time_elapsed=0,
+        complete_pass=True,
+    )
+    return model_context

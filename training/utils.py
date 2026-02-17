@@ -121,13 +121,12 @@ def make_model_context(row: dict, contexts: dict[str, GameContext]) -> ModelCont
 class TrainingResult:
     """Result of model training.
 
-    Contains eval data for reporting and metrics computation.
+    Contains eval dataframe with features, real values, and predictions.
     """
 
+    df: pl.DataFrame
     feature_names: list[str]
-    eval_x: np.ndarray
-    eval_y: np.ndarray
-    eval_pred: np.ndarray
+    real: str
     artifact_path: Path
 
 
@@ -243,7 +242,7 @@ def train_model(
     # 90/10 train/eval split
     split = int(n * 0.9)
     x_train, x_eval = x[:split], x[split:]
-    y_train, y_eval = y[:split], y[split:]
+    y_train, _ = y[:split], y[split:]
 
     print(f"Training {model_name}...")
     print(f"  Train: {len(x_train)} samples")
@@ -257,13 +256,13 @@ def train_model(
     trainer.save(artifact_path)
     print(f"  Saved: {artifact_path}")
 
-    # Return eval data for the caller to report on
+    # Get eval predictions and construct result dataframe
     eval_pred = trainer.predict(x_eval)
+    eval_df = filtered[split:].with_columns(pl.Series("pred", eval_pred))
 
     return TrainingResult(
+        df=eval_df,
         feature_names=feature_names,
-        eval_x=x_eval,
-        eval_y=y_eval,
-        eval_pred=eval_pred,
+        real=outcome_name,
         artifact_path=artifact_path,
     )

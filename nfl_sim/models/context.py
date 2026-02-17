@@ -2,13 +2,16 @@
 
 import contextlib
 from dataclasses import dataclass
-from typing import ClassVar, Literal, Self
+from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 import numpy as np
 import polars as pl
 
 from nfl_sim.engine.state import _CLK, _DEF, _DIST, _DN, _OFF, _Q, _SC, _YL, GameTrace, _GameState
 from nfl_sim.pipeline_config import get_model_features
+
+if TYPE_CHECKING:
+    from nfl_sim.engine.state import Outcome
 
 # Mapping of feature names to _GameState indices
 # TODO: Make sure these are mirroring the proper naming conventions
@@ -224,18 +227,6 @@ class DerivedContext:
 
 
 @dataclass
-class PosteriorContext:
-    """Information derived from play outcome (after CVAE generation).
-
-    These fields are used for time model conditioning - e.g., predicting
-    time elapsed given the yards gained and completion status of the play.
-    """
-
-    yards_gained: int
-    complete_pass: bool
-
-
-@dataclass
 class ModelContext:
     """Context actually passed to the model.
 
@@ -243,16 +234,15 @@ class ModelContext:
     - state (_GameState): Used to guide post-processing of generated play.
     - derived (DerivedContext): Momentum-like variables based off trace.
     - game_context (GameContext): Game-level features.
-    - posterior (PosteriorContext | None): Outcome conditioning for time model.
+    - outcome (Outcome | None): Play outcome for time model conditioning.
 
     """
 
     state: _GameState
     derived: DerivedContext
     game_context: GameContext
-    posterior: PosteriorContext | None = None
+    outcome: "Outcome | None" = None  # TODO: Correct annotations
 
-    # TODO: Get item?
     def get_features(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
         """Get a feature from the context.
 
@@ -276,10 +266,10 @@ class ModelContext:
         with contextlib.suppress(AttributeError):
             return self.game_context.get_feature(team, feat)
 
-        # 4 - Try PosteriorContext
-        if self.posterior is not None:
+        # 4 - Try Outcome (for conditioning features like yards_gained, complete_pass)
+        if self.outcome is not None:
             with contextlib.suppress(AttributeError):
-                return getattr(self.posterior, feat)
+                return getattr(self.outcome, feat)
 
         raise AttributeError(f"Feature '{feat}' not found in any context")
 

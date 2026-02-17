@@ -66,7 +66,7 @@ outcomes = ["kick_distance"]
 
 [models.time]
 artifact = "training/artifacts/time/model.json"
-features = ["down", "ydstogo", "yardline_100", "score_diff", "qtr", "game_seconds_remaining", "goal_to_go", "spread_line", "epa", "yards_gained", "complete_pass"]
+features = ["down", "ydstogo", "yardline_100", "score_diff", "qtr", "game_seconds_remaining", "goal_to_go", "spread_line", "epa", "yards_gained", "complete_pass", "punt_attempt"]
 outcomes = ["time_elapsed"]
 
 # ST plays use a fixed time override (no model needed)

@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-import polars as pl
 from pysuite import run
 from sklearn.linear_model import LinearRegression
 
@@ -52,20 +51,18 @@ class TimeTrainer(Trainer):
 
 def main() -> None:
     """Train the time model."""
-    print("Preparing training data...")
     df = prepare()
 
-    # Create trainer
     trainer = TimeTrainer()
 
-    # Train using unified framework
     result = train_model("time", df, trainer)
 
-    # Report evaluation metrics
+    res = result.df
+
     run(
-        xeval=pl.DataFrame(result.eval_x, schema=result.feature_names),
-        yeval=pl.Series(result.eval_y),
-        ypred=pl.Series(result.eval_pred),
+        xeval=res.select(*result.feature_names, "desc"),
+        yeval=res[result.real],
+        ypred=res["pred"],
         show=True,
     )
 

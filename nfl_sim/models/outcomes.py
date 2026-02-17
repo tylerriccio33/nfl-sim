@@ -44,7 +44,7 @@ from nfl_sim.engine.state import (
     TurnoverType,
     route_from_intent,
 )
-from nfl_sim.models.context import ModelContext, PosteriorContext, build_features_for_model
+from nfl_sim.models.context import ModelContext, build_features_for_model
 from nfl_sim.pipeline_config import ARTIFACT_PATHS
 
 # Training data uses 0/1/2 for turnover_type, but the enum uses auto() → 1/2/3.
@@ -239,11 +239,8 @@ class OutcomeModel:
 
         Uses pre-trained linear regression coefficients for instant numpy inference.
         """
-        # Build context with posterior (outcome conditioning) for time model
-        context.posterior = PosteriorContext(
-            yards_gained=outcome.yards_gained,
-            complete_pass=outcome.complete_pass,
-        )
+        # Store outcome for time model conditioning (yards_gained, complete_pass)
+        context.outcome = outcome
 
         # Use unified feature API to build time model features (includes conditioning)
         full_features = build_features_for_model("time", context)
@@ -265,6 +262,9 @@ class OutcomeModel:
         if not self._loaded:
             self._load()
 
+        # TODO: Could be interesting if we could produce a png of the flow of this model.
+        # - would force good habits too by making all the functions very high level
+
         # Build intent model features (9 base features: state + game context)
         intent_features = build_features_for_model("intent", context)
 
@@ -273,27 +273,36 @@ class OutcomeModel:
         route = route_from_intent(intent)
 
         # If Run/Pass, we predict using the corresponding neural net.
-        # If we go the ST route, we predict using special teams logic.
+        # TODO: Might want to do a dict? each model shouldn't be that different during the route split
         match route:
             case Route.RUN | Route.PASS:
                 cvae_model: _CvaeArtifact = self._cvae[route]
 
+                model = "pass"
                 if route == Route.RUN:
-                    cvae_features = build_features_for_model("run", context)
-                else:
-                    cvae_features = build_features_for_model("pass", context)
+                    model = "run"
 
-                outcome = self._predict_cvae(cvae_model, cvae_features)
+                cvae_features = build_features_for_model(model, context)
 
-                outcome.time_elapsed = min(
-                    self._predict_time(context, outcome), context.state[_CLK]
-                )
+                # TODO: I kind of want another abstraction layer on top of cvae. Doesn't make programming sense
+                # but makes more human sense to me. Feels nicer to call the route specific cvae directly
+                outcome: Outcome = self._predict_cvae(cvae_model, cvae_features)
+
             case Route.ST:
                 outcome = self._predict_st(context, intent)
-                # ST plays use fixed 20 seconds, but cap at remaining clock time
-                outcome.time_elapsed = min(outcome.time_elapsed, context.state[_CLK])
 
+        ## POST-OUTCOME PROCESSING ##
+        # Features that must be post-processed before the common models.
         outcome.touchdown = False  # engine detects via yardline_100 # TODO: Weird right?
+        outcome.punt_attempt = intent == intent.PUNT
+
+        ## COMMON MODELS ##
+        # Models that are placed on top of the separate outcome heads.
+        pred_time: int = self._predict_time(context, outcome)
+
+        ## POST PROCESSING OUTCOME ##
+        outcome.time_elapsed = min(pred_time, context.state[_CLK])
+
         return intent, outcome
 
 
