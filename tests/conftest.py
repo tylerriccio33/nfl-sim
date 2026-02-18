@@ -126,6 +126,12 @@ def sims(ctx: dict[str, GameContext]) -> dict[str, list[GameTrace]]:
     return sim_games(ctx, n=1)
 
 
+@pytest.fixture(scope="session")
+def sims_multiple(ctx: dict[str, GameContext]) -> dict[str, list[GameTrace]]:
+    """Multiple simulations (n=5) for integration tests that need trace variety."""
+    return sim_games(ctx, n=5)
+
+
 # =============================================================================
 # Larger Fixtures
 # =============================================================================

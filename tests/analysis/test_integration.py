@@ -5,14 +5,13 @@ Tests the full pipeline: context creation → simulation → understanding.
 
 import pytest
 
-from nfl_sim import sim_games, understand
+from nfl_sim import understand
 from nfl_sim.engine.api import traces_to_dataframe
 
 
-def test_full_pipeline_completes(ctx):
+def test_full_pipeline_completes(ctx, sims_multiple):
     """Full pipeline should complete without error."""
-    traces = sim_games(ctx, n=20)
-    df = traces_to_dataframe(traces)
+    df = traces_to_dataframe(sims_multiple)
     game_stats = understand(df)
 
     # 2 games (from ctx fixture)
