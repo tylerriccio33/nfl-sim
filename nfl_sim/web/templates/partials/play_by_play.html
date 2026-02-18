@@ -11,6 +11,7 @@
                     <th class="p-2 text-left text-gray-300">Score</th>
                     <th class="p-2 text-left text-gray-300">Team</th>
                     <th class="p-2 text-left text-gray-300">Situation</th>
+                    <th class="p-2 text-left text-gray-300">Yardline</th>
                     <th class="p-2 text-left text-gray-300">Gain</th>
                     <th class="p-2 text-left text-gray-300">Result</th>
                 </tr>
@@ -41,15 +42,19 @@
                         {% else %}
                             {{ play.down }}{{ 'st' if play.down == 1 else ('nd' if play.down == 2 else ('rd' if play.down == 3 else 'th')) }} & {{ play_dist }}
                         {% endif %}
+                    </td>
+                    <td class="p-2 font-mono text-xs">
                         {# Yardline in human-readable format #}
                         {% if play.yardline %}
                             {% if play.yardline > 50 %}
-                                <span class="text-gray-400"> at Own {{ 100 - play.yardline }}</span>
+                                <span class="text-gray-400">Own {{ 100 - play.yardline }}</span>
                             {% elif play.yardline == 50 %}
-                                <span class="text-gray-400"> at 50</span>
+                                <span class="text-gray-400">50</span>
                             {% else %}
-                                <span class="{% if play.yardline <= 20 %}text-red-400{% else %}text-gray-400{% endif %}"> at OPP {{ play.yardline }}</span>
+                                <span class="{% if play.yardline <= 20 %}text-red-400{% else %}text-gray-400{% endif %}">Opp {{ play.yardline }}</span>
                             {% endif %}
+                        {% else %}
+                            <span class="text-gray-500">-</span>
                         {% endif %}
                     </td>
                     <td class="p-2 {% if play.yards_gained is not none and play.yards_gained > 0 %}text-green-400{% elif play.yards_gained is not none and play.yards_gained < 0 %}text-red-400{% endif %}">

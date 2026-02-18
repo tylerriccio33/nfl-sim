@@ -231,12 +231,14 @@ def build_comparison_data(
     ctx: dict[str, GameContext] = ctx_from_game_id(
         pbp=raw_pbp, schedule_data=schedule_filtered, game_ids=latest_games
     )
+    assert len(ctx) >= 20
 
-    ## Sim Data (reduced from n=2 to n=1 for speed):
-    traces = sim_games(ctx, n=1)
+    ## Sim Data:
+    traces = sim_games(ctx, n=25)
     sim_pbp: pl.DataFrame = traces_to_dataframe(traces)
     sim_stats = understand(sim_pbp)
     sim_stats_combined = _stats_to_avg_std(sim_stats)
+
 
     return real_stats_combined, sim_stats_combined
 
