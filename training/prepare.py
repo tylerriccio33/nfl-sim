@@ -76,8 +76,10 @@ def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
         pl.scan_parquet(pbp_path)
         .with_columns(
             # Time elapsed: previous play's game_seconds_remaining - current
-            time_elapsed=pl.col("game_seconds_remaining").shift(1).over("game_id")
-            - pl.col("game_seconds_remaining"),
+            time_elapsed=pl.col("game_seconds_remaining")
+            - pl.col("game_seconds_remaining")
+            .shift(-1)
+            .over("game_id", order_by="play_id", descending=False),
             # Turnover type: 0=none, 1=interception, 2=fumble
             turnover_type=pl.when(pl.col("interception").eq(1))
             .then(1)

@@ -17,10 +17,10 @@ route = "ST"
 
 # ── PBP play_type → Intent mapping (training data extraction) ────
 [play_type_map]
-run        = "RUN"
-pass       = "PASS"
-qb_kneel   = "RUN"
-punt       = "PUNT"
+run = "RUN"
+pass = "PASS"
+qb_kneel = "RUN"
+punt = "PUNT"
 field_goal = "FIELD_GOAL"
 
 # ── Models ───────────────────────────────────────────────────────────
@@ -28,35 +28,65 @@ field_goal = "FIELD_GOAL"
 
 [models.intent]
 artifact = "training/artifacts/rf/intent"
-metadata = "meta.json"  # relative to artifact dir
-compiled = "model.tl"   # relative to artifact dir
-features = ["down", "ydstogo", "yardline_100", "score_diff", "qtr", "game_seconds_remaining", "goal_to_go", "spread_line", "epa"]
+metadata = "meta.json" # relative to artifact dir
+compiled = "model.tl" # relative to artifact dir
+features = [
+    "down",
+    "ydstogo",
+    "yardline_100",
+    "score_diff",
+    "qtr",
+    "game_seconds_remaining",
+    "goal_to_go",
+    "spread_line",
+    "epa",
+]
 outcomes = ["intent"]
 
 [models.run]
 artifact = "training/artifacts/cvae/run"
-features = ["down", "ydstogo", "yardline_100", "score_diff", "qtr", "game_seconds_remaining", "goal_to_go", "spread_line", "epa"]
+features = [
+    "down",
+    "ydstogo",
+    "yardline_100",
+    "score_diff",
+    "qtr",
+    "game_seconds_remaining",
+    "goal_to_go",
+    "spread_line",
+    "epa",
+]
 outcomes = ["yards_gained", "turnover_type", "complete_pass"]
 # CVAE hyperparameters
-latent_dim    = 16
-hidden_dim    = 64
-cat_emb_dim   = 8
-beta          = 1.0
-epochs        = 100
-batch_size    = 256
+latent_dim = 16
+hidden_dim = 64
+cat_emb_dim = 8
+beta = 1.0
+epochs = 100
+batch_size = 256
 learning_rate = 1e-3
 
 [models.pass]
 artifact = "training/artifacts/cvae/pass"
-features = ["down", "ydstogo", "yardline_100", "score_diff", "qtr", "game_seconds_remaining", "goal_to_go", "spread_line", "epa"]
+features = [
+    "down",
+    "ydstogo",
+    "yardline_100",
+    "score_diff",
+    "qtr",
+    "game_seconds_remaining",
+    "goal_to_go",
+    "spread_line",
+    "epa",
+]
 outcomes = ["yards_gained", "turnover_type", "complete_pass"]
 # CVAE hyperparameters
-latent_dim    = 16
-hidden_dim    = 64
-cat_emb_dim   = 8
-beta          = 1.0
-epochs        = 100
-batch_size    = 256
+latent_dim = 16
+hidden_dim = 64
+cat_emb_dim = 8
+beta = 1.0
+epochs = 100
+batch_size = 256
 learning_rate = 1e-3
 
 [models.punt]
@@ -65,8 +95,13 @@ features = ["yardline_100"]
 outcomes = ["kick_distance"]
 
 [models.time]
-artifact = "training/artifacts/time/model.json"
-features = ["down", "ydstogo", "yardline_100", "score_diff", "qtr", "game_seconds_remaining", "goal_to_go", "spread_line", "epa", "yards_gained", "complete_pass", "punt_attempt"]
+artifact = "training/artifacts/time/model.tl"
+features = [
+    "yards_gained",
+    "complete_pass",
+    "pass_attempt",
+    "rush_attempt",
+]
 outcomes = ["time_elapsed"]
 
 # ST plays use a fixed time override (no model needed)
@@ -75,7 +110,7 @@ value = 20
 
 # ── Training Data ─────────────────────────────────────────────────────
 [training]
-pbp_path      = "data/pbp.parquet"
+pbp_path = "data/pbp.parquet"
 schedule_path = "data/schedules.parquet"
-eval_split    = 0.1
-quarters      = [1, 2, 3, 4]
+eval_split = 0.1
+quarters = [1, 2, 3, 4]

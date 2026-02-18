@@ -85,8 +85,7 @@ class OutcomeModel:
         "_intent_model",
         "_loaded",
         "_punt_yards",
-        "_time_coef",
-        "_time_intercept",
+        "_time_model",
     )
 
     _cvae: dict[Route, _CvaeArtifact]
@@ -94,8 +93,7 @@ class OutcomeModel:
     _intent_model: treelite.Model
     _loaded: bool
     _punt_yards: Any  # sklearn estimator (joblib.load returns Any)
-    _time_coef: np.ndarray
-    _time_intercept: float
+    _time_model: treelite.Model
 
     def __init__(self) -> None:
         self._loaded = False
@@ -124,11 +122,9 @@ class OutcomeModel:
         # inline in the inference methods below.
         self._punt_yards = joblib.load(ARTIFACT_PATHS.punt_yards_path)
 
-        # Time model (LinearRegression with coefficients stored as numpy arrays)
+        # Time model (treelite-compiled random forest with single tree)
         time_model_path = ARTIFACT_PATHS.time_dir / ARTIFACT_PATHS.time_file
-        model_dict = json.loads(time_model_path.read_text())
-        self._time_coef = np.array(model_dict["coef"], dtype=np.float64)
-        self._time_intercept = float(model_dict["intercept"])
+        self._time_model = treelite.Model.deserialize(str(time_model_path))
 
         self._loaded = True
 
@@ -237,14 +233,19 @@ class OutcomeModel:
         Time is predicted as a function of game state/context (base features) plus
         conditioning fields defined in pipeline.toml (e.g. yards, completion).
 
-        Uses pre-trained linear regression coefficients for instant numpy inference.
+        Uses treelite-compiled single-tree random forest for fast inference.
         """
         # Store outcome for time model conditioning (yards_gained, complete_pass)
         context.outcome = outcome
 
         # Use unified feature API to build time model features (includes conditioning)
         full_features = build_features_for_model("time", context)
-        raw = float(np.dot(full_features, self._time_coef) + self._time_intercept)
+        pred = treelite.gtil.predict(
+            self._time_model,
+            full_features.reshape(1, -1).astype(np.float32),
+            nthread=1,
+        )[0, 0][0]  # TODO: Weird indexing
+        raw = float(pred)
         return max(1, round(raw)) if math.isfinite(raw) else 20
 
     # ------------------------------------------------------------------
@@ -293,12 +294,19 @@ class OutcomeModel:
 
         ## POST-OUTCOME PROCESSING ##
         # Features that must be post-processed before the common models.
+        # TODO: This should be an abstraction I think
         outcome.touchdown = False  # engine detects via yardline_100 # TODO: Weird right?
-        outcome.punt_attempt = intent == intent.PUNT
+        outcome.pass_attempt = intent == Intent.PASS
+        outcome.rush_attempt = intent == Intent.RUN
 
-        ## COMMON MODELS ##
+        ## POST-OUTCOME MODELS ##
         # Models that are placed on top of the separate outcome heads.
-        pred_time: int = self._predict_time(context, outcome)
+        if intent in [Intent.RUN, Intent.PASS]:
+            pred_time: int = self._predict_time(context, outcome)
+        elif intent == Intent.FIELD_GOAL:
+            pred_time = 5
+        elif intent == Intent.PUNT:
+            pred_time = 10
 
         ## POST PROCESSING OUTCOME ##
         outcome.time_elapsed = min(pred_time, context.state[_CLK])

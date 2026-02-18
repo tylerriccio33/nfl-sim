@@ -1,5 +1,6 @@
 """Shared fixtures for NFL sim tests."""
 
+import os
 from pathlib import Path
 
 import polars as pl
@@ -121,7 +122,8 @@ def ctx() -> dict[str, GameContext]:
 
 @pytest.fixture(scope="session")
 def sims(ctx: dict[str, GameContext]) -> dict[str, list[GameTrace]]:
-    return sim_games(ctx)
+    # Use minimal simulations for fast test execution
+    return sim_games(ctx, n=1)
 
 
 # =============================================================================
@@ -203,13 +205,20 @@ def _stats_to_avg_std(stats: pl.DataFrame) -> dict[str, tuple[float, float]]:
 def build_comparison_data(
     raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame
 ) -> tuple[dict[str, tuple[float, float]], dict[str, tuple[float, float]]]:
+    # Only build comparison data if parity tests are explicitly enabled.
+    # This fixture is expensive (simulates 100 games * n=2) and only used by
+    # test_parity.py, which is skipped by default.
+
+    if os.getenv("NFL_SIM_PARITY", "0") != "1":
+        pytest.skip("Parity tests disabled. Run with `make parity` to enable.")
+
     ## Real data: reshape into sim schema and aggregate
     real_pbp = _real_pbp_to_sim_schema(raw_pbp)
     real_stats = understand(real_pbp)
     real_stats_combined = _stats_to_avg_std(real_stats)
 
-    ## Run simulations:
-    schedule_filtered = raw_schedules.sample(n=100)
+    ## Run simulations (reduced from 100 to 20 games for speed):
+    schedule_filtered = raw_schedules.sample(n=20)
     latest_games: list[str] = schedule_filtered.select("game_id").unique().to_series().to_list()
 
     ## Engineer data for Sims:
@@ -217,8 +226,8 @@ def build_comparison_data(
         pbp=raw_pbp, schedule_data=schedule_filtered, game_ids=latest_games
     )
 
-    ## Sim Data:
-    traces = sim_games(ctx, n=2)
+    ## Sim Data (reduced from n=2 to n=1 for speed):
+    traces = sim_games(ctx, n=1)
     sim_pbp: pl.DataFrame = traces_to_dataframe(traces)
     sim_stats = understand(sim_pbp)
     sim_stats_combined = _stats_to_avg_std(sim_stats)

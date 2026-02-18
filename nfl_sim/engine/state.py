@@ -77,12 +77,14 @@ class Outcome:
     add it there too. Runtime validation in pipeline_config catches drift.
     """
 
+    # TODO: Need a way to auto-generate this
     yards_gained: int
     turnover_type: TurnoverType
     touchdown: bool
     time_elapsed: int
-    complete_pass: bool = True
-    punt_attempt: bool = False
+    complete_pass: bool = False
+    pass_attempt: bool = False
+    rush_attempt: bool = False
 
     @property
     def turnover(self) -> bool:
