@@ -120,7 +120,7 @@ make lint
 - Data for testing lives in @data folder (you can't see because it's not tracked).
 - Everything feeds the web UI, we don't need to test (or write) functionality that does not have the web API in mind.
 - Roundtrip testing os usually unecessary.
-- Favor minimal reusable fixtures over helpers.
+- Re use fixtures!! If you're writing a new fixture, check to see if one already exists in conftest.py
 - If you find yourself recreating logic in the source code, it's the wrong test. e.g.
 
 ### Project conventions

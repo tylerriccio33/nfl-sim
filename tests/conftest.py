@@ -239,7 +239,6 @@ def build_comparison_data(
     sim_stats = understand(sim_pbp)
     sim_stats_combined = _stats_to_avg_std(sim_stats)
 
-
     return real_stats_combined, sim_stats_combined
 
 

@@ -288,12 +288,48 @@ def check_fourth_down_failure_ends_possession(trace: GameTrace) -> None:
             assert before[_OFF] == after[_DEF], "4th down failure didn't end possession"
 
 
+def check_field_goals_only_on_fourth_down(trace: GameTrace) -> None:
+    """Field goals should only be attempted on 4th down."""
+    for event in trace:
+        before = event.state_before
+        if event.intent == Intent.FIELD_GOAL:
+            assert before[_DN] == 4, f"Field goal attempted on {before[_DN]} down at yardline {before[_YL]}"
+
+
+def check_field_goal_distance_valid(trace: GameTrace) -> None:
+    """Field goals should not be attempted from farther than the 50 yardline."""
+    for event in trace:
+        before = event.state_before
+        if event.intent == Intent.FIELD_GOAL:
+            assert before[_YL] <= 50, f"Field goal attempted from yardline {before[_YL]} (beyond 50)"
+
+
+def check_punts_only_on_fourth_down(trace: GameTrace) -> None:
+    """Punts should only be attempted on 4th down."""
+    for event in trace:
+        before = event.state_before
+        if event.intent == Intent.PUNT:
+            assert before[_DN] == 4, f"Punt attempted on {before[_DN]} down"
+
+
+def check_no_punts_from_within_30(trace: GameTrace) -> None:
+    """Punts should not be attempted from within the 30 yardline."""
+    for event in trace:
+        before = event.state_before
+        if event.intent == Intent.PUNT:
+            assert before[_YL] >= 30, f"Punt attempted from yardline {before[_YL]} (within 30)"
+
+
 DOWN_DISTANCE_RULES: tuple[RuleChecker, ...] = (
     check_down_increments_without_first_down,
     check_first_down_resets_down,
     check_first_down_resets_distance,
     check_distance_lte_yardline_100,
     check_fourth_down_failure_ends_possession,
+    check_field_goals_only_on_fourth_down,
+    check_field_goal_distance_valid,
+    check_punts_only_on_fourth_down,
+    check_no_punts_from_within_30,
 )
 
 # =============================================================================
