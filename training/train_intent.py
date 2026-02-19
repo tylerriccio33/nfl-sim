@@ -10,118 +10,119 @@ Uses features built by prepare() - all feature engineering happens there.
 """
 
 import json
+from pathlib import Path
 
 import joblib
 import numpy as np
+import polars as pl
 import treelite.sklearn
-from rich.console import Console
-from rich.table import Table
+from pysuite import run
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, f1_score
 
-from nfl_sim.engine.state import Intent
-from nfl_sim.pipeline_config import ARTIFACT_PATHS, get_model_features
+from nfl_sim.pipeline_config import (
+    INTENT_VALUES,
+)
 from training.prepare import prepare
-
-console = Console()
-
-INTENT_ARTIFACT_DIR = ARTIFACT_PATHS.intent_dir
+from training.utils import Trainer, train_model
 
 
-def train_intent_model(features: np.ndarray, intent: np.ndarray) -> float:
-    """Train and save a RandomForest classifier for Intent prediction.
+class IntentTrainer(Trainer):
+    """Trainer for intent prediction using RandomForestClassifier."""
 
-    Args:
-        features: Intent model features (all plays)
-        intent: Intent values (encoded as integers)
+    def __init__(
+        self,
+        n_estimators: int = 50,
+        max_depth: int = 20,
+        min_samples_leaf: int = 10,
+        random_state: int = 42,
+    ):
+        """Initialize trainer with hyperparameters.
 
-    Returns weighted F1 score on held-out evaluation data.
+        Args:
+            n_estimators: Number of trees in the forest.
+            max_depth: Max tree depth.
+            min_samples_leaf: Minimum samples required at a leaf.
+            random_state: Random seed for reproducibility.
 
-    """
-    # Hold out last 10% for evaluation
-    n = len(features)
-    split = int(n * 0.9)
-    train_x = features[:split]
-    eval_x = features[split:]
-    train_y = intent[:split]
-    eval_y = intent[split:]
+        """
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.min_samples_leaf = min_samples_leaf
+        self.random_state = random_state
+        self.model: RandomForestClassifier | None = None
+        self.classes_: np.ndarray | None = None
 
-    console.print("\n==============[bold]Training RF Intent Model[/bold]")
-    console.print(f"  Train samples: {len(train_x):,} | Eval samples: {len(eval_x):,}\n")
+    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
+        """Fit the RandomForest classifier."""
+        self.model = RandomForestClassifier(
+            n_estimators=self.n_estimators,
+            max_depth=self.max_depth,
+            min_samples_leaf=self.min_samples_leaf,
+            random_state=self.random_state,
+            n_jobs=-1,
+        )
+        self.model.fit(x, y)
+        self.classes_ = self.model.classes_
 
-    # Train RandomForest classifier
-    rf = RandomForestClassifier(n_estimators=50, max_depth=20, min_samples_leaf=10, n_jobs=-1)
-    rf.fit(train_x, train_y)
+    def predict(self, x: np.ndarray) -> np.ndarray:
+        """Predict intent classes."""
+        assert self.model is not None, "Model not trained yet"
+        return self.model.predict(x)
 
-    # Evaluate
-    eval_pred = rf.predict(eval_x)
-    intent_names = {v.value: v.name for v in Intent}
-    target_names = [intent_names[c] for c in rf.classes_]
-    report = classification_report(eval_y, eval_pred, target_names=target_names)
-    console.print(report)
+    def save(self, path: Path) -> None:
+        """Save model to joblib, compile to treelite, and save metadata.
 
-    # Compute weighted F1 score as primary metric
-    weighted_f1 = f1_score(eval_y, eval_pred, average="weighted")
+        Args:
+            path: Directory to save artifacts (model.joblib, model.tl, meta.json).
 
-    # Display metrics
-    table = Table(title="Intent Classification", show_header=True, header_style="bold cyan")
-    table.add_column("Metric", style="dim")
-    table.add_column("Value", style="green")
-    table.add_row("Weighted F1", f"{weighted_f1:.4f}")
-    console.print(table)
+        """
+        assert self.model is not None, "Model not trained yet"
 
-    # Save model and metadata
-    INTENT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump(rf, INTENT_ARTIFACT_DIR / "model.joblib")
-    meta = {"classes": rf.classes_.tolist()}  # type: ignore[union-attr]
-    (INTENT_ARTIFACT_DIR / "meta.json").write_text(json.dumps(meta, indent=2))
-    console.print(f"  Saved to {INTENT_ARTIFACT_DIR}\n")
+        # Treat path as directory
+        artifact_dir = Path(path) if not str(path).endswith(".joblib") else Path(path).parent
+        artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    return weighted_f1
+        # Save joblib model
+        model_path = artifact_dir / "model.joblib"
+        joblib.dump(self.model, model_path)
 
+        # Save metadata (classes)
+        meta = {"classes": self.classes_.tolist()}  # type: ignore[union-attr]
+        (artifact_dir / "meta.json").write_text(json.dumps(meta, indent=2))
 
-def compile_to_treelite() -> None:
-    """Compile trained RF model to treelite format for fast inference."""
-    console.print("[cyan]Compiling intent model to treelite...[/cyan]")
-
-    # Load the trained model
-    model_path = INTENT_ARTIFACT_DIR / "model.joblib"
-    if not model_path.exists():
-        raise FileNotFoundError(f"Intent model not found at {model_path}")
-
-    rf = joblib.load(model_path)
-
-    # Convert sklearn model to treelite format
-    tl_model = treelite.sklearn.import_model(rf)
-
-    # Serialize to checkpoint file for fast loading
-    output_path = INTENT_ARTIFACT_DIR / "model.tl"
-    tl_model.serialize(str(output_path))
-
-    joblib_size = model_path.stat().st_size / 1e6
-    tl_size = output_path.stat().st_size / 1e6
-    console.print(f"  ✅ Compiled to {output_path}")
-    console.print(f"    Original (joblib): {joblib_size:.1f} MB")
-    console.print(f"    Treelite (.tl):    {tl_size:.1f} MB\n")
+        # Compile to treelite
+        tl_model = treelite.sklearn.import_model(self.model)
+        tl_path = artifact_dir / "model.tl"
+        tl_model.serialize(str(tl_path))
 
 
 def main() -> None:
     """Train intent model and compile to treelite."""
     print("Preparing training data...")
-    df = prepare()
+    df = prepare().filter(pl.col("play_type").is_in(["pass", "run", "punt", "field_goal"]))
 
-    # Get feature names from pipeline config
-    feature_names = get_model_features("intent")
+    # Create trainer with hyperparameters
+    trainer = IntentTrainer(n_estimators=50, max_depth=20, min_samples_leaf=10)
 
-    # Extract features and intent for all plays
-    feat = df.select(feature_names).to_numpy()
-    intent = df.select("intent").to_numpy().flatten().astype(np.int32)
+    # Train using unified framework (no filters for intent - use all plays)
+    result = train_model("intent", df, trainer)
 
-    # Train and save
-    train_intent_model(feat, intent)
+    # Report evaluation metrics using pysuite
+    converted = result.df.select(
+        pl.col(result.real, "pred")
+        .cast(int)
+        .replace_strict(
+            list(INTENT_VALUES.values()),
+            list(INTENT_VALUES.keys()),
+        )
+    )
 
-    # Compile to treelite
-    compile_to_treelite()
+    run(
+        xeval=result.df.select(result.feature_names),
+        yeval=converted[result.real],
+        ypred=converted["pred"],
+        show=True,
+    )
 
     print("Done.")
 

@@ -181,7 +181,6 @@ def train_model(
     model_name: str,
     df: pl.DataFrame,
     trainer: Trainer,
-    filters: pl.Expr | None = None,
 ) -> TrainingResult:
     """Train a model with unified boilerplate.
 
@@ -197,25 +196,19 @@ def train_model(
 
     Args:
         model_name: Key in [models.*] section of pipeline.toml (e.g., "punt", "intent")
-        df: DataFrame prepared by prepare() with features as columns
+        df: Pre-filtered DataFrame prepared by prepare() with features as columns
         trainer: Trainer instance with fit/predict/save methods
-        filters: Optional Polars expression to filter data before training
-                Example: pl.col("play_type") == "punt"
 
     Returns:
         TrainingResult with eval data for reporting/validation
 
     Raises:
-        ValueError: If model_name not in config or filtered data is empty
+        ValueError: If model_name not in config or data is empty
 
     Example:
         trainer = PuntYardsTrainer(max_depth=8, min_samples_leaf=10)
-        result = train_model(
-            "punt",
-            df,
-            trainer,
-            filters=pl.col("play_type") == "punt"
-        )
+        df = prepare().filter(pl.col("play_type") == "punt")
+        result = train_model("punt", df, trainer)
         run(result.eval_x, result.eval_y, result.eval_pred, show=True)
 
     """
@@ -228,12 +221,9 @@ def train_model(
     outcome_name = config["outcomes"][0]  # Currently assumes single outcome
     artifact_path = Path(config["artifact"])
 
-    # Filter data if requested
-    filtered = df if filters is None else df.filter(filters)
-
     # Extract features and target
-    x = filtered.select(feature_names).to_numpy()
-    y = filtered.select(outcome_name).to_numpy().flatten()
+    x = df.select(feature_names).to_numpy()
+    y = df.select(outcome_name).to_numpy().flatten()
 
     n = len(x)
     if n == 0:
@@ -258,7 +248,7 @@ def train_model(
 
     # Get eval predictions and construct result dataframe
     eval_pred = trainer.predict(x_eval)
-    eval_df = filtered[split:].with_columns(pl.Series("pred", eval_pred))
+    eval_df = df[split:].with_columns(pl.Series("pred", eval_pred))
 
     return TrainingResult(
         df=eval_df,

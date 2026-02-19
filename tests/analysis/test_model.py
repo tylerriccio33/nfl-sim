@@ -1,8 +1,6 @@
 """Contract and integrity tests for the outcome model.
 
-These tests verify model behavior properties that must hold regardless of
-the specific trained weights: determinism, no leakage, sanity bounds, and
-smooth response to perturbations.
+These tests verify the model is working valid, but it might be bad.
 """
 
 import numpy as np

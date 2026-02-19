@@ -60,24 +60,19 @@ class PuntYardsTrainer(Trainer):
 def main() -> None:
     """Train the punt yards model."""
     print("Preparing training data...")
-    df = prepare()
+    df = prepare().filter(pl.col("play_type") == "punt")
 
     # Create trainer with hyperparameters
     trainer = PuntYardsTrainer(max_depth=8, min_samples_leaf=10)
 
     # Train using unified framework
-    result = train_model(
-        "punt",
-        df,
-        trainer,
-        filters=pl.col("play_type") == "punt",
-    )
+    result = train_model("punt", df, trainer)
 
     # Report evaluation metrics
     run(
-        xeval=pl.DataFrame(result.eval_x, schema=result.feature_names),
-        yeval=pl.Series(result.eval_y),
-        ypred=pl.Series(result.eval_pred),
+        xeval=result.df.select(result.feature_names, "desc"),
+        yeval=result.df[result.real],
+        ypred=result.df["pred"],
         show=True,
     )
 

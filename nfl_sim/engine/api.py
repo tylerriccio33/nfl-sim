@@ -234,7 +234,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
     Returns:
         DataFrame with columns:
             game_id, sim_id, play_id, quarter, clock, down, distance, yardline_100,
-            posteam, yards_gained, event, home_score, away_score
+            posteam, intent, yards_gained, event, home_score, away_score
 
     """
     # ------------------------------------------------------------------
@@ -256,6 +256,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
     yardline_100 = np.empty(total_rows, dtype=np.int8)
     posteam = np.empty(total_rows, dtype=object)
 
+    intent = np.empty(total_rows, dtype=object)
     yards_gained = np.empty(total_rows, dtype=np.int16)
     event = np.empty(total_rows, dtype=object)
 
@@ -286,6 +287,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
                     yardline_100[i] = sb[_YL]
                     posteam[i] = sb[_OFF]
 
+                    intent[i] = play.intent.value
                     yards_gained[i] = play.outcome.yards_gained
                     event[i] = _event_from_play(play)
 
@@ -313,6 +315,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
             "distance": distance,
             "yardline_100": yardline_100,
             "posteam": posteam,
+            "intent": intent,
             "yards_gained": yards_gained,
             "event": event,
             "home_score": home_score,

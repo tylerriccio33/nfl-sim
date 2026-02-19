@@ -293,7 +293,9 @@ def check_field_goals_only_on_fourth_down(trace: GameTrace) -> None:
     for event in trace:
         before = event.state_before
         if event.intent == Intent.FIELD_GOAL:
-            assert before[_DN] == 4, f"Field goal attempted on {before[_DN]} down at yardline {before[_YL]}"
+            assert before[_DN] == 4, (
+                f"Field goal attempted on {before[_DN]} down at yardline {before[_YL]}"
+            )
 
 
 def check_field_goal_distance_valid(trace: GameTrace) -> None:
@@ -301,7 +303,9 @@ def check_field_goal_distance_valid(trace: GameTrace) -> None:
     for event in trace:
         before = event.state_before
         if event.intent == Intent.FIELD_GOAL:
-            assert before[_YL] <= 50, f"Field goal attempted from yardline {before[_YL]} (beyond 50)"
+            assert before[_YL] <= 50, (
+                f"Field goal attempted from yardline {before[_YL]} (beyond 50)"
+            )
 
 
 def check_punts_only_on_fourth_down(trace: GameTrace) -> None:

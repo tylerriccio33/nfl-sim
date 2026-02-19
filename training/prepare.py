@@ -57,7 +57,16 @@ REQUIRED_COLS = [
 ]
 
 # Map play_type string → Intent enum (driven by pipeline.toml)
-_PLAY_TYPE_TO_INTENT: dict[str, str] = PLAY_TYPE_MAP
+_PLAY_TYPE_TO_INTENT: dict[str, str] = PLAY_TYPE_MAP  # TODO: why rename lol
+
+# Map play_type → intent value
+# TODO: These are kind of weird and not optimal
+intent_name_mapping = pl.col("play_type").map_elements(
+    lambda pt: _PLAY_TYPE_TO_INTENT.get(pt, "RUN"), return_dtype=pl.String
+)
+intent_value_mapping = intent_name_mapping.map_elements(
+    lambda name: INTENT_VALUES.get(name, 1), return_dtype=pl.Int32
+)
 
 
 def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
@@ -121,13 +130,6 @@ def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
         .collect()
     )
 
-    # Map play_type → intent value
-    intent_name_mapping = pl.col("play_type").map_elements(
-        lambda pt: _PLAY_TYPE_TO_INTENT.get(pt, "RUN"), return_dtype=pl.String
-    )
-    intent_value_mapping = intent_name_mapping.map_elements(
-        lambda name: INTENT_VALUES.get(name, 1), return_dtype=pl.Int32
-    )
     # TODO: I want this to be a lazyframe
 
     # Add derived columns
