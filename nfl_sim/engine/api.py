@@ -169,6 +169,7 @@ def sim_games(
 
     return results
 
+
 # TODO: Feels a little redundant
 def _event_from_play(play: PlayEvent) -> str:
     """Derive the event string from a PlayEvent for summarization.

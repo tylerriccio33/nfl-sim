@@ -62,7 +62,7 @@ class IntentTrainer(Trainer):
             n_jobs=-1,
         )
         self.model.fit(x, y)
-        self.classes_ = self.model.classes_
+        self.classes_ = np.asarray(self.model.classes_)
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Predict intent classes."""

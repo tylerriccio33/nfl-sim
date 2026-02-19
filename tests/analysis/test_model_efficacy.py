@@ -13,10 +13,9 @@ import pytest
 from nfl_sim.analysis.understand import understand
 from nfl_sim.engine.api import GameTrace, traces_to_dataframe
 
-# TODO: This should actually run by default
 pytestmark = pytest.mark.skipif(
-    os.getenv("NFL_SIM_EFFICACY", "0") != "1",
-    reason="Efficacy tests require trained models (set NFL_SIM_EFFICACY=1)",
+    os.getenv("NFL_SIM_EFFICACY", "1") != "0",
+    reason="Efficacy tests require trained models (set NFL_SIM_EFFICACY=0) to turn it off.",
 )
 
 # Event groups the sim engine emits

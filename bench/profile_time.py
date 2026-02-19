@@ -33,7 +33,6 @@ FUNCTIONS = (
     ## Models:
     OutcomeModel.__call__,
     OutcomeModel._predict_cvae,
-    OutcomeModel._predict_time,
     OutcomeModel._predict_intent,
     ## DataFrame conversion:
     traces_to_dataframe,

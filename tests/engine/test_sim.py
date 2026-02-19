@@ -56,6 +56,7 @@ def make_state(**kwargs) -> _GameState:
         defaults["score"],
     )
 
+
 def make_outcome(**kwargs) -> Outcome:
     """Helper to create Outcome with sensible defaults.
 
