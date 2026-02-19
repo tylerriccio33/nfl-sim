@@ -1,18 +1,12 @@
 """All model inference lives here.
 
-Three-stage architecture:
-  1. Intent prediction (RF) — what the offense will do
-  2. Outcome generation (CVAE / RF) — yards/turnover per route
-  3. Time elapsed prediction (Decision Tree) — how much time was consumed,
-     conditioned on both game state/context and yards gained
+Two model classes:
+  1. ``OutcomeModel`` — pre-whistle: intent (RF) → route → outcome (CVAE/ST)
+  2. ``AfterPlayModel`` — post-whistle: time elapsed prediction, conditioned on
+     game state/context and the outcome that just happened
 
-Time is predicted AFTER the outcome is known, so it can be conditioned on the
-actual yards gained. Special teams (FG/PUNT) use a fixed 20 seconds.
-
-Models are lazy-loaded on first call via ``OutcomeModel``.  This lets the module
-be imported freely (e.g. during training or in tests) without requiring trained
-artifacts to exist on disk.  At runtime the first call to ``outcome_model()``
-triggers loading; if any artifact is missing it fails loudly right there.
+Both are lazy-loaded on first call.  This lets the module be imported freely
+(e.g. during training or in tests) without requiring trained artifacts on disk.
 """
 
 import json
@@ -85,7 +79,6 @@ class OutcomeModel:
         "_intent_model",
         "_loaded",
         "_punt_yards",
-        "_time_model",
     )
 
     _cvae: dict[Route, _CvaeArtifact]
@@ -93,7 +86,6 @@ class OutcomeModel:
     _intent_model: treelite.Model
     _loaded: bool
     _punt_yards: Any  # sklearn estimator (joblib.load returns Any)
-    _time_model: treelite.Model
 
     def __init__(self) -> None:
         self._loaded = False
@@ -121,10 +113,6 @@ class OutcomeModel:
         # Simple sklearn models — just store the raw estimator, call .predict()
         # inline in the inference methods below.
         self._punt_yards = joblib.load(ARTIFACT_PATHS.punt_yards_path)
-
-        # Time model (treelite-compiled random forest with single tree)
-        time_model_path = ARTIFACT_PATHS.time_dir / ARTIFACT_PATHS.time_file
-        self._time_model = treelite.Model.deserialize(str(time_model_path))
 
         self._loaded = True
 
@@ -227,27 +215,6 @@ class OutcomeModel:
             time_elapsed=20,
         )
 
-    def _predict_time(self, context: ModelContext, outcome: Outcome) -> int:
-        """Predict seconds consumed by the play, conditioned on outcome fields.
-
-        Time is predicted as a function of game state/context (base features) plus
-        conditioning fields defined in pipeline.toml (e.g. yards, completion).
-
-        Uses treelite-compiled single-tree random forest for fast inference.
-        """
-        # Store outcome for time model conditioning (yards_gained, complete_pass)
-        context.outcome = outcome
-
-        # Use unified feature API to build time model features (includes conditioning)
-        full_features = build_features_for_model("time", context)
-        pred = treelite.gtil.predict(
-            self._time_model,
-            full_features.reshape(1, -1).astype(np.float32),
-            nthread=1,
-        )[0, 0][0]  # TODO: Weird indexing
-        raw = float(pred)
-        return max(1, round(raw)) if math.isfinite(raw) else 20
-
     # ------------------------------------------------------------------
     # Model graph — the only thing callers interact with
     # ------------------------------------------------------------------
@@ -255,10 +222,9 @@ class OutcomeModel:
     def __call__(self, context: ModelContext) -> tuple[Intent, Outcome]:
         """Run the full model graph for a single play.
 
-        features → intent (RF) → route → outcome (CVAE/ST) → time (conditioned on yards_gained & completion)
+        features → intent (RF) → route → outcome (CVAE/ST)
 
-        Time is predicted after outcome is known, so it can be conditioned on
-        the actual yards_gained and whether a PASS was completed.
+        Time elapsed is NOT set here — that's AfterPlayModel's job.
         """
         if not self._loaded:
             self._load()
@@ -293,25 +259,62 @@ class OutcomeModel:
                 outcome = self._predict_st(context, intent)
 
         ## POST-OUTCOME PROCESSING ##
-        # Features that must be post-processed before the common models.
-        # TODO: This should be an abstraction I think
-        outcome.touchdown = False  # engine detects via yardline_100 # TODO: Weird right?
+        outcome.touchdown = False  # engine detects via yardline_100
         outcome.pass_attempt = intent == Intent.PASS
         outcome.rush_attempt = intent == Intent.RUN
-
-        ## POST-OUTCOME MODELS ##
-        # Models that are placed on top of the separate outcome heads.
-        if intent in [Intent.RUN, Intent.PASS]:
-            pred_time: int = self._predict_time(context, outcome)
-        elif intent == Intent.FIELD_GOAL:
-            pred_time = 5
-        elif intent == Intent.PUNT:
-            pred_time = 10
-
-        ## POST PROCESSING OUTCOME ##
-        outcome.time_elapsed = min(pred_time, context.state[_CLK])
 
         return intent, outcome
 
 
+class AfterPlayModel:
+    """Post-whistle model: predicts time elapsed given the play outcome.
+
+    Same lazy-loading pattern as OutcomeModel — loads on first call.
+    """
+
+    __slots__ = ("_loaded", "_time_model")
+
+    _loaded: bool
+    _time_model: treelite.Model
+
+    def __init__(self) -> None:
+        self._loaded = False
+
+    def _load(self) -> None:
+        time_model_path = ARTIFACT_PATHS.time_dir / ARTIFACT_PATHS.time_file
+        self._time_model = treelite.Model.deserialize(str(time_model_path))
+        self._loaded = True
+
+    def _predict_time(self, context: ModelContext, outcome: Outcome) -> int:
+        """Predict seconds consumed by the play, conditioned on outcome fields.
+
+        Uses treelite-compiled single-tree random forest for fast inference.
+        """
+        context.outcome = outcome
+        full_features = build_features_for_model("time", context)
+        pred = treelite.gtil.predict(
+            self._time_model,
+            full_features.reshape(1, -1).astype(np.float32),
+            nthread=1,
+        )[0, 0][0]  # TODO: Weird indexing
+        raw = float(pred)
+        return max(1, round(raw)) if math.isfinite(raw) else 20
+
+    def __call__(self, context: ModelContext, intent: Intent, outcome: Outcome) -> Outcome:
+        """Predict time elapsed and set it on the outcome."""
+        if not self._loaded:
+            self._load()
+
+        if intent in (Intent.RUN, Intent.PASS):
+            pred_time = self._predict_time(context, outcome)
+        elif intent == Intent.FIELD_GOAL:
+            pred_time = 5
+        else:
+            pred_time = 10
+
+        outcome.time_elapsed = min(pred_time, context.state[_CLK])
+        return outcome
+
+
 outcome_model = OutcomeModel()
+aftermath_model = AfterPlayModel()

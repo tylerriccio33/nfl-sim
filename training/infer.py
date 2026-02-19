@@ -17,7 +17,7 @@ import polars as pl
 import polars.selectors as cs
 
 from nfl_sim.models.context import DerivedContext, ModelContext, ctx_from_game_id
-from nfl_sim.models.outcomes import outcome_model
+from nfl_sim.models.outcomes import aftermath_model, outcome_model
 from nfl_sim.pipeline_config import get_model_features
 from training.prepare import (
     _PLAY_TYPE_TO_INTENT,
@@ -145,8 +145,9 @@ def infer() -> pl.DataFrame:
             game_context=contexts[game_id],
         )
 
-        # Call outcome_model to get predictions
+        # Call outcome_model + aftermath_model to get predictions
         intent, outcome = outcome_model(model_context)
+        outcome = aftermath_model(model_context, intent, outcome)
 
         pred_intents.append(int(intent.value))
         pred_yards.append(int(outcome.yards_gained))

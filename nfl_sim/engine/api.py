@@ -24,7 +24,7 @@ from nfl_sim.engine.state import (
     _GameState,
 )
 from nfl_sim.models.context import DerivedContext, GameContext, ModelContext
-from nfl_sim.models.outcomes import outcome_model
+from nfl_sim.models.outcomes import aftermath_model, outcome_model
 
 
 @dataclass(frozen=True)
@@ -57,8 +57,10 @@ def _run_game_loop(initial_state: _GameState, game_context: GameContext) -> Game
         derived = DerivedContext(trace)
         context = ModelContext(state, derived, game_context)
         intent, outcome = outcome_model(context)
+        outcome = aftermath_model(context, intent, outcome)
         new_state = apply_outcome(state, intent, outcome)
 
+        # TODO: This part is a little weird, shouldn't it be in apply_outcome
         # Engine detects TDs by yardline_100 - reflect this in the outcome for consumers
         if intent not in (Intent.FIELD_GOAL, Intent.PUNT):
             new_yardline_100 = state[_YL] - outcome.yards_gained
@@ -167,7 +169,7 @@ def sim_games(
 
     return results
 
-
+# TODO: Feels a little redundant
 def _event_from_play(play: PlayEvent) -> str:
     """Derive the event string from a PlayEvent for summarization.
 
@@ -287,7 +289,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
                     yardline_100[i] = sb[_YL]
                     posteam[i] = sb[_OFF]
 
-                    intent[i] = play.intent.value
+                    intent[i] = str(play.intent.value)
                     yards_gained[i] = play.outcome.yards_gained
                     event[i] = _event_from_play(play)
 

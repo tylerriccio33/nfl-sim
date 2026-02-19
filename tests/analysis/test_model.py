@@ -15,7 +15,7 @@ from nfl_sim.models.context import (
     build_features_for_model,
     ctx_from_game_id,
 )
-from nfl_sim.models.outcomes import outcome_model
+from nfl_sim.models.outcomes import aftermath_model, outcome_model
 from nfl_sim.pipeline_config import get_model_features
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -156,6 +156,7 @@ def test_neutral_state_produces_sane_output():
         spread=0.0,
     )
     intent, out = outcome_model(ctx)
+    out = aftermath_model(ctx, intent, out)
 
     assert isinstance(intent, Intent)
     assert -15 <= out.yards_gained <= 100
