@@ -108,6 +108,34 @@ outcomes = ["time_elapsed"]
 [st.time_override]
 value = 20
 
+# ── Outcome ──────────────────────────────────────────────────────────
+# Defines the Outcome dataclass fields. Run `make generate-outcome` to regenerate.
+# Fields without a default come first; fields with a default come after.
+
+[outcome.yards_gained]
+type = "int"
+
+[outcome.turnover_type]
+type = "TurnoverType"
+
+[outcome.touchdown]
+type = "bool"
+
+[outcome.time_elapsed]
+type = "int"
+
+[outcome.complete_pass]
+type = "bool"
+default = false
+
+[outcome.pass_attempt]
+type = "bool"
+default = false
+
+[outcome.rush_attempt]
+type = "bool"
+default = false
+
 # ── Training Data ─────────────────────────────────────────────────────
 [training]
 pbp_path = "data/pbp.parquet"

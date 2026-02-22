@@ -12,6 +12,9 @@ lint: ## Run ruff and typer
 	@uv run ruff format
 	@uv run ty check
 
+generate-outcome: ## Generate Outcome dataclass from pipeline.toml
+	@uv run --no-sync python scripts/generate_outcome.py
+
 types: ## Generate type stubs for aggregation types
 	@uv run --no-sync python scripts/gen_agg_stubs.py
 
@@ -56,7 +59,8 @@ perf: ## Run performance of results against real
 converge: ## Run convergence benchmark
 	@uv run --no-sync bench/convergence_perf.py
 
-train: train-all  ## Alias for train-all
+train-nn: ## Train neural network model
+	@uv run training/train.py
 
 train-all: ## Run all model training scripts
 	@uv run training/train_intent.py

@@ -69,27 +69,7 @@ class TurnoverType(Enum):
     FUMBLE = auto()
 
 
-@dataclass
-class Outcome:
-    """Decision/play outcome itself. Used to calculate future GameState.
-
-    Fields are defined in pipeline.toml [outcome.*] — if you add a field here,
-    add it there too. Runtime validation in pipeline_config catches drift.
-    """
-
-    # TODO: Need a way to auto-generate this
-    yards_gained: int
-    turnover_type: TurnoverType
-    touchdown: bool
-    time_elapsed: int
-    complete_pass: bool = False
-    pass_attempt: bool = False
-    rush_attempt: bool = False
-
-    @property
-    def turnover(self) -> bool:
-        """True if any turnover occurred."""
-        return self.turnover_type != TurnoverType.NONE
+from nfl_sim.engine._GENERATED_outcome import Outcome as Outcome  # noqa: E402, PLC0414, TC001
 
 
 @dataclass(frozen=True)
@@ -105,5 +85,6 @@ class PlayEvent:
     state_after: _GameState
 
 
+# TODO: shouldn't this have `type` in front of it
 GameTrace = list[PlayEvent]
 """What the model cares about; append only log."""

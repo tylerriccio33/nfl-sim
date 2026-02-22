@@ -291,7 +291,13 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
                     posteam[i] = sb[_OFF]
 
                     intent[i] = str(play.intent.value)
-                    yards_gained[i] = play.outcome.yards_gained
+                    # ST plays use yards_gained internally for FG/punt mechanics,
+                    # but real PBP records 0 for these play types. Zero them out
+                    # so aggregation stats match real data conventions.
+                    if play.intent in (Intent.FIELD_GOAL, Intent.PUNT):
+                        yards_gained[i] = 0
+                    else:
+                        yards_gained[i] = play.outcome.yards_gained
                     event[i] = _event_from_play(play)
 
                     home_score[i] = sa[_SC][0]

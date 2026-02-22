@@ -224,7 +224,8 @@ def build_comparison_data(
     real_stats_combined = _stats_to_avg_std(real_stats)
 
     ## Run simulations (reduced from 100 to 20 games for speed):
-    schedule_filtered = raw_schedules.sample(n=20)
+    # Exclude week 1 games since ctx_from_game_id filters them (no prior EPA data).
+    schedule_filtered = raw_schedules.filter(pl.col("week") > 1).sample(n=20)
     latest_games: list[str] = schedule_filtered.select("game_id").unique().to_series().to_list()
 
     ## Engineer data for Sims:

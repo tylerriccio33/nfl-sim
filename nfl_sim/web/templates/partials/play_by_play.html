@@ -37,7 +37,7 @@
                     </td>
                     <td class="p-2 {% if play.down == 4 %}text-yellow-400{% endif %}">
                         {# Down and distance #}
-                        {% if play.yardline and play.yardline <= play_dist %}
+                        {% if play.yardline_100 and play.yardline_100 <= play_dist %}
                             {{ play.down }}{{ 'st' if play.down == 1 else ('nd' if play.down == 2 else ('rd' if play.down == 3 else 'th')) }} & Goal
                         {% else %}
                             {{ play.down }}{{ 'st' if play.down == 1 else ('nd' if play.down == 2 else ('rd' if play.down == 3 else 'th')) }} & {{ play_dist }}
@@ -45,13 +45,13 @@
                     </td>
                     <td class="p-2 font-mono text-xs">
                         {# Yardline in human-readable format #}
-                        {% if play.yardline %}
-                            {% if play.yardline > 50 %}
-                                <span class="text-gray-400">Own {{ 100 - play.yardline }}</span>
-                            {% elif play.yardline == 50 %}
+                        {% if play.yardline_100 %}
+                            {% if play.yardline_100 > 50 %}
+                                <span class="text-gray-400">Own {{ 100 - play.yardline_100 }}</span>
+                            {% elif play.yardline_100 == 50 %}
                                 <span class="text-gray-400">50</span>
                             {% else %}
-                                <span class="{% if play.yardline <= 20 %}text-red-400{% else %}text-gray-400{% endif %}">Opp {{ play.yardline }}</span>
+                                <span class="{% if play.yardline_100 <= 20 %}text-red-400{% else %}text-gray-400{% endif %}">Opp {{ play.yardline_100 }}</span>
                             {% endif %}
                         {% else %}
                             <span class="text-gray-500">-</span>

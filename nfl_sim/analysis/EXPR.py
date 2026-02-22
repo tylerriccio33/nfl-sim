@@ -94,9 +94,9 @@ def _make_team_play_aggs(team: str | None = None, prefix: str | None = None) -> 
         ],
         # Special Rollups:
         # TODO: Abstract these too
-        flt.len().alias("total_plays").name.prefix(prefix),
+        flt.sum().cast(pl.Int64).alias("total_plays").name.prefix(prefix),
         pl.col("posteam").filter(flt).rle_id().n_unique().alias("num_drives").name.prefix(prefix),
-        pl.col("yards_gained").mean().alias("yards_per_play").name.prefix(prefix),
+        pl.col("yards_gained").filter(flt).mean().alias("yards_per_play").name.prefix(prefix),
     ]
 
 
