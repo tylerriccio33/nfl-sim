@@ -221,9 +221,13 @@ def train_model(
     outcome_name = config["outcomes"][0]  # Currently assumes single outcome
     artifact_path = Path(config["artifact"])
 
-    # Extract features and target
+    # Extract features and target(s)
     x = df.select(feature_names).to_numpy()
-    y = df.select(outcome_name).to_numpy().flatten()
+    outcome_names = config["outcomes"]
+    if len(outcome_names) == 1:
+        y = df.select(outcome_name).to_numpy().flatten()
+    else:
+        y = df.select(outcome_names).to_numpy()
 
     n = len(x)
     if n == 0:
