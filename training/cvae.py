@@ -238,9 +238,13 @@ class CVAE(nn.Module):
         # Decode the prior samples conditioned on game state to get predicted outcomes.
         cont_out, cat_logits = self._decode(z, state)
 
-        # For categorical variables, sample from the logits (could also use argmax for mode).
-        # argmax gives us the most likely class, which is deterministic but reasonable for inference.
-        cat_samples = [torch.argmax(logits, dim=-1) for logits in cat_logits]
+        # Sample from categorical distributions rather than argmax, so generation
+        # is genuinely stochastic. Argmax would always pick the mode, collapsing
+        # the output distribution and inflating apparent predictive accuracy.
+        cat_samples = [
+            torch.multinomial(F.softmax(logits, dim=-1), 1).squeeze(-1)
+            for logits in cat_logits
+        ]
 
         return cont_out, cat_samples
 

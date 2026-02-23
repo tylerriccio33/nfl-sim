@@ -90,6 +90,7 @@ class CvaeTrainer(Trainer):
         cat_cards = (3, 2) if completion is not None else (3,)
 
         self.cfg = CvaeConfig(
+            state_dim=self._cvae_cfg["state_dim"],
             feat_mean=feat_mean.tolist(),
             feat_std=feat_std.tolist(),
             cont_mean=cont_mean.tolist(),

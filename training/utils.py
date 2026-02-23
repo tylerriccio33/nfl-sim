@@ -17,14 +17,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+import numpy as np
 import polars as pl
 
 from nfl_sim.models.context import DerivedContext, GameContext, ModelContext, ctx_from_game_id
 from nfl_sim.pipeline_config import MODELS, TRAINING_CONFIG
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from nfl_sim.engine.state import _GameState
 
 SCHEDULE_PATH = Path(TRAINING_CONFIG["schedule_path"])
@@ -233,10 +232,16 @@ def train_model(
     if n == 0:
         raise ValueError(f"No data after filtering for model {model_name}")
 
-    # 90/10 train/eval split
-    split = int(n * 0.9)
-    x_train, x_eval = x[:split], x[split:]
-    y_train, _ = y[:split], y[split:]
+    # 90/10 train/eval split by game (no game in both sets)
+    game_ids = df["game_id"].to_list()
+    unique_games = list(dict.fromkeys(game_ids))  # preserve order, deduplicate
+    game_split = int(len(unique_games) * 0.9)
+    train_games = set(unique_games[:game_split])
+
+    train_mask = np.array([g in train_games for g in game_ids])
+    x_train, x_eval = x[train_mask], x[~train_mask]
+    y_train, _ = y[train_mask], y[~train_mask]
+    split = int(train_mask.sum())
 
     print(f"Training {model_name}...")
     print(f"  Train: {len(x_train)} samples")
@@ -252,7 +257,7 @@ def train_model(
 
     # Get eval predictions and construct result dataframe
     eval_pred = trainer.predict(x_eval)
-    eval_df = df[split:].with_columns(pl.Series("pred", eval_pred))
+    eval_df = df.filter(~pl.Series(train_mask)).with_columns(pl.Series("pred", eval_pred))
 
     return TrainingResult(
         df=eval_df,

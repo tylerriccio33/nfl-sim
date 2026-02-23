@@ -74,6 +74,7 @@ def get_cvae_config(model_name: str) -> dict[str, Any]:
     model_cfg = MODELS[model_name]
     # These fields may be in the model config or use defaults
     return {
+        "state_dim": len(model_cfg["features"]),
         "latent_dim": model_cfg.get("latent_dim", 16),
         "hidden_dim": model_cfg.get("hidden_dim", 64),
         "cat_emb_dim": model_cfg.get("cat_emb_dim", 8),
