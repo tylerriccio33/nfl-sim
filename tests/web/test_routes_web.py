@@ -64,21 +64,35 @@ class TestRoutes:
 
     def test_index_returns_200(self, client):
         """Index route should return 200 when metadata is available."""
-        mock_df = pl.DataFrame({"game_id": ["KC_BUF"], "home_team": ["KC"], "away_team": ["BUF"]})
+        mock_df = pl.DataFrame(
+            {
+                "game_id": ["KC_BUF"],
+                "home_team": ["KC"],
+                "away_team": ["BUF"],
+                "gameday": ["2026-02-01"],
+            }
+        )
         with patch("nfl_sim.web.routes.pull_game_metadata", return_value=mock_df):
             response = client.get("/")
             assert response.status_code == 200
 
     def test_index_returns_html(self, client):
         """Index route should return HTML content."""
-        mock_df = pl.DataFrame({"game_id": ["KC_BUF"], "home_team": ["KC"], "away_team": ["BUF"]})
+        mock_df = pl.DataFrame(
+            {
+                "game_id": ["KC_BUF"],
+                "home_team": ["KC"],
+                "away_team": ["BUF"],
+                "gameday": ["2026-02-01"],
+            }
+        )
         with patch("nfl_sim.web.routes.pull_game_metadata", return_value=mock_df):
             response = client.get("/")
             assert b"<!DOCTYPE html>" in response.data or b"<html" in response.data
 
     def test_index_with_empty_games(self, client):
         """Index route should handle empty game list."""
-        mock_df = pl.DataFrame({"game_id": [], "home_team": [], "away_team": []})
+        mock_df = pl.DataFrame({"game_id": [], "home_team": [], "away_team": [], "gameday": []})
         with patch("nfl_sim.web.routes.pull_game_metadata", return_value=mock_df):
             response = client.get("/")
             assert response.status_code == 200
