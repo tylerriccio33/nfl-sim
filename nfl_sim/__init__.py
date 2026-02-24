@@ -13,7 +13,7 @@ Main entry points:
     results = sim_games({ctx.game_id: ctx}, n=100)
 
     # Analyze results (includes game-level and home_*/away_* team stats)
-    df = traces_to_dataframe(results)
+    df = _traces_to_dataframe(results)
     stats = understand(df)
 """
 
@@ -27,7 +27,7 @@ from nfl_sim.const import (
     PBP_DATA,
     SCHEDULES_DATA,
 )
-from nfl_sim.engine.api import sim_games, traces_to_dataframe
+from nfl_sim.engine.api import _traces_to_dataframe, sim_games
 from nfl_sim.models.context import GameContext, ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
 
@@ -54,7 +54,7 @@ def place_sim_results_at_db() -> None:
 
     ## Sim Data:
     traces = sim_games(ctx, n=25)
-    sim_pbp: pl.DataFrame = traces_to_dataframe(traces)
+    sim_pbp: pl.DataFrame = _traces_to_dataframe(traces)
     sim_pbp.write_parquet(DATABASE())
 
     ## Understand Data (unified GameAggs with home_*/away_* stats):

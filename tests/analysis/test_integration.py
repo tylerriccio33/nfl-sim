@@ -7,12 +7,12 @@ import pytest
 
 from nfl_sim import understand
 from nfl_sim.analysis.EXPR import _PLAY_SCHEMA, SIM_LEVEL_EXPRS, _resolve_schema
-from nfl_sim.engine.api import traces_to_dataframe
+from nfl_sim.engine.api import _traces_to_dataframe
 
 
 def test_full_pipeline_completes(ctx, sims_multiple):
     """Full pipeline should complete without error."""
-    df = traces_to_dataframe(sims_multiple)
+    df = _traces_to_dataframe(sims_multiple)
     game_stats = understand(df)
 
     # 2 games (from ctx fixture)

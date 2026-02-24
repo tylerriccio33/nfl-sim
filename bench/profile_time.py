@@ -15,8 +15,8 @@ from nfl_sim.engine.api import (
     _run_game_loop,
     _run_one_game,
     _simulate_game,
+    _traces_to_dataframe,
     sim_games,
-    traces_to_dataframe,
 )
 from nfl_sim.engine.apply import apply_outcome
 from nfl_sim.models.context import GameContext, build_features_for_model
@@ -35,7 +35,7 @@ FUNCTIONS = (
     OutcomeModel._predict_cvae,
     OutcomeModel._predict_intent,
     ## DataFrame conversion:
-    traces_to_dataframe,
+    _traces_to_dataframe,
     _event_from_play,
     build_features_for_model,
 )
@@ -68,7 +68,7 @@ def main() -> None:
     n_sims = 1
     print(f"Profiling {context.home} vs {context.away} ({n_sims} simulations)...")
     res = profiler.runcall(sim_games, {context.game_id: context}, n=n_sims, max_workers=1)
-    profiler.runcall(traces_to_dataframe, res)
+    profiler.runcall(_traces_to_dataframe, res)
 
     # Save results to file
     output_path = Path(__file__).parent / "profile_results.txt"

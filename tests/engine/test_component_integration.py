@@ -16,7 +16,7 @@ import pytest
 from nfl_sim.engine.api import (
     GameResult,
     _simulate_game,
-    traces_to_dataframe,
+    _traces_to_dataframe,
 )
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, Intent
 
@@ -142,17 +142,17 @@ class TestSimGames:
 
 
 class TestTracesToDataframe:
-    """Tests for traces_to_dataframe conversion function."""
+    """Tests for _traces_to_dataframe conversion function."""
 
     def test_returns_dataframe(self, sims_multiple):
         """Should return a polars DataFrame."""
-        df = traces_to_dataframe(sims_multiple)
+        df = _traces_to_dataframe(sims_multiple)
 
         assert isinstance(df, pl.DataFrame)
 
     def test_has_required_columns(self, sims_multiple):
         """DataFrame should have all required columns."""
-        df = traces_to_dataframe(sims_multiple)
+        df = _traces_to_dataframe(sims_multiple)
 
         required_cols = [
             "game_id",
@@ -174,20 +174,20 @@ class TestTracesToDataframe:
 
     def test_game_id_is_correct(self, sims_multiple):
         """Game ID should match the input."""
-        df = traces_to_dataframe(sims_multiple)
+        df = _traces_to_dataframe(sims_multiple)
 
         assert set(df["game_id"].unique().to_list()) == {"2025_02_KC_BUF", "2025_03_BUF_MIA"}
 
     def test_sim_id_is_sequential(self, sims_multiple):
         """Sim IDs should be 0, 1, 2, ..., n-1."""
-        df = traces_to_dataframe(sims_multiple)
+        df = _traces_to_dataframe(sims_multiple)
 
         sim_ids = sorted(df["sim_id"].unique().to_list())
         assert sim_ids == [0, 1, 2, 3, 4]
 
     def test_events_are_valid(self, sims_multiple):
         """Event column should have valid event types."""
-        df = traces_to_dataframe(sims_multiple)
+        df = _traces_to_dataframe(sims_multiple)
 
         valid_events = {
             "Play",
@@ -208,7 +208,7 @@ class TestTracesToDataframe:
 
     def test_empty_traces_returns_empty_df(self):
         """Empty traces dict should return empty DataFrame."""
-        df = traces_to_dataframe({})
+        df = _traces_to_dataframe({})
 
         assert len(df) == 0
 

@@ -8,7 +8,7 @@ import polars.selectors as cs
 import pytest
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
-from nfl_sim.engine.api import GameResult, GameTrace, _simulate_game, traces_to_dataframe
+from nfl_sim.engine.api import GameResult, GameTrace, _simulate_game, _traces_to_dataframe
 from nfl_sim.engine.state import Outcome, _GameState
 from nfl_sim.models.context import DerivedContext, ModelContext, ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
@@ -95,27 +95,24 @@ def build_results(override_const) -> None:
 # =============================================================================
 
 
+def _make_test_context(game_id: str, home: str, away: str) -> GameContext:
+    """Auto-generate a GameContext with dummy feature values.
+
+    Uses GameContext.feature_names to build kwargs dynamically so new features
+    are picked up automatically without updating every test fixture.
+    """
+    feat_kwargs: dict[str, tuple[float, float]] = dict.fromkeys(
+        GameContext.feature_names, (1.0, 1.0)
+    )
+    return GameContext(game_id=game_id, home=home, away=away, **feat_kwargs)
+
+
 @pytest.fixture(scope="session")
 def ctx() -> dict[str, GameContext]:
     """Multiple game contexts for testing."""
-    # These games don't even matter, just matters we pass data down
-    # TODO: eventaully, when the contexts get more advanced we'll have to auto-generate
-    # the stats (spread, epa, etc.)
     games = [
-        GameContext(
-            game_id="2025_02_KC_BUF",
-            home="KC",
-            away="BUF",
-            spread_line=(-3.0, 3.0),  # (home perspective, away perspective = -home)
-            season_epa=(1, 1),  # (home epa, away epa)
-        ),
-        GameContext(
-            game_id="2025_03_BUF_MIA",
-            home="BUF",
-            away="MIA",
-            spread_line=(-7.0, 7.0),  # (home perspective, away perspective = -home)
-            season_epa=(1, 1),  # (home epa, away epa)
-        ),
+        _make_test_context("2025_02_KC_BUF", "KC", "BUF"),
+        _make_test_context("2025_03_BUF_MIA", "BUF", "MIA"),
     ]
     return {g.game_id: g for g in games}
 
@@ -158,7 +155,6 @@ def _real_pbp_to_sim_schema(pbp: pl.DataFrame) -> pl.DataFrame:
         pl.col("play_type").is_in(["pass", "run", "punt", "field_goal", "qb_kneel", "qb_spike"])
     )
 
-    # TODO: Weird right
     # Build the event column from real PBP binary flags.
     # Order matters: more specific events checked first.
     event_expr = (
@@ -243,7 +239,7 @@ def build_comparison_data(
 
     ## Sim Data:
     traces = sim_games(ctx, n=25)
-    sim_pbp: pl.DataFrame = traces_to_dataframe(traces)
+    sim_pbp: pl.DataFrame = _traces_to_dataframe(traces)
     sim_stats = understand(sim_pbp)
     sim_stats_combined = _stats_to_avg_std(sim_stats)
 
@@ -276,13 +272,7 @@ def game_state() -> _GameState:
 @pytest.fixture
 def model_context(game_state: _GameState) -> ModelContext:
     """ModelContext with game state and game-level features."""
-    game_context = GameContext(
-        game_id="test_game_001",
-        home="KC",
-        away="BUF",
-        spread_line=(-3.0, 3.0),
-        season_epa=(0.5, -0.5),
-    )
+    game_context = _make_test_context("test_game_001", "KC", "BUF")
     derived = DerivedContext([])
     return ModelContext(
         state=game_state,

@@ -18,7 +18,7 @@ import polars as pl
 from rich.console import Console
 
 from nfl_sim import sim_games
-from nfl_sim.engine.api import traces_to_dataframe
+from nfl_sim.engine.api import _traces_to_dataframe
 from nfl_sim.models.context import ctx_from_game_id
 
 START_AT = 100
@@ -62,7 +62,7 @@ def _extract_margins(traces: dict, game_id: str) -> list[float]:
     Each simulation produces one final score. We grab every (game_id, sim_id)
     pair's final home_score - away_score as the margin for that trial.
     """
-    df = traces_to_dataframe(traces)
+    df = _traces_to_dataframe(traces)
 
     # Last play per simulation has the final score
     margins = (

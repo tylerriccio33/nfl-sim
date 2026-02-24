@@ -18,7 +18,7 @@ from rich.console import Console
 from rich.table import Table
 
 from nfl_sim import sim_games
-from nfl_sim.engine.api import traces_to_dataframe
+from nfl_sim.engine.api import _traces_to_dataframe
 from nfl_sim.models.context import ctx_from_game_id
 
 NGAMES = 1_000
@@ -94,7 +94,7 @@ def run_accuracy_benchmark(n_games: int = 100, n_sims_per_game: int = 50) -> pl.
         traces = sim_games(games=contexts, n=n_sims_per_game)
 
         chunk_df: pl.DataFrame = (
-            traces_to_dataframe(traces)
+            _traces_to_dataframe(traces)
             .lazy()
             .select("game_id", sim_result=pl.col("home_score") - pl.col("away_score"))
             .unique()

@@ -16,7 +16,6 @@ type TeamId = Literal["HOME", "AWAY"]
 #
 # _GameState is returned by apply_outcome and consumed by the game loop.
 # ---------------------------------------------------------------------------
-# TODO: We use this as a dict for features I think
 _Q = 0  # quarter
 _CLK = 1  # clock (seconds remaining in quarter)
 _OFF = 2  # offense TeamId

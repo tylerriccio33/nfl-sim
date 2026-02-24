@@ -170,7 +170,6 @@ def sim_games(
     return results
 
 
-# TODO: Feels a little redundant
 def _event_from_play(play: PlayEvent) -> str:
     """Derive the event string from a PlayEvent for summarization.
 
@@ -227,8 +226,7 @@ def _event_from_play(play: PlayEvent) -> str:
     return "Play"
 
 
-# TODO: This should be private. understand should do any conversion for us
-def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
+def _traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
     """Convert simulation traces to a play-by-play DataFrame.
 
     Args:

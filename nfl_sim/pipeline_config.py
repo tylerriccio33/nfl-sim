@@ -73,18 +73,7 @@ TRAINING_CONFIG: dict[str, Any] = CONFIG["training"]
 def get_cvae_config(model_name: str) -> dict[str, Any]:
     """Get CVAE hyperparameters for a model (RUN, PASS, etc)."""
     model_cfg = MODELS[model_name]
-    # These fields may be in the model config or use defaults
-    return {
-        # TODO: This is actually redundant, just load from the MODELS itself
-        "state_dim": len(model_cfg["features"]),
-        "latent_dim": model_cfg["latent_dim"],
-        "hidden_dim": model_cfg["hidden_dim"],
-        "cat_emb_dim": model_cfg["cat_emb_dim"],
-        "beta": model_cfg["beta"],
-        "epochs": model_cfg["epochs"],
-        "batch_size": model_cfg["batch_size"],
-        "learning_rate": model_cfg["learning_rate"],
-    }
+    return {**model_cfg, "state_dim": len(model_cfg["features"])}
 
 
 @functools.cache

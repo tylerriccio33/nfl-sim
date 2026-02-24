@@ -8,8 +8,7 @@ detect dead code or broken template rendering.
 import pytest
 
 from nfl_sim.utils import home_away_from_gameid
-
-# TODO: Also do a test where we pull the latest data? or maybe that's what this test does?
+from nfl_sim.web.storage import pull_game_metadata
 
 
 def test_full_user_journey(client, latest_rand_game_id: str | tuple[str, str], build_results):
@@ -43,8 +42,6 @@ def test_full_user_journey(client, latest_rand_game_id: str | tuple[str, str], b
     assert away1 in html
     assert home2 in html
     assert away2 in html
-
-    # TODO: Remove the game refresh button and html artifacts
 
     # -------------------------------------------------------------------------
     # 3. User clicks "Simulate" on KC vs BAL
@@ -126,6 +123,19 @@ def test_full_user_journey(client, latest_rand_game_id: str | tuple[str, str], b
     resp = client.get(f"/game/{game1}/stats")
     assert resp.status_code == 200
     assert b"Game Stats" in resp.data
+
+
+def test_all_game_ids_present_in_index(client, build_results):
+    """Every game_id from the schedule should appear in the index page HTML."""
+    expected_ids: list[str] = pull_game_metadata()["game_id"].to_list()
+    assert len(expected_ids) > 0
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+
+    for gid in expected_ids:
+        assert gid in html, f"game_id {gid} missing from index page"
 
 
 if __name__ == "__main__":

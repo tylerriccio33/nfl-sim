@@ -28,7 +28,7 @@ def understand(sims: pl.DataFrame) -> pl.DataFrame:
 
     Examples:
         >>> traces = sim_games(contexts, n=100)
-        >>> df = traces_to_dataframe(traces)
+        >>> df = _traces_to_dataframe(traces)
         >>> stats = understand(df)
         >>> print(stats["home_win_pct", "margin_avg"])
 

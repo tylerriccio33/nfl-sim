@@ -11,7 +11,7 @@ import polars as pl
 import pytest
 
 from nfl_sim.analysis.understand import understand
-from nfl_sim.engine.api import GameTrace, traces_to_dataframe
+from nfl_sim.engine.api import GameTrace, _traces_to_dataframe
 
 pytestmark = pytest.mark.skipif(
     os.getenv("NFL_SIM_EFFICACY", "1") != "0",
@@ -37,7 +37,7 @@ _FG_INTENTS = {"FG"}
 @pytest.fixture(scope="session")
 def sim_pbp(sims: dict[str, list[GameTrace]]) -> pl.DataFrame:
     """Convert end-to-end simulation traces into a PBP dataframe."""
-    return traces_to_dataframe(sims)
+    return _traces_to_dataframe(sims)
 
 
 # ═════════════════════════════════════════════════════════════════════════
