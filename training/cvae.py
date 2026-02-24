@@ -242,8 +242,7 @@ class CVAE(nn.Module):
         # is genuinely stochastic. Argmax would always pick the mode, collapsing
         # the output distribution and inflating apparent predictive accuracy.
         cat_samples = [
-            torch.multinomial(F.softmax(logits, dim=-1), 1).squeeze(-1)
-            for logits in cat_logits
+            torch.multinomial(F.softmax(logits, dim=-1), 1).squeeze(-1) for logits in cat_logits
         ]
 
         return cont_out, cat_samples

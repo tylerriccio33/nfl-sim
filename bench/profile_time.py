@@ -55,7 +55,7 @@ def main() -> None:
         home="KC",
         away="NYJ",
         spread_line=(-3.0, 3.0),  # (home perspective, away perspective = -home)
-        epa=(1, -1),  # (home epa, away epa)
+        season_epa=(1, -1),  # (home epa, away epa)
     )
 
     # Need to warm up; loads all the modules and models

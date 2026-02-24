@@ -56,7 +56,7 @@ def _make_context(
             home=home,
             away=away,
             spread_line=(spread, -spread),  # (home perspective, away perspective = -home)
-            epa=(-1, 1),  # (home epa, away epa)
+            season_epa=(-1, 1),  # (home epa, away epa)
         ),
     )
 
@@ -238,7 +238,7 @@ def test_feature_order_matches_canonical():
         "game_seconds_remaining": 600.0,
         "goal_to_go": 0.0,  # DerivedContext: distance(5) < yardline_100(30)
         "spread_line": -2.5,  # GameContext, set in _make_context
-        "epa": -1.0,  # GameContext, epa_home (offense is HOME)
+        "season_epa": -1.0,  # GameContext, season_epa_home (offense is HOME)
     }
     for i, name in enumerate(feature_names):
         assert feats[i] == pytest.approx(expected[name]), (
@@ -282,6 +282,41 @@ def test_feature_engineering_e2e(
     raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame, latest_rand_game_id
 ):
     ctx_from_game_id(raw_pbp, raw_schedules, game_ids=[latest_rand_game_id])
+
+
+def test_game_context_features_not_play_level(raw_pbp: pl.DataFrame):
+    """GameContext feature names must not collide with play-level pbp columns.
+
+    If a GameContext feature shares a name with a play-level column in pbp,
+    the training pipeline might silently pick up the play-level version
+    instead of the engineered game-level one — exactly the leakage bug
+    we had with 'epa'.
+
+    A column is play-level if it varies within at least one game.
+    """
+    # Only check numeric columns (features are numeric)
+    numeric_cols = raw_pbp.select(pl.selectors.numeric()).columns
+
+    # A column is play-level if it has more than one unique value within any game.
+    play_level_cols: set[str] = set()
+    for col in numeric_cols:
+        n_unique_per_game = (
+            raw_pbp.select("game_id", col)
+            .drop_nulls()
+            .group_by("game_id")
+            .agg(pl.col(col).n_unique())
+            .select(col)
+            .to_series()
+        )
+        if (n_unique_per_game > 1).any():
+            play_level_cols.add(col)
+
+    overlap = set(GameContext.feature_names) & play_level_cols
+    assert not overlap, (
+        f"GameContext feature names overlap with play-level pbp columns: {overlap}. "
+        f"This will cause feature leakage — the model will silently use play-level "
+        f"values instead of the engineered game-level ones."
+    )
 
 
 @pytest.mark.xfail

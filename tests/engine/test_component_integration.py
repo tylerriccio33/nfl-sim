@@ -13,31 +13,9 @@ import pytest
 
 from nfl_sim.engine.api import (
     GameResult,
-    _simulate_game,
     traces_to_dataframe,
 )
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _Q, _SC, _YL, Intent
-from nfl_sim.models.context import GameContext
-
-
-def _test_ctx(home: str, away: str) -> GameContext:
-    return GameContext(
-        game_id=f"{home}_{away}",
-        home=home,
-        away=away,
-        spread_line=(0.0, 0.0),  # (home perspective, away perspective = -home)
-        epa=(1, 1),  # (home epa, away epa)
-    )
-
-
-def _sim(home: str, away: str) -> GameResult:
-    """Helper: simulate with dummy context."""
-    return _simulate_game(
-        home,
-        away,
-        context=_test_ctx(home, away),
-    )
-
 
 # =============================================================================
 # Single Game Simulation Tests
@@ -47,35 +25,24 @@ def _sim(home: str, away: str) -> GameResult:
 class TestSimulateGame:
     """Tests for _simulate_game function."""
 
-    def test_game_completes(self):
+    def test_game_completes(self, game_result):
         """A game should run to completion and return a result."""
-        result = _sim("KC", "SF")
+        assert isinstance(game_result, GameResult)
 
-        assert isinstance(result, GameResult)
-        assert result.home == "KC"
-        assert result.away == "SF"
-
-    def test_game_has_plays(self):
+    def test_game_has_plays(self, game_result):
         """A completed game should have at least some plays."""
-        result = _sim("KC", "SF")
+        assert len(game_result.trace) > 0
 
-        assert len(result.trace) > 0
-
-    def test_game_has_valid_final_score(self):
+    def test_game_has_valid_final_score(self, game_result):
         """Final score should be non-negative integers."""
-        result = _sim("BUF", "MIA")
+        assert game_result.home_score >= 0
+        assert game_result.away_score >= 0
+        assert isinstance(game_result.home_score, int)
+        assert isinstance(game_result.away_score, int)
 
-        assert result.home_score >= 0
-        assert result.away_score >= 0
-        assert isinstance(result.home_score, int)
-        assert isinstance(result.away_score, int)
-
-    def test_game_ends_after_four_quarters(self):
+    def test_game_ends_after_four_quarters(self, game_result):
         """Game should end when quarter > 4."""
-        result = _sim("DAL", "PHI")
-
-        # Last play should transition to quarter 5 (terminal)
-        final_state = result.trace[-1].state_after
+        final_state = game_result.trace[-1].state_after
         assert final_state[_Q] > 4
 
 
@@ -87,28 +54,22 @@ class TestSimulateGame:
 class TestTraceValidity:
     """Tests that the play trace is internally consistent."""
 
-    def test_trace_state_continuity(self):
+    def test_trace_state_continuity(self, game_result):
         """Each play's state_after should match next play's state_before."""
-        result = _sim("TEN", "IND")
-
-        for i in range(len(result.trace) - 1):
-            current_play = result.trace[i]
-            next_play = result.trace[i + 1]
+        for i in range(len(game_result.trace) - 1):
+            current_play = game_result.trace[i]
+            next_play = game_result.trace[i + 1]
             assert current_play.state_after == next_play.state_before
 
-    def test_trace_has_valid_intents(self):
+    def test_trace_has_valid_intents(self, game_result):
         """All plays should have valid Intent enum values."""
-        result = _sim("CIN", "CLE")
-
-        for play in result.trace:
+        for play in game_result.trace:
             assert isinstance(play.intent, Intent)
             assert play.intent in [Intent.RUN, Intent.PASS, Intent.FIELD_GOAL, Intent.PUNT]
 
-    def test_trace_starts_with_initial_state(self):
+    def test_trace_starts_with_initial_state(self, game_result):
         """First play should start from standard initial state."""
-        result = _sim("MIN", "DET")
-
-        first_state = result.trace[0].state_before
+        first_state = game_result.trace[0].state_before
         assert first_state[_Q] == 1
         assert first_state[_CLK] == 900
         assert first_state[_DN] == 1
@@ -116,19 +77,15 @@ class TestTraceValidity:
         assert first_state[_YL] == 75
         assert first_state[_SC] == (0, 0)
 
-    def test_trace_ends_in_terminal_state(self):
+    def test_trace_ends_in_terminal_state(self, game_result):
         """Last play should end in a terminal state (quarter > 4)."""
-        result = _sim("LAC", "DEN")
-
-        final_state = result.trace[-1].state_after
+        final_state = game_result.trace[-1].state_after
         assert final_state[_Q] > 4
 
-    def test_score_only_increases(self):
+    def test_score_only_increases(self, game_result):
         """Score should never decrease during a game."""
-        result = _sim("ATL", "NO")
-
         prev_score = (0, 0)
-        for play in result.trace:
+        for play in game_result.trace:
             current_score = play.state_after[_SC]
             assert current_score[0] >= prev_score[0]
             assert current_score[1] >= prev_score[1]
@@ -261,12 +218,10 @@ class TestTracesToDataframe:
 class TestCustomComponents:
     """Tests for using custom models."""
 
-    def test_custom_model_is_used(self):
+    def test_custom_model_is_used(self, game_result):
         """Custom model should be called during simulation."""
-        result = _sim("TEST1", "TEST2")
-
-        assert isinstance(result, GameResult)
-        assert len(result.trace) > 0
+        assert isinstance(game_result, GameResult)
+        assert len(game_result.trace) > 0
 
 
 # =============================================================================
@@ -274,11 +229,9 @@ class TestCustomComponents:
 # =============================================================================
 
 
-def test_zero_zero_start():
+def test_zero_zero_start(game_result):
     """Game should start 0-0."""
-    result = _sim("ZERO1", "ZERO2")
-
-    first_play = result.trace[0]
+    first_play = game_result.trace[0]
     assert first_play.state_before[_SC] == (0, 0)
 
 

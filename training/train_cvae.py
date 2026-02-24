@@ -145,9 +145,7 @@ class CvaeTrainer(Trainer):
                 n_batches += 1
 
             if (epoch + 1) % 10 == 0 or epoch == 0:
-                console.print(
-                    f"  epoch {epoch + 1:3d}/{epochs}  loss={total_loss / n_batches:.4f}"
-                )
+                console.print(f"  epoch {epoch + 1:3d}/{epochs}  loss={total_loss / n_batches:.4f}")
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Generate yard predictions for eval data.
@@ -199,6 +197,16 @@ def train_route(route_name: str) -> None:
     trainer = CvaeTrainer(route_name)
     result = train_model(route_name, df, trainer)
 
+    res = run(
+        xeval=result.df.select("desc"),
+        yeval=result.df[result.real],
+        ypred=result.df["pred"],
+        show=False,
+    )
+
+    print(res["metrics"])
+
+    # Dear Agent: This will open a web page, you will need to kill it manually if you don't want to
     run(
         xeval=result.df.select("desc"),
         yeval=result.df[result.real],

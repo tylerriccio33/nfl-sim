@@ -241,7 +241,6 @@ def train_model(
     train_mask = np.array([g in train_games for g in game_ids])
     x_train, x_eval = x[train_mask], x[~train_mask]
     y_train, _ = y[train_mask], y[~train_mask]
-    split = int(train_mask.sum())
 
     print(f"Training {model_name}...")
     print(f"  Train: {len(x_train)} samples")

@@ -8,7 +8,7 @@ import polars.selectors as cs
 import pytest
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
-from nfl_sim.engine.api import GameTrace, traces_to_dataframe
+from nfl_sim.engine.api import GameResult, GameTrace, _simulate_game, traces_to_dataframe
 from nfl_sim.engine.state import Outcome, _GameState
 from nfl_sim.models.context import DerivedContext, ModelContext, ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
@@ -107,17 +107,24 @@ def ctx() -> dict[str, GameContext]:
             home="KC",
             away="BUF",
             spread_line=(-3.0, 3.0),  # (home perspective, away perspective = -home)
-            epa=(1, 1),  # (home epa, away epa)
+            season_epa=(1, 1),  # (home epa, away epa)
         ),
         GameContext(
             game_id="2025_03_BUF_MIA",
             home="BUF",
             away="MIA",
             spread_line=(-7.0, 7.0),  # (home perspective, away perspective = -home)
-            epa=(1, 1),  # (home epa, away epa)
+            season_epa=(1, 1),  # (home epa, away epa)
         ),
     ]
     return {g.game_id: g for g in games}
+
+
+@pytest.fixture(scope="session")
+def game_result(ctx: dict[str, GameContext]) -> GameResult:
+    """A single game result for tests that just need *a* completed game."""
+    first = next(iter(ctx.values()))
+    return _simulate_game(first.home, first.away, context=first)
 
 
 @pytest.fixture(scope="session")
@@ -274,7 +281,7 @@ def model_context(game_state: _GameState) -> ModelContext:
         home="KC",
         away="BUF",
         spread_line=(-3.0, 3.0),
-        epa=(0.5, -0.5),
+        season_epa=(0.5, -0.5),
     )
     derived = DerivedContext([])
     return ModelContext(

@@ -39,7 +39,7 @@ features = [
     "game_seconds_remaining",
     "goal_to_go",
     "spread_line",
-    "epa",
+    "season_epa",
 ]
 outcomes = ["intent"]
 
@@ -54,7 +54,7 @@ features = [
     "game_seconds_remaining",
     "goal_to_go",
     "spread_line",
-    "epa",
+    "season_epa",
 ]
 outcomes = ["yards_gained", "turnover_type", "complete_pass"]
 # CVAE hyperparameters
@@ -62,7 +62,7 @@ latent_dim = 16
 hidden_dim = 64
 cat_emb_dim = 8
 beta = 1.0
-epochs = 100
+epochs = 20
 batch_size = 256
 learning_rate = 1e-3
 
@@ -76,8 +76,8 @@ features = [
     "qtr",
     "game_seconds_remaining",
     "goal_to_go",
-    "spread_line",
-    "epa",
+    # "spread_line",
+    "season_epa",
 ]
 outcomes = ["yards_gained", "turnover_type", "complete_pass"]
 # CVAE hyperparameters
@@ -85,7 +85,7 @@ latent_dim = 16
 hidden_dim = 64
 cat_emb_dim = 8
 beta = 1.0
-epochs = 100
+epochs = 20
 batch_size = 256
 learning_rate = 1e-3
 
@@ -96,12 +96,7 @@ outcomes = ["kick_distance"]
 
 [models.time]
 artifact = "training/artifacts/time/model.tl"
-features = [
-    "yards_gained",
-    "complete_pass",
-    "pass_attempt",
-    "rush_attempt",
-]
+features = ["yards_gained", "complete_pass", "pass_attempt", "rush_attempt"]
 outcomes = ["time_elapsed"]
 
 # ST plays use a fixed time override (no model needed)

@@ -19,6 +19,7 @@ from pathlib import Path
 
 import polars as pl
 
+from nfl_sim.models.context import engineer_game_features
 from nfl_sim.pipeline_config import (
     INTENT_VALUES,
     PLAY_TYPE_MAP,
@@ -27,34 +28,6 @@ from nfl_sim.pipeline_config import (
 
 DATA_PATH = Path(TRAINING_CONFIG["pbp_path"])
 SCHEDULE_PATH = Path(TRAINING_CONFIG["schedule_path"])
-
-# Columns we need from pbp for feature and target extraction
-# (Used by infer.py for backwards compatibility)
-REQUIRED_COLS = [
-    "play_type",
-    "down",
-    "ydstogo",
-    "yardline_100",
-    "qtr",
-    "game_seconds_remaining",
-    "yards_gained",
-    "interception",
-    "fumble_lost",
-    "season",
-    "game_id",
-    "posteam",
-    "defteam",
-    "posteam_type",
-    "total_home_score",
-    "total_away_score",
-    "time",
-    "turnover_type",
-    "time_elapsed",
-    "desc",
-    "field_goal_result",
-    "punt_blocked",
-    "complete_pass",
-]
 
 # Map play_type string → Intent enum (driven by pipeline.toml)
 _PLAY_TYPE_TO_INTENT: dict[str, str] = PLAY_TYPE_MAP  # TODO: why rename lol
@@ -129,14 +102,47 @@ def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
         )
         .collect()
     )
+    assert isinstance(df, pl.DataFrame)
 
-    # TODO: I want this to be a lazyframe
+    latest_games = df["game_id"].unique().to_list()
+
+    # Engineer game-level features and join back to play-level data
+    game_feats = engineer_game_features(
+        pbp=df, schedule_data=pl.read_parquet(SCHEDULE_PATH), game_ids=latest_games
+    )
+
+    df = df.join(
+        game_feats,
+        on="game_id",
+        how="inner",  # drops games with no features (e.g. week 1)
+    )
+
+    # For each _home/_away column pair, pick the correct perspective based on
+    # posteam_type and negate the opponent's value where needed (e.g. spread).
+    home_suffixed = [c for c in game_feats.columns if c.endswith("_home")]
+    perspective_exprs = [
+        pl.when(pl.col("posteam_type") == "home")
+        .then(pl.col(f"{feat}_home"))
+        .otherwise(pl.col(f"{feat}_away"))
+        .alias(feat)
+        for feat in (c.removesuffix("_home") for c in home_suffixed)
+    ]
+    drop_cols = [c for c in game_feats.columns if c.endswith(("_home", "_away"))]
+
+    df = df.with_columns(
+        *perspective_exprs,
+        # Negate spread for away team perspective
+        spread_line=pl.when(pl.col("posteam_type") == "home")
+        .then(pl.col("spread_line"))
+        .otherwise(-pl.col("spread_line")),
+        goal_to_go=(pl.col("ydstogo") >= pl.col("yardline_100")),
+    ).drop(drop_cols)
 
     # Add derived columns
-    # TODO: probably don't need these
     df = df.with_columns(
         intent=intent_value_mapping,
         score_diff=pl.col("total_home_score") - pl.col("total_away_score"),
     )
 
+    # TODO: I want this to be a lazyframe
     return df

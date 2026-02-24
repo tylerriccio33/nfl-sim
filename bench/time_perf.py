@@ -25,7 +25,7 @@ def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
         home="KC",
         away="NYJ",
         spread_line=(-3.0, 3.0),  # (home perspective, away perspective = -home)
-        epa=(1, -1),  # (home epa, away epa)
+        season_epa=(1, -1),  # (home epa, away epa)
     )
 
     # warm up

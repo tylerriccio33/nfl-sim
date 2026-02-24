@@ -43,7 +43,7 @@ class GameContext:
         away: Away team abbreviation.
         spread_line: Tuple (home_spread, away_spread) where away_spread = -home_spread.
             Example: If home favored by 3.0 points, spread_line = (-3.0, 3.0).
-        epa: Tuple (home_epa, away_epa) representing each team's prior week EPA.
+        season_epa: Tuple (home_epa, away_epa) representing each team's season-average EPA.
 
     """
 
@@ -52,15 +52,15 @@ class GameContext:
     away: str
     ## FEATURES DESCRIBED HERE --
     spread_line: tuple[float, float]  # (home perspective, away perspective = -home)
-    epa: tuple[float, float]  # (home team epa, away team epa)
+    season_epa: tuple[float, float]  # (home team epa, away team epa)
 
-    feature_names: ClassVar[list[str]] = ["spread_line", "epa"]
+    feature_names: ClassVar[list[str]] = ["spread_line", "season_epa"]
     """For logging feature metadata later on."""
 
     def get_feature(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
         """Get a game-level feature for the given team.
 
-        Both perspectives for spread_line and epa are pre-computed in the tuple,
+        Both perspectives for spread_line and season_epa are pre-computed in the tuple,
         so this method just indexes directly without additional logic.
 
         Args:
@@ -103,7 +103,7 @@ class GameContext:
             # Pre-compute perspectives: home value, away perspective (negated)
             spread_line=(row["spread_line"], -row["spread_line"]),
             # EPA values are already team-specific, just tuple them
-            epa=(row["epa_home"], row["epa_away"]),
+            season_epa=(row["season_epa_home"], row["season_epa_away"]),
         )
 
 
@@ -117,45 +117,42 @@ def _rows_to_contexts(data: pl.DataFrame) -> dict[str, GameContext]:
     return result
 
 
-# TODO: Probably rename to like context engineering or something
-def ctx_from_game_id(
+def engineer_game_features(
     pbp: pl.DataFrame, schedule_data: pl.DataFrame, game_ids: list[str]
-) -> dict[str, GameContext]:
-    """Build contexts for specific game IDs.
+) -> pl.DataFrame:
+    """Engineer game-level features (spread, EPA) for the given game IDs.
 
-    Data engineering goes here, and a dataframe with one row per-team is produced
-    as a result, and used to build the context.
+    Returns a DataFrame with one row per game containing:
+    game_id, home_team, away_team, spread_line, season_epa_home, season_epa_away
 
     Args:
         pbp: Play-by-play DataFrame.
         schedule_data: Schedule data for engineering.
-        game_ids: Single game ID or list of game IDs.
-            If None, ALL are used in the schedule data.
+        game_ids: List of game IDs to engineer features for.
 
     """
     ## Schedule Features:
-    # Column aliases must match GameFeatures field names exactly.
     sched_features = (
         schedule_data.filter(pl.col("game_id").is_in(game_ids))
-        .select(
-            "game_id",
-            "home_team",
-            "away_team",
-            pl.col("spread_line"),
-        )
+        .select("game_id", "home_team", "away_team", "spread_line")
         .unique()
     )
 
-    ## <FEATURE ENGINEERING GOES HERE> ##
+    # Season-level EPA: for each game, compute the team's mean EPA across all
+    # prior weeks in the same season (expanding window, excluding current week).
     ids = ["posteam", "season", "week", "game_id"]
-    lookup = pbp.drop_nulls(ids).group_by(ids).agg(epa=pl.col("epa").mean())
-    # TODO: Need to check things are not null, i've seen null epas
+    weekly = pbp.drop_nulls(ids).group_by(ids).agg(epa=pl.col("epa").mean())
 
     shifted = (
-        lookup.sort(ids)
-        .with_columns(pl.all().exclude(ids).shift(1).over("posteam"))
-        .drop("season", "week")
-        .drop_nulls()  # Filter out rows without prior week EPA (first week of season)
+        weekly.sort("posteam", "season", "week")
+        .with_columns(
+            season_epa=pl.col("epa")
+            .shift(1)
+            .rolling_mean(window_size=16, min_samples=1)
+            .over("posteam", "season"),
+        )
+        .drop("season", "week", "epa")
+        .drop_nulls()
     )
 
     pbp_feats: list[str] = [c for c in shifted.columns if c not in ids]
@@ -172,7 +169,22 @@ def ctx_from_game_id(
         right_on=("game_id", "posteam"),
     )
 
-    assert len(sched_features) > 0, "No games found in filter."
+    assert len(joined) > 0, "No games found in filter."
+    return joined
+
+
+def ctx_from_game_id(
+    pbp: pl.DataFrame, schedule_data: pl.DataFrame, game_ids: list[str]
+) -> dict[str, GameContext]:
+    """Build contexts for specific game IDs.
+
+    Args:
+        pbp: Play-by-play DataFrame.
+        schedule_data: Schedule data for engineering.
+        game_ids: List of game IDs.
+
+    """
+    joined = engineer_game_features(pbp, schedule_data, game_ids)
     return _rows_to_contexts(joined)
 
 
