@@ -99,7 +99,6 @@ class GameContext:
             game_id=row["game_id"],
             home=row["home_team"],
             away=row["away_team"],
-            # TODO: Would love to auto-gen this or something
             # Pre-compute perspectives: home value, away perspective (negated)
             spread_line=(row["spread_line"], -row["spread_line"]),
             # EPA values are already team-specific, just tuple them

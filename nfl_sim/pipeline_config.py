@@ -11,6 +11,7 @@ Configuration is loaded once at import time.
 
 from __future__ import annotations
 
+import functools
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -86,7 +87,7 @@ def get_cvae_config(model_name: str) -> dict[str, Any]:
     }
 
 
-# TODO: Maybe we cache this
+@functools.cache
 def get_model_features(model_name: str) -> list[str]:
     """Get the feature names for a specific model from TOML.
 

@@ -229,9 +229,6 @@ class OutcomeModel:
         if not self._loaded:
             self._load()
 
-        # TODO: Could be interesting if we could produce a png of the flow of this model.
-        # - would force good habits too by making all the functions very high level
-
         # Build intent model features (9 base features: state + game context)
         intent_features = build_features_for_model("intent", context)
 

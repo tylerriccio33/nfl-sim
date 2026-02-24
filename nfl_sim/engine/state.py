@@ -85,6 +85,5 @@ class PlayEvent:
     state_after: _GameState
 
 
-# TODO: shouldn't this have `type` in front of it
-GameTrace = list[PlayEvent]
+type GameTrace = list[PlayEvent]
 """What the model cares about; append only log."""

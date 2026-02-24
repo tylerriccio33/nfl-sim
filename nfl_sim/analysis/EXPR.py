@@ -133,8 +133,6 @@ SIM_LEVEL_EXPRS: list[pl.Expr] = _SCORING_EXPRS + SIM_LEVEL_EXPRS
 # Output: One row per game with mean/std/distribution stats
 
 
-# TODO: Add a test that determines same number of home and away, and that for each home we have a corresponding away, and a game level
-
 sim_level_schema = _resolve_schema(_PLAY_SCHEMA, SIM_LEVEL_EXPRS)
 
 GAME_LEVEL_EXPRS: list[pl.Expr] = [
