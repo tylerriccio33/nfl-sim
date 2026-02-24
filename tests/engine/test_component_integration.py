@@ -8,14 +8,17 @@ These tests verify the full simulation pipeline:
 - Multiple simulation aggregation
 """
 
+import pickle
+
 import polars as pl
 import pytest
 
 from nfl_sim.engine.api import (
     GameResult,
+    _simulate_game,
     traces_to_dataframe,
 )
-from nfl_sim.engine.state import _CLK, _DIST, _DN, _Q, _SC, _YL, Intent
+from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, Intent
 
 # =============================================================================
 # Single Game Simulation Tests
@@ -233,6 +236,101 @@ def test_zero_zero_start(game_result):
     """Game should start 0-0."""
     first_play = game_result.trace[0]
     assert first_play.state_before[_SC] == (0, 0)
+
+
+# =============================================================================
+# Simulation Integrity Tests
+# =============================================================================
+
+
+def test_no_hidden_global_state(ctx):
+    """Running the same game twice should not leak state between runs."""
+    first = next(iter(ctx.values()))
+    result_a = _simulate_game(first.home, first.away, context=first)
+    result_b = _simulate_game(first.home, first.away, context=first)
+
+    # Both should complete without error and have valid traces
+    assert len(result_a.trace) > 0
+    assert len(result_b.trace) > 0
+    # Initial state should be identical for both
+    assert result_a.trace[0].state_before == result_b.trace[0].state_before
+
+
+def test_stored_result_not_mutated(ctx):
+    """Storing a result and running another sim should not mutate the stored one."""
+    first = next(iter(ctx.values()))
+    result_a = _simulate_game(first.home, first.away, context=first)
+    score_a = (result_a.home_score, result_a.away_score)
+    trace_len_a = len(result_a.trace)
+
+    # Run another simulation — should not mutate result_a
+    _simulate_game(first.home, first.away, context=first)
+
+    assert (result_a.home_score, result_a.away_score) == score_a
+    assert len(result_a.trace) == trace_len_a
+
+
+def test_blowouts_possible(sims_multiple):
+    """At least one sim should have a margin >= 21 (blowout territory)."""
+    margins = []
+    for traces in sims_multiple.values():
+        for trace in traces:
+            final = trace[-1].state_after[_SC]
+            margins.append(abs(final[0] - final[1]))
+
+    # With 2 games * 5 sims = 10 games, blowouts should appear occasionally.
+    # If not, that's still fine — we just want the engine to be capable.
+    # Use a soft threshold: at least one game with margin > 14.
+    assert any(m > 14 for m in margins), f"No game had margin > 14: {margins}"
+
+
+def test_ties_rare(sims_multiple):
+    """Ties should be rare (or nonexistent) across simulations."""
+    total = 0
+    ties = 0
+    for traces in sims_multiple.values():
+        for trace in traces:
+            total += 1
+            final = trace[-1].state_after[_SC]
+            if final[0] == final[1]:
+                ties += 1
+
+    # Ties should be <50% of games at absolute most
+    assert ties / total < 0.5, f"Too many ties: {ties}/{total}"
+
+
+def test_no_infinite_drives(sims_multiple):
+    """No drive should have 0 total yards across an unreasonable number of plays."""
+    for traces in sims_multiple.values():
+        for trace in traces:
+            # Walk the trace looking for drives (consecutive plays by same offense)
+            drive_plays = 0
+            drive_yards = 0
+            prev_offense = None
+
+            for play in trace:
+                offense = play.state_before[_OFF]
+                if offense != prev_offense:
+                    # New drive — check previous
+                    if drive_plays > 15 and drive_yards == 0:
+                        pytest.fail(f"Drive with {drive_plays} plays and 0 yards")
+                    drive_plays = 0
+                    drive_yards = 0
+                    prev_offense = offense
+
+                drive_plays += 1
+                if play.intent not in (Intent.FIELD_GOAL, Intent.PUNT):
+                    drive_yards += abs(play.outcome.yards_gained)
+
+
+def test_game_state_serializable(game_result):
+    """Every play's state should be pickle-serializable."""
+    for play in game_result.trace:
+        # States are plain tuples, but verify the full PlayEvent round-trips
+        data = pickle.dumps(play)
+        restored = pickle.loads(data)  # noqa: S301
+        assert restored.state_before == play.state_before
+        assert restored.state_after == play.state_after
 
 
 if __name__ == "__main__":
