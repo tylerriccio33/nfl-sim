@@ -13,8 +13,7 @@ from nfl_sim.pipeline_config import get_model_features
 if TYPE_CHECKING:
     from nfl_sim.engine.state import Outcome
 
-# Mapping of feature names to _GameState indices
-# TODO: Make sure these are mirroring the proper naming conventions
+# Mapping of feature names to _GameState indices (names follow nflfastR pbp conventions)
 STATE_FEATURE_MAP = {
     "qtr": _Q,
     "game_seconds_remaining": _CLK,
@@ -252,7 +251,7 @@ class ModelContext:
     state: _GameState
     derived: DerivedContext
     game_context: GameContext
-    outcome: "Outcome | None" = None  # TODO: Correct annotations
+    outcome: "Outcome | None" = None
 
     def get_features(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
         """Get a feature from the context.

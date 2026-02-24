@@ -279,6 +279,7 @@ def traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
                     sb = play.state_before
                     sa = play.state_after
 
+                    # TODO: Hate this
                     game_id[i] = g_id
                     sim_id[i] = s_id
                     play_id[i] = p_id

@@ -237,7 +237,6 @@ class OutcomeModel:
         route = route_from_intent(intent)
 
         # If Run/Pass, we predict using the corresponding neural net.
-        # TODO: Might want to do a dict? each model shouldn't be that different during the route split
         match route:
             case Route.RUN | Route.PASS:
                 cvae_model: _CvaeArtifact = self._cvae[route]
@@ -248,8 +247,6 @@ class OutcomeModel:
 
                 cvae_features = build_features_for_model(model, context)
 
-                # TODO: I kind of want another abstraction layer on top of cvae. Doesn't make programming sense
-                # but makes more human sense to me. Feels nicer to call the route specific cvae directly
                 outcome: Outcome = self._predict_cvae(cvae_model, cvae_features)
 
             case Route.ST:
@@ -293,7 +290,7 @@ class AfterPlayModel:
             self._time_model,
             full_features.reshape(1, -1).astype(np.float32),
             nthread=1,
-        )[0, 0][0]  # TODO: Weird indexing
+        )[0, 0][0]  # treelite returns shape (n_rows, n_groups) of arrays; unwrap scalar
         raw = float(pred)
         return max(1, round(raw)) if math.isfinite(raw) else 20
 

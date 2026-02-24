@@ -31,7 +31,6 @@ from nfl_sim.engine.state import (
 )
 
 
-# TODO: These should be fixtures
 def make_state(**kwargs) -> _GameState:
     """Helper to create _GameState with sensible defaults."""
     defaults = {

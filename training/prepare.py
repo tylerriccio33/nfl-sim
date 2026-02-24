@@ -29,13 +29,9 @@ from nfl_sim.pipeline_config import (
 DATA_PATH = Path(TRAINING_CONFIG["pbp_path"])
 SCHEDULE_PATH = Path(TRAINING_CONFIG["schedule_path"])
 
-# Map play_type string → Intent enum (driven by pipeline.toml)
-_PLAY_TYPE_TO_INTENT: dict[str, str] = PLAY_TYPE_MAP  # TODO: why rename lol
-
 # Map play_type → intent value
-# TODO: These are kind of weird and not optimal
 intent_name_mapping = pl.col("play_type").map_elements(
-    lambda pt: _PLAY_TYPE_TO_INTENT.get(pt, "RUN"), return_dtype=pl.String
+    lambda pt: PLAY_TYPE_MAP.get(pt, "RUN"), return_dtype=pl.String
 )
 intent_value_mapping = intent_name_mapping.map_elements(
     lambda name: INTENT_VALUES.get(name, 1), return_dtype=pl.Int32
@@ -91,7 +87,7 @@ def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
                 "time_elapsed",
             ]
         )
-        .filter(pl.col("play_type").is_in(set(_PLAY_TYPE_TO_INTENT.keys())))
+        .filter(pl.col("play_type").is_in(set(PLAY_TYPE_MAP.keys())))
         .with_columns(
             offense=pl.when(pl.col("posteam_type") == "home")
             .then(pl.lit("HOME"))

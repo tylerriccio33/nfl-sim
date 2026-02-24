@@ -27,18 +27,21 @@ def pull_simulation_results(game_id: str) -> pl.DataFrame:
         AssertionError: If no pre-computed results exist for this game.
 
     """
-    res = pl.scan_parquet(DATABASE()).filter(pl.col("game_id") == pl.lit(game_id)).collect()
+    res: pl.DataFrame = (
+        pl.scan_parquet(DATABASE()).filter(pl.col("game_id") == pl.lit(game_id)).collect()
+    )  # ty: ignore[invalid-assignment]
     assert len(res) > 0
     return res
 
 
 def pull_game_metadata() -> pl.DataFrame:
     """Pull metadata from future games."""
-    return (
+    result: pl.DataFrame = (
         pl.scan_parquet(FUTURE_GAMES())
         .select("game_id", "home_team", "away_team", "gameday")
         .collect()
-    )
+    )  # ty: ignore[invalid-assignment]
+    return result
 
 
 def pull_understand_results(game_id: str) -> GameAggs:
@@ -54,13 +57,13 @@ def pull_understand_results(game_id: str) -> GameAggs:
         GameAggs with game-level and team-specific stats.
 
     """
-    by_game: dict[str, list] = (
+    df: pl.DataFrame = (
         pl.scan_parquet(GAME_SUMMARY())
         .filter(pl.col("game_id") == pl.lit(game_id))
         .drop("game_id")
         .collect()
-        .to_dict(as_series=False)
-    )
+    )  # ty: ignore[invalid-assignment]
+    by_game: dict[str, list] = df.to_dict(as_series=False)
 
     try:
         return GameAggs(**{k: v[0] for k, v in by_game.items()})

@@ -5,12 +5,10 @@ This module defines reusable expressions for:
 - GAME_LEVEL_EXPRS: Aggregate multiple simulations to game-level statistics (includes home_*/away_* team stats)
 - WEEK_LEVEL_EXPRS: Aggregate multiple games to week-level statistics
 """
-# TODO: Update those docs above me
 
 import polars as pl
 
 ## These are the columns present in each play AT LEAST.
-# TODO: Probably needs to be either auto-generated or tied into metadata
 _PLAY_SCHEMA: dict[str, type[pl.DataType]] = {
     "posteam": pl.String,  # For rle to calculate drive + team filtering
     "yards_gained": pl.Int64,
@@ -29,7 +27,8 @@ def _resolve_schema(
     Uses a dummy grouping column to correctly infer types for expressions
     that implicitly collect values into lists during aggregation.
     """
-    # TODO: Why exactly do we need the _key? It's like a dummy right? expressions might be ok in a select context
+    # _key is a dummy grouping column so polars resolves agg-expression types
+    # correctly (list-wrapping, etc.) — a plain .select() wouldn't do that.
     schema_with_key = {"_key": pl.Int64, **input_schema}
     full_schema = pl.LazyFrame(schema=schema_with_key).group_by("_key").agg(*exprs).collect_schema()
     # Drop the grouping key from the resolved schema
@@ -80,8 +79,6 @@ def _make_team_play_aggs(team: str | None = None, prefix: str | None = None) -> 
         prefix: Prefix for output column names (e.g., "home_" or "away_")
 
     """
-    # TODO: if team is home then prefix will always be home_
-    # TODO: Overload signature with literals I think
     flt = pl.col("posteam").eq(team) if team else pl.lit(True)
     prefix = prefix or ""
     return [
@@ -93,7 +90,6 @@ def _make_team_play_aggs(team: str | None = None, prefix: str | None = None) -> 
             for stat, expr in custom_stats.items()
         ],
         # Special Rollups:
-        # TODO: Abstract these too
         flt.sum().cast(pl.Int64).alias("total_plays").name.prefix(prefix),
         pl.col("posteam").filter(flt).rle_id().n_unique().alias("num_drives").name.prefix(prefix),
         pl.col("yards_gained").filter(flt).mean().alias("yards_per_play").name.prefix(prefix),

@@ -33,7 +33,7 @@ def _map_dtype(dtype: pl.DataType) -> str:
 def _generate_class(name: str, schema: pl.Schema) -> list[str]:
     """Generate a NamedTuple class definition from a polars Schema."""
     lines = [f"class {name}(NamedTuple):"]
-    for field_name in schema.names():
+    for field_name in sorted(schema.names()):
         py_type = _map_dtype(schema[field_name])
         lines.append(f"    {field_name}: {py_type}")
     return lines

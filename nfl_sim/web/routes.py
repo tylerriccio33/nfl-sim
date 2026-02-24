@@ -41,7 +41,6 @@ def simulate(game_id: str):
     result = game_summary._asdict()
     result["home_team"] = home
     result["away_team"] = away
-    # TODO: We should do something about this. Might want to do this in `understand`
     result["individual_results"] = [
         {"home_score": h, "away_score": a, "home_win": h > a}
         for h, a in zip(game_summary.home_score_all, game_summary.away_score_all)

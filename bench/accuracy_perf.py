@@ -93,7 +93,7 @@ def run_accuracy_benchmark(n_games: int = 100, n_sims_per_game: int = 50) -> pl.
         contexts = ctx_from_game_id(pbp, chunk_schedule, chunk_ids)
         traces = sim_games(games=contexts, n=n_sims_per_game)
 
-        chunk_df = (
+        chunk_df: pl.DataFrame = (
             traces_to_dataframe(traces)
             .lazy()
             .select("game_id", sim_result=pl.col("home_score") - pl.col("away_score"))
@@ -101,12 +101,12 @@ def run_accuracy_benchmark(n_games: int = 100, n_sims_per_game: int = 50) -> pl.
             .group_by("game_id")
             .agg(pl.col("sim_result").mean())
             .collect()
-        )
+        )  # ty: ignore[invalid-assignment]
         chunk_dfs.append(chunk_df)
 
         console.print(f"  [{min(i + CHUNK_SIZE, total_games)}/{total_games}] games done")
 
-    results_df = (
+    results_df: pl.DataFrame = (
         pl.concat(chunk_dfs)
         .lazy()
         .join(
@@ -116,7 +116,7 @@ def run_accuracy_benchmark(n_games: int = 100, n_sims_per_game: int = 50) -> pl.
             on="game_id",
         )
         .collect()
-    )
+    )  # ty: ignore[invalid-assignment]
 
     return results_df
 
