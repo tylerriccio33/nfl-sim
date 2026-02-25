@@ -3,7 +3,6 @@
 Evaluates model skill by comparing sim predictions against actual
 game results and Vegas spread lines, using pysuite for visualization.
 """
-from pysuite.app import ReportData
 
 from pathlib import Path
 
@@ -115,7 +114,7 @@ def main() -> None:
 
     # pysuite visual: includes vegas spread as a feature so it appears
     # in the evaluation dashboard alongside model vs actual comparison.
-    res: ReportData = run(
+    res = run(
         xeval=results_df.select("game_id", "home_team", "away_team", "spread_line"),
         yeval=results_df["result"],
         ypred=results_df["sim_result"],

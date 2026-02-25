@@ -60,12 +60,19 @@ def _run_game_loop(initial_state: _GameState, game_context: GameContext) -> Game
         outcome = aftermath_model(context, intent, outcome)
         new_state = apply_outcome(state, intent, outcome)
 
-        # TODO: This part is a little weird, shouldn't it be in apply_outcome
+        # Post-apply fixups: the outcome object is now the canonical record for
+        # trace consumers, so we reconcile it with what the engine actually did.
+
         # Engine detects TDs by yardline_100 - reflect this in the outcome for consumers
         if intent not in (Intent.FIELD_GOAL, Intent.PUNT):
             new_yardline_100 = state[_YL] - outcome.yards_gained
             if new_yardline_100 <= 0:
                 outcome.touchdown = True
+        else:
+            # Per nflfastR: yards_gained is 0 for non-run/pass plays. The model
+            # uses yards_gained internally to communicate kick distance to
+            # apply_outcome, but once consumed it should be zeroed for the trace.
+            outcome.yards_gained = 0
 
         trace.append(PlayEvent(state, intent, outcome, new_state))
         state = new_state
@@ -274,8 +281,8 @@ def _traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
         for g_id, game_traces in traces.items():
             for s_id, trace in enumerate(game_traces):
                 for p_id, play in enumerate(trace):
-                    sb = play.state_before
-                    sa = play.state_after
+                    sb: _GameState = play.state_before
+                    sa: _GameState = play.state_after
 
                     # TODO: Hate this
                     game_id[i] = g_id
@@ -290,13 +297,7 @@ def _traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
                     posteam[i] = sb[_OFF]
 
                     intent[i] = str(play.intent.value)
-                    # ST plays use yards_gained internally for FG/punt mechanics,
-                    # but real PBP records 0 for these play types. Zero them out
-                    # so aggregation stats match real data conventions.
-                    if play.intent in (Intent.FIELD_GOAL, Intent.PUNT):
-                        yards_gained[i] = 0
-                    else:
-                        yards_gained[i] = play.outcome.yards_gained
+                    yards_gained[i] = play.outcome.yards_gained
                     event[i] = _event_from_play(play)
 
                     home_score[i] = sa[_SC][0]

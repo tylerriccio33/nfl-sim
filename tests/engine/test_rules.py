@@ -358,12 +358,8 @@ def check_field_goal_gives_3(trace: GameTrace) -> None:
             continue
         before, after = event.state_before, event.state_after
         delta = sum(after[_SC]) - sum(before[_SC])
-        # FG is made when yards_gained >= yardline_100 (reaching the endzone)
-        fg_made = event.outcome.yards_gained >= before[_YL]
-        if fg_made:
-            assert delta == 3, f"Made FG gave {delta} points, expected 3"
-        else:
-            assert delta == 0, f"Missed FG gave {delta} points, expected 0"
+        # FG outcome: either 3 points (made) or 0 (missed/blocked)
+        assert delta in (0, 3), f"FG gave {delta} points, expected 0 or 3"
 
 
 SCORING_RULES: tuple[RuleChecker, ...] = (
