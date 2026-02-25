@@ -926,8 +926,8 @@ wheels = [
 
 [[package]]
 name = "pysuite"
-version = "0.1.0"
-source = { git = "https://github.com/tylerriccio33/pysuite#a8379a118a17a40bf02093c543989e2b1c1e56ec" }
+version = "0.4.0"
+source = { git = "https://github.com/tylerriccio33/pysuite#d164cc17eb04a65e71b16bb9f3029c076c4b6a9e" }
 dependencies = [
     { name = "flask" },
     { name = "narwhals" },
