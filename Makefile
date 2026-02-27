@@ -38,30 +38,25 @@ cov-api: ## Run web API integration tests with coverage
 vulture: ## Detect dead code
 	@uvx vulture nfl_sim
 
-infer: ## Run inference and look at results in the browser
-	@uv run training/infer.py
-	@duckdb -ui training/artifacts/predictions/predictions.csv
-
 load-dictionaries: ## Download data dictionaries
 	@curl -L -o dictionary/pbp.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_pbp.csv
 	@curl -L -o dictionary/dc.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_depth_charts.csv
 
-time: ## Run performance benchmarks for time
+bench-time: ## Run performance benchmarks for time
 	@uv run --no-sync bench/time_perf.py
 
-prof: ## Run line profiler on single game
+bench-prof: ## Run line profiler on single game
 	@uv run python bench/profile_time.py > bench/profile_results.txt
 	@echo "Profile results written to bench/profile_results.txt"
 	
-perf: ## Run performance of results against real
+bench-perf: ## Run performance of results against real
 	@uv run --no-sync bench/accuracy_perf.py
 
-converge: ## Run convergence benchmark
+bench-converge: ## Run convergence benchmark
 	@uv run --no-sync bench/convergence_perf.py
 
 train-run: ## Train RUN outcome
 	@uv run training/train_gbm.py run
-	
 
 train-pass: ## Train PASS outcome
 	@uv run training/train_gbm.py pass
