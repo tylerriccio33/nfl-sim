@@ -43,8 +43,8 @@ features = [
 ]
 outcomes = ["intent"]
 
-[models.run]
-artifact = "training/artifacts/cvae/run"
+[models.gbm_run]
+artifact = "training/artifacts/gbm/run"
 features = [
     "down",
     "ydstogo",
@@ -57,17 +57,10 @@ features = [
     "season_epa",
 ]
 outcomes = ["yards_gained", "turnover_type", "complete_pass"]
-# CVAE hyperparameters
-latent_dim = 16
-hidden_dim = 64
-cat_emb_dim = 8
-beta = 1.0
-epochs = 20
-batch_size = 256
-learning_rate = 1e-3
+index_file = "index.npz"
 
-[models.pass]
-artifact = "training/artifacts/cvae/pass"
+[models.gbm_pass]
+artifact = "training/artifacts/gbm/pass"
 features = [
     "down",
     "ydstogo",
@@ -76,18 +69,23 @@ features = [
     "qtr",
     "game_seconds_remaining",
     "goal_to_go",
-    # "spread_line",
+    "spread_line",
     "season_epa",
 ]
 outcomes = ["yards_gained", "turnover_type", "complete_pass"]
-# CVAE hyperparameters
-latent_dim = 16
-hidden_dim = 64
-cat_emb_dim = 8
-beta = 1.0
-epochs = 20
-batch_size = 256
-learning_rate = 1e-3
+index_file = "index.npz"
+
+# ── GBM Training & Inference ────────────────────────────────────────
+[gbm]
+# LightGBM hyperparameters (proxy task: predict yards_gained)
+n_estimators = 100
+max_depth = 6
+min_child_samples = 50
+learning_rate = 0.05
+random_state = 42
+
+# Proximity sampling: how many top-overlap plays to sample from
+top_k = 50
 
 [models.punt]
 artifact = "training/artifacts/punt/yards.joblib"

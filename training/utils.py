@@ -176,11 +176,7 @@ class Trainer(Protocol):
         ...
 
 
-def train_model(
-    model_name: str,
-    df: pl.DataFrame,
-    trainer: Trainer,
-) -> TrainingResult:
+def train_model(model_name: str, df: pl.DataFrame, trainer: Trainer) -> TrainingResult:
     """Train a model with unified boilerplate.
 
     This function handles:

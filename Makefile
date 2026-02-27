@@ -59,16 +59,17 @@ perf: ## Run performance of results against real
 converge: ## Run convergence benchmark
 	@uv run --no-sync bench/convergence_perf.py
 
-train-run: ## Train RUN outcome CVAE
-	@uv run training/train_cvae.py run
+train-run: ## Train RUN outcome
+	@uv run training/train_gbm.py run
+	
 
-train-pass: ## Train PASS outcome CVAE
-	@uv run training/train_cvae.py pass
+train-pass: ## Train PASS outcome
+	@uv run training/train_gbm.py pass
 
 train-all: ## Run all model training scripts
 	@uv run training/train_intent.py
-	@uv run training/train_cvae.py run
-	@uv run training/train_cvae.py pass
+	@uv run training/train_gbm.py run
+	@uv run training/train_gbm.py pass
 	@uv run training/train_time.py
 	@uv run training/train_punt.py
 

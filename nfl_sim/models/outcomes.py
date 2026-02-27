@@ -1,7 +1,7 @@
 """All model inference lives here.
 
 Two model classes:
-  1. ``OutcomeModel`` — pre-whistle: intent (RF) → route → outcome (CVAE/ST)
+  1. ``OutcomeModel`` — pre-whistle: intent (RF) → route → outcome (GBM proximity)
   2. ``AfterPlayModel`` — post-whistle: time elapsed prediction, conditioned on
      game state/context and the outcome that just happened
 
@@ -18,11 +18,8 @@ from typing import Any
 
 import joblib
 import numpy as np
-import torch
 import treelite
 import treelite.gtil
-
-from training.cvae import CVAE, CvaeConfig
 
 # Treelite and torch both bundle their own libomp. Without this, importing both
 # in the same process aborts with "libomp.dylib already initialized". We also
@@ -39,53 +36,63 @@ from nfl_sim.engine.state import (
     route_from_intent,
 )
 from nfl_sim.models.context import ModelContext, build_features_for_model
-from nfl_sim.pipeline_config import ARTIFACT_PATHS
+from nfl_sim.pipeline_config import ARTIFACT_PATHS, GBM_CONFIG, MODELS
 
 # Training data uses 0/1/2 for turnover_type, but the enum uses auto() → 1/2/3.
-# This list maps CVAE output index → TurnoverType enum value.
+# This list maps index → TurnoverType enum value.
 _TURNOVER_INDEX = [TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FUMBLE]
+
+_TOP_K: int = GBM_CONFIG["top_k"]
 
 
 @dataclass(frozen=True, slots=True)
-class _CvaeArtifact:
-    """A trained CVAE and its normalization tensors (None = pre-standardization)."""
+class _PlayIndex:
+    """Pre-computed leaf embeddings and outcomes for all training plays.
 
-    model: CVAE
-    feat_mean: torch.Tensor | None
-    feat_std: torch.Tensor | None
-    cont_mean: torch.Tensor | None
-    cont_std: torch.Tensor | None
+    Outcome column names are driven by TOML `outcomes` lists.
+
+    The inverted index (`tree_leaf_to_plays`) avoids the O(N*T) brute-force
+    comparison. For each tree t and leaf value v, it stores the array of play
+    indices that land in that leaf. At query time we iterate T trees, look up
+    the matching plays per tree, and count occurrences — O(sum of bucket sizes)
+    which is much smaller than N*T when leaves are well-distributed.
+    """
+
+    n_plays: int
+    outcomes: dict[str, np.ndarray]  # col_name → (N,) array
+
+    # tree_leaf_to_plays[t][leaf_val] → np.array of play indices in that leaf
+    tree_leaf_to_plays: list[dict[int, np.ndarray]]
 
 
 class OutcomeModel:
     """Lazy-loading callable that implements the full model graph.
 
-    Why a callable class?
-    ---------------------
-    Models are expensive to load (torch, treelite, joblib) and the artifacts may
-    not exist yet (e.g. during training or in lightweight test imports).  Rather
-    than guarding every import with env-var flags or ``None`` sentinels, we defer
-    loading until the first real call.  After that single ``_load()`` the instance
-    is a plain attribute-lookup callable — no per-call branches, no global state.
+    Models are expensive to load and the artifacts may not exist yet (e.g.
+    during training or in lightweight test imports).  We defer loading until
+    the first real call.
 
     The ``__call__`` method IS the model graph: features → intent → route →
-    outcome → time.  It's the only thing callers interact with, and it sits in
-    the simulation hot loop (millions of calls per run).
+    outcome.
     """
 
     __slots__ = (
-        "_cvae",
+        "_gbm",
+        "_index",
         "_intent_classes",
         "_intent_model",
         "_loaded",
         "_punt_yards",
+        "_rng",
     )
 
-    _cvae: dict[Route, _CvaeArtifact]
+    _gbm: dict[Route, Any]  # LightGBM Booster per route
+    _index: dict[Route, _PlayIndex]
     _intent_classes: list[Intent]
     _intent_model: treelite.Model
     _loaded: bool
-    _punt_yards: Any  # sklearn estimator (joblib.load returns Any)
+    _punt_yards: Any
+    _rng: np.random.Generator
 
     def __init__(self) -> None:
         self._loaded = False
@@ -96,6 +103,8 @@ class OutcomeModel:
 
     def _load(self) -> None:
         """Load every artifact into attributes, or fail loudly."""
+        self._rng = np.random.default_rng()
+
         # Intent (treelite-compiled RF)
         intent_dir = ARTIFACT_PATHS.intent_dir
         self._intent_model = treelite.Model.deserialize(
@@ -104,35 +113,43 @@ class OutcomeModel:
         meta: dict[str, Any] = json.loads((intent_dir / ARTIFACT_PATHS.intent_meta).read_text())
         self._intent_classes = [Intent(c) for c in meta["classes"]]
 
-        # CVAE outcome models (one per offensive route)
-        self._cvae: dict[Route, _CvaeArtifact] = {
-            Route.RUN: self._load_cvae(ARTIFACT_PATHS.cvae_run_dir),
-            Route.PASS: self._load_cvae(ARTIFACT_PATHS.cvae_pass_dir),
-        }
+        # GBM models + play indices (one per offensive route)
+        self._gbm = {}
+        self._index = {}
+        for route, model_key in [(Route.RUN, "gbm_run"), (Route.PASS, "gbm_pass")]:
+            cfg = MODELS[model_key]
+            art_dir = Path(cfg["artifact"])
 
-        # Simple sklearn models — just store the raw estimator, call .predict()
-        # inline in the inference methods below.
+            # Load the underlying booster directly — we only need pred_leaf,
+            # not sklearn's predict(). This avoids the "X does not have valid
+            # feature names" warning on every single play call.
+            estimator = joblib.load(art_dir / "model.joblib")
+            self._gbm[route] = estimator.booster_
+
+            npz = np.load(art_dir / cfg["index_file"])
+            leaves = npz["leaves"]  # (N, T) int32
+            n_plays, n_trees = leaves.shape
+
+            # Build inverted index: for each tree, map leaf_val → play indices.
+            # This turns the O(N*T) brute-force overlap into O(sum of bucket sizes).
+            inv: list[dict[int, np.ndarray]] = []
+            for t in range(n_trees):
+                col = leaves[:, t]
+                d: dict[int, np.ndarray] = {}
+                for leaf_val in np.unique(col):
+                    d[int(leaf_val)] = np.where(col == leaf_val)[0].astype(np.int32)
+                inv.append(d)
+
+            self._index[route] = _PlayIndex(
+                n_plays=n_plays,
+                outcomes={col: npz[col] for col in cfg["outcomes"]},
+                tree_leaf_to_plays=inv,
+            )
+
+        # Simple sklearn models
         self._punt_yards = joblib.load(ARTIFACT_PATHS.punt_yards_path)
 
         self._loaded = True
-
-    @staticmethod
-    def _load_cvae(artifact_dir: Path) -> _CvaeArtifact:
-        """Load a single CVAE and its normalization tensors."""
-        d = artifact_dir
-        cfg = CvaeConfig.load(d / "meta.json")
-        model = CVAE(cfg)
-        model.load_state_dict(torch.load(d / "model.pt", weights_only=True))
-        model.eval()
-
-        to_t = lambda v: torch.tensor(v, dtype=torch.float32) if v else None  # noqa: E731
-        return _CvaeArtifact(
-            model=model,
-            feat_mean=to_t(cfg.feat_mean),
-            feat_std=to_t(cfg.feat_std),
-            cont_mean=to_t(cfg.cont_mean),
-            cont_std=to_t(cfg.cont_std),
-        )
 
     # ------------------------------------------------------------------
     # Inference — called millions of times per simulation run
@@ -148,37 +165,43 @@ class OutcomeModel:
         best_idx = int(np.argmax(probs))
         return self._intent_classes[best_idx]
 
-    @staticmethod
-    def _predict_cvae(art: _CvaeArtifact, features: np.ndarray) -> Outcome:
-        """Generate yards_gained + turnover (+ completion for PASS) from a CVAE."""
-        x = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
-        if art.feat_mean is not None:
-            assert art.feat_std is not None
-            x = (x - art.feat_mean) / art.feat_std
+    def _predict_outcome(self, route: Route, features: np.ndarray) -> Outcome:
+        """Find similar historical plays via GBM leaf overlap and sample one."""
+        gbm = self._gbm[route]
+        idx = self._index[route]
 
-        cont, cat_samples = art.model.generate(x)
-        if art.cont_mean is not None:
-            assert art.cont_std is not None
-            cont = cont * art.cont_std + art.cont_mean
+        # Get leaf embedding for the current game state via the raw booster.
+        query_leaves = gbm.predict(features.reshape(1, -1), pred_leaf=True)  # (1, T)
 
-        raw_yards_gained = cont[0, 0].item()
-        yards_gained = round(raw_yards_gained) if math.isfinite(raw_yards_gained) else 0
+        # Count leaf overlap using the inverted index. Collect all matching
+        # play indices across all trees into one array, then bincount once
+        # to get overlap counts — avoids per-tree fancy indexing overhead.
+        chunks: list[np.ndarray] = []
+        for t, leaf_map in enumerate(idx.tree_leaf_to_plays):
+            leaf_val = int(query_leaves[0, t])
+            matching = leaf_map.get(leaf_val)
+            if matching is not None:
+                chunks.append(matching)
+        all_matches = np.concatenate(chunks)
+        overlap = np.bincount(all_matches, minlength=idx.n_plays)
 
-        # Number of categorical heads depends on the route config:
-        # RUN has [turnover], PASS has [turnover, completion]
-        if len(cat_samples) > 1:
-            complete_pass = bool(cat_samples[1][0].item() == 1)
-            if not complete_pass:
-                yards_gained = 0
-        else:
-            complete_pass = True
+        # Pick uniformly from top-K most similar plays
+        top_k = np.argpartition(overlap, -_TOP_K)[-_TOP_K:]
+        pick = self._rng.choice(top_k)
+
+        yards = int(idx.outcomes["yards_gained"][pick])
+        complete = bool(idx.outcomes["complete_pass"][pick])
+
+        # Incomplete passes yield 0 yards
+        if route == Route.PASS and not complete:
+            yards = 0
 
         return Outcome(
-            yards_gained=yards_gained,
-            turnover_type=_TURNOVER_INDEX[int(cat_samples[0][0].item())],
+            yards_gained=yards,
+            turnover_type=_TURNOVER_INDEX[int(idx.outcomes["turnover_type"][pick])],
             touchdown=False,
             time_elapsed=0,
-            complete_pass=complete_pass,
+            complete_pass=complete,
         )
 
     def _predict_st(self, context: ModelContext, intent: Intent) -> Outcome:
@@ -222,7 +245,7 @@ class OutcomeModel:
     def __call__(self, context: ModelContext) -> tuple[Intent, Outcome]:
         """Run the full model graph for a single play.
 
-        features → intent (RF) → route → outcome (CVAE/ST)
+        features → intent (RF) → route → outcome (GBM proximity / ST)
 
         Time elapsed is NOT set here — that's AfterPlayModel's job.
         """
@@ -236,18 +259,11 @@ class OutcomeModel:
         intent = self._predict_intent(intent_features)
         route = route_from_intent(intent)
 
-        # If Run/Pass, we predict using the corresponding neural net.
         match route:
             case Route.RUN | Route.PASS:
-                cvae_model: _CvaeArtifact = self._cvae[route]
-
-                model = "pass"
-                if route == Route.RUN:
-                    model = "run"
-
-                cvae_features = build_features_for_model(model, context)
-
-                outcome: Outcome = self._predict_cvae(cvae_model, cvae_features)
+                model = "gbm_run" if route == Route.RUN else "gbm_pass"
+                features = build_features_for_model(model, context)
+                outcome: Outcome = self._predict_outcome(route, features)
 
             case Route.ST:
                 outcome = self._predict_st(context, intent)

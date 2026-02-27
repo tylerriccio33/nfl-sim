@@ -21,11 +21,56 @@ new_state = apply_outcome(state, intent, outcome)
 1. Features (`ModelContext`):
     1. Long term memory in the form of embeddings are built for each team. They bring these into the game as a whole. These are things like spread, epa, run success, etc.
     2. State of the current game in the form of time, score, yardline, etc.
-2. `Intent` model takes the model context and predicts intent.
-3. `ModelContext` and `Intent` is passed to a CVAE per intent. The CVAE produces the play row as an outcome.
-    - ST (special teams) model however is a random forest.
+2. `Intent` model takes the model context and predicts intent (RF).
+3. Intent maps to a route (RUN/PASS/ST). For RUN/PASS, the GBM leaf proximity model finds similar historical plays and samples an outcome. ST routes use dedicated punt/FG models.
 
 There are miniature models predicting smaller constrained outputs like punt yards or FG odds.
+
+### The Main Model: GBM Leaf Proximity Lookup
+
+The GBM handles the tabular structure — it finds the splits, interactions, and nonlinearities naturally. Rather than feeding embeddings to a neural net, we use the leaf structure directly as a similarity kernel over historical plays.
+
+**How it works:**
+
+A GBM with T trees partitions the feature space. When you pass an input through, each tree routes it to a leaf. Two plays landing in the same leaves had similar game contexts — the GBM already learned that "3rd & 7 in Q4 trailing" is a meaningful partition.
+
+```
+input → tree_1 → leaf 47
+      → tree_2 → leaf 12
+      → tree_3 → leaf 93
+      ...
+      → tree_T → leaf 31
+
+leaf_embedding = [47, 12, 93, ..., 31]
+```
+
+At training time, we record the leaf embedding and outcome columns (yards, turnover, completion) for every historical play — the "play index." At inference, a new play's leaf embedding is compared against the index by counting how many trees agree (leaf overlap). The top-K most similar plays are found, and one is sampled uniformly to produce the outcome.
+
+```
+                  ┌─────────┐
+features (9) ──→  │ GBM     │──→ query leaf embedding ──┐
+                  │(frozen) │                            │
+                  └─────────┘                            ▼
+                                               ┌─────────────────┐
+                                               │ Play Index       │
+                                               │ (N historical    │
+                                               │  plays with      │  overlap
+                                               │  leaf embeddings │ ────────→ top-K → sample → Outcome
+                                               │  + outcomes)     │
+                                               └─────────────────┘
+```
+
+**Training:**
+1. Train GBM per route (run/pass) on yards_gained as proxy task. Freeze it.
+2. Compute leaf embeddings for all training plays.
+3. Save leaf embeddings + outcome columns as the play index (`.npz`).
+
+**Inference:**
+1. Pass features through frozen GBM → leaf embedding.
+2. Count leaf overlap with every play in the index (vectorized numpy).
+3. Sample uniformly from top-K most similar plays.
+
+No neural nets in the inference path. The GBM is trained once and frozen. Proximity search is a single vectorized numpy comparison — fast and deterministic given the same RNG seed. All hyperparameters (n_estimators, max_depth, top_k, etc.) live in `pipeline.toml`.
 
 ## Code Style and Conventions
 

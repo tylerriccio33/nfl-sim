@@ -52,28 +52,19 @@ class ArtifactPaths:
     time_dir: Path = field(default_factory=lambda: Path(MODELS["time"]["artifact"]).parent)
     time_file: str = field(default_factory=lambda: Path(MODELS["time"]["artifact"]).name)
 
-    # CVAE models (per route)
-    cvae_run_dir: Path = field(default_factory=lambda: Path(MODELS["run"]["artifact"]))
-    cvae_pass_dir: Path = field(default_factory=lambda: Path(MODELS["pass"]["artifact"]))
-
     # ST models
     punt_yards_path: Path = field(default_factory=lambda: Path(MODELS["punt"]["artifact"]))
 
 
 ARTIFACT_PATHS = ArtifactPaths()
 
+# ── GBM config ──────────────────────────────────────────────────
+
+GBM_CONFIG: dict[str, Any] = CONFIG["gbm"]
+
 # ── Training config ──────────────────────────────────────────────
 
 TRAINING_CONFIG: dict[str, Any] = CONFIG["training"]
-
-# ── CVAE defaults (per-model, fallback to defaults if needed) ────
-# Models can override these in their [models.*] sections
-
-
-def get_cvae_config(model_name: str) -> dict[str, Any]:
-    """Get CVAE hyperparameters for a model (RUN, PASS, etc)."""
-    model_cfg = MODELS[model_name]
-    return {**model_cfg, "state_dim": len(model_cfg["features"])}
 
 
 @functools.cache

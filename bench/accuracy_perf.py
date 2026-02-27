@@ -112,6 +112,13 @@ def main() -> None:
     """Run accuracy benchmark and display results."""
     results_df = run_accuracy_benchmark(n_games=NGAMES, n_sims_per_game=NSIMS)
 
+    vegas = run(
+        xeval=results_df.select("spread_line"),
+        yeval=results_df["result"],
+        ypred=results_df["spread_line"],
+    )
+    print(f"Vegas: {vegas['metrics']}")
+
     # pysuite visual: includes vegas spread as a feature so it appears
     # in the evaluation dashboard alongside model vs actual comparison.
     res = run(
@@ -119,8 +126,6 @@ def main() -> None:
         yeval=results_df["result"],
         ypred=results_df["sim_result"],
     )
-
-    print(res["metrics"])
 
     res.show()
 
