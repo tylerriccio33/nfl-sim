@@ -43,6 +43,7 @@ from nfl_sim.pipeline_config import ARTIFACT_PATHS, GBM_CONFIG, MODELS
 _TURNOVER_INDEX = [TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FUMBLE]
 
 _TOP_K: int = GBM_CONFIG["top_k"]
+_TREE_SUBSAMPLE: int = max(1, GBM_CONFIG["n_estimators"] // 5)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,19 +51,10 @@ class _PlayIndex:
     """Pre-computed leaf embeddings and outcomes for all training plays.
 
     Outcome column names are driven by TOML `outcomes` lists.
-
-    The inverted index (`tree_leaf_to_plays`) avoids the O(N*T) brute-force
-    comparison. For each tree t and leaf value v, it stores the array of play
-    indices that land in that leaf. At query time we iterate T trees, look up
-    the matching plays per tree, and count occurrences — O(sum of bucket sizes)
-    which is much smaller than N*T when leaves are well-distributed.
     """
 
-    n_plays: int
+    leaves: np.ndarray  # (N, T) int32 — leaf index per tree
     outcomes: dict[str, np.ndarray]  # col_name → (N,) array
-
-    # tree_leaf_to_plays[t][leaf_val] → np.array of play indices in that leaf
-    tree_leaf_to_plays: list[dict[int, np.ndarray]]
 
 
 class OutcomeModel:
@@ -84,6 +76,7 @@ class OutcomeModel:
         "_loaded",
         "_punt_yards",
         "_rng",
+        "_tree_subset",
     )
 
     _gbm: dict[Route, Any]  # LightGBM Booster per route
@@ -127,27 +120,24 @@ class OutcomeModel:
             self._gbm[route] = estimator.booster_
 
             npz = np.load(art_dir / cfg["index_file"])
-            leaves = npz["leaves"]  # (N, T) int32
-            n_plays, n_trees = leaves.shape
-
-            # Build inverted index: for each tree, map leaf_val → play indices.
-            # This turns the O(N*T) brute-force overlap into O(sum of bucket sizes).
-            inv: list[dict[int, np.ndarray]] = []
-            for t in range(n_trees):
-                col = leaves[:, t]
-                d: dict[int, np.ndarray] = {}
-                for leaf_val in np.unique(col):
-                    d[int(leaf_val)] = np.where(col == leaf_val)[0].astype(np.int32)
-                inv.append(d)
-
             self._index[route] = _PlayIndex(
-                n_plays=n_plays,
+                leaves=npz["leaves"],
                 outcomes={col: npz[col] for col in cfg["outcomes"]},
-                tree_leaf_to_plays=inv,
             )
 
         # Simple sklearn models
         self._punt_yards = joblib.load(ARTIFACT_PATHS.punt_yards_path)
+
+        # Pre-slice leaf index to a random tree subset for fast overlap.
+        # Copying into contiguous arrays avoids per-call fancy-indexing overhead.
+        n_trees = GBM_CONFIG["n_estimators"]
+        self._tree_subset = self._rng.choice(n_trees, size=_TREE_SUBSAMPLE, replace=False)
+        for route in (Route.RUN, Route.PASS):
+            full = self._index[route].leaves
+            self._index[route] = _PlayIndex(
+                leaves=np.ascontiguousarray(full[:, self._tree_subset]),
+                outcomes=self._index[route].outcomes,
+            )
 
         self._loaded = True
 
@@ -171,19 +161,12 @@ class OutcomeModel:
         idx = self._index[route]
 
         # Get leaf embedding for the current game state via the raw booster.
-        query_leaves = gbm.predict(features.reshape(1, -1), pred_leaf=True)  # (1, T)
+        twod_features = features.reshape(1, -1)
+        query_leaves: np.ndarray = gbm.predict(twod_features, pred_leaf=True)  # (1, T)
 
-        # Count leaf overlap using the inverted index. Collect all matching
-        # play indices across all trees into one array, then bincount once
-        # to get overlap counts — avoids per-tree fancy indexing overhead.
-        chunks: list[np.ndarray] = []
-        for t, leaf_map in enumerate(idx.tree_leaf_to_plays):
-            leaf_val = int(query_leaves[0, t])
-            matching = leaf_map.get(leaf_val)
-            if matching is not None:
-                chunks.append(matching)
-        all_matches = np.concatenate(chunks)
-        overlap = np.bincount(all_matches, minlength=idx.n_plays)
+        # Count how many trees agree on a random subset (leaves pre-sliced at load)
+        query_sub = query_leaves[:, self._tree_subset]
+        overlap = (idx.leaves == query_sub).sum(axis=1)  # (N,)
 
         # Pick uniformly from top-K most similar plays
         top_k = np.argpartition(overlap, -_TOP_K)[-_TOP_K:]
