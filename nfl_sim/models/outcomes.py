@@ -107,7 +107,7 @@ class OutcomeModel:
         "_rng",
     )
 
-    _gbm: dict[Route, Any]  # LightGBM Booster per route
+    _gbm: dict[Route, treelite.Model]  # treelite-compiled GBM per route
     _index: dict[Route, _PlayIndex]
     _intent_classes: list[Intent]
     _intent_model: treelite.Model
@@ -141,11 +141,8 @@ class OutcomeModel:
             cfg = MODELS[model_key]
             art_dir = Path(cfg["artifact"])
 
-            # Load the underlying booster directly — we only need pred_leaf,
-            # not sklearn's predict(). This avoids the "X does not have valid
-            # feature names" warning on every single play call.
-            estimator = joblib.load(art_dir / "model.joblib")
-            self._gbm[route] = estimator.booster_
+            # Load treelite-compiled model for fast predict_leaf.
+            self._gbm[route] = treelite.Model.deserialize(str(art_dir / "model.tl"))
 
             npz = np.load(art_dir / cfg["index_file"])
             leaves = npz["leaves"].astype(np.int32)  # (N, T)
@@ -177,7 +174,9 @@ class OutcomeModel:
         idx = self._index[route]
 
         # Pick one random tree, grab one random play from its leaf bucket.
-        query_leaves = gbm.predict(features.reshape(1, -1), pred_leaf=True)  # (1, T)
+        query_leaves = treelite.gtil.predict_leaf(
+            gbm, features.reshape(1, -1).astype(np.float32), nthread=1
+        )  # (1, T)
         t = int(self._rng.integers(idx.groups.shape[0]))
         lv = int(query_leaves[0, t])
         s, e = idx.starts[t, lv], idx.ends[t, lv]
@@ -305,7 +304,7 @@ class AfterPlayModel:
         return max(1, round(raw)) if math.isfinite(raw) else 20
 
     def __call__(self, context: ModelContext, intent: Intent, outcome: Outcome) -> Outcome:
-        """Predict time elapsed and set it on the outcome."""
+        """Predict after-play events and set it on the outcome."""
         if not self._loaded:
             self._load()
 

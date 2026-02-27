@@ -16,6 +16,9 @@ from pathlib import Path
 import joblib
 import numpy as np
 import polars as pl
+import treelite
+import treelite.frontend
+import treelite.gtil
 from lightgbm import LGBMRegressor
 from pysuite import run
 
@@ -74,22 +77,33 @@ class GbmEmbeddingTrainer(Trainer):
         return self.model.predict(x)
 
     def leaf_indices(self, x: np.ndarray) -> np.ndarray:
-        """Extract leaf indices for each sample.
+        """Extract leaf indices for each sample via treelite.
+
+        Uses the compiled treelite model so that leaf IDs are consistent
+        between the play index (built here) and inference (which also uses
+        the treelite model). Treelite uses breadth-first node IDs, which
+        differ from LightGBM's sequential leaf numbering.
 
         Returns:
             Array of shape (n_samples, n_estimators) where each value is the
-            leaf index that sample landed in for that tree.
+            treelite node ID that sample landed in for that tree.
 
         """
         assert self.model is not None
-        return self.model.predict(x, pred_leaf=True)
+        tl_model = treelite.frontend.from_lightgbm(self.model.booster_)
+        return treelite.gtil.predict_leaf(tl_model, x.astype(np.float32), nthread=1)
 
     def save(self, path: Path) -> None:
-        """Save the trained GBM model."""
+        """Save the trained GBM model and compile to treelite."""
         assert self.model is not None
         out_dir = Path(path)
         out_dir.mkdir(parents=True, exist_ok=True)
         joblib.dump(self.model, out_dir / "model.joblib")
+
+        # Compile to treelite for fast leaf prediction at inference time.
+        tl_model = treelite.frontend.from_lightgbm(self.model.booster_)
+        tl_model.serialize(str(out_dir / "model.tl"))
+        print(f"  Compiled treelite model: {out_dir / 'model.tl'}")
 
 
 def train_route(route_name: str) -> None:
