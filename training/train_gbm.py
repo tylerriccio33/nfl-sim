@@ -3,12 +3,16 @@
 Usage: uv run training/train_gbm.py <run|pass>
        make train-gbm-run / make train-gbm-pass
 
-The GBM is trained on a proxy task (predicting yards_gained) so that its
-leaf structure learns meaningful partitions of the feature space. After
-training, we build a "play index" — leaf embeddings + outcomes for all
-training plays. At inference, a new play's leaf embedding is compared
-against the index to find the most similar historical plays, and one is
-sampled to produce the outcome.
+The GBM is trained on a proxy task (predicting EPA) so that its leaf
+structure learns context-sensitive partitions of the feature space. EPA
+inherently encodes game state (down, distance, yardline, score) so the
+tree splits on contextual features (spread, epa, score_diff) more than
+a yards_gained target would.
+
+After training, we build a "play index" — leaf embeddings + outcome
+columns for all training plays. At inference, a new play's leaf embedding
+is compared against the index to find the most similar historical plays,
+and one is sampled to produce the outcome.
 """
 
 from pathlib import Path
@@ -25,21 +29,20 @@ from pysuite import run
 from nfl_sim.engine.state import Intent
 from nfl_sim.pipeline_config import GBM_CONFIG, MODELS
 from training.prepare import prepare
-from training.utils import Trainer, train_model
+from training.utils import Trainer
 
 
 class GbmEmbeddingTrainer(Trainer):
     """Trains a LightGBM model whose leaves serve as feature embeddings.
 
-    The GBM learns to predict yards_gained as a proxy task. The actual
-    predictions are secondary — what matters is the leaf structure, which
-    partitions the feature space into regions that capture interactions
-    between state features (down, distance) and historical features (epa,
-    spread).
+    The GBM learns to predict EPA as a proxy task. The actual predictions
+    are secondary — what matters is the leaf structure, which partitions
+    the feature space into regions that capture interactions between state
+    features (down, distance) and contextual features (epa, spread).
 
     After training, call `leaf_indices(x)` to get the embedding for any
     feature vector. Each sample maps to a vector of T leaf indices (one per
-    tree), which the downstream MDN uses as input.
+    tree), used for proximity lookup against the play index.
     """
 
     def __init__(self) -> None:
@@ -51,15 +54,13 @@ class GbmEmbeddingTrainer(Trainer):
         self.model: LGBMRegressor | None = None
 
     def fit(self, x: np.ndarray, y: np.ndarray) -> None:
-        """Fit GBM on yards_gained as proxy task.
+        """Fit GBM on the proxy target (EPA).
 
-        y is multi-outcome [yards_gained, turnover_type, complete_pass] from
-        the unified training framework. We only use yards_gained (column 0)
-        as the proxy target — the GBM just needs to learn a good partition
-        of the feature space.
+        y is the 1-d proxy target extracted before calling train_model.
+        The GBM just needs to learn a good partition of the feature space;
+        actual predictions are secondary.
         """
-        # train_model passes multi-outcome y for CVAE-style models
-        target = y[:, 0].astype(np.float32) if y.ndim > 1 else y.astype(np.float32)
+        target = y.astype(np.float32)
 
         self.model = LGBMRegressor(
             n_estimators=self.n_estimators,
@@ -116,13 +117,44 @@ def train_route(route_name: str) -> None:
     if len(df) == 0:
         raise ValueError
 
+    cfg = MODELS[f"gbm_{route_name}"]
+    feature_names = cfg["features"]
+    proxy_target = cfg["proxy_target"]
+
+    # Extract features and proxy target (EPA) for GBM training
+    x = df.select(feature_names).to_numpy()
+    y = df[proxy_target].to_numpy().astype(np.float32)
+
+    # 90/10 train/eval split by game
+    game_ids = df["game_id"].to_list()
+    unique_games = list(dict.fromkeys(game_ids))
+    game_split = int(len(unique_games) * 0.9)
+    train_games = set(unique_games[:game_split])
+    train_mask = np.array([g in train_games for g in game_ids])
+
+    x_train, x_eval = x[train_mask], x[~train_mask]
+    y_train = y[train_mask]
+
+    print(f"Training gbm_{route_name} on proxy target '{proxy_target}'...")
+    print(f"  Train: {len(x_train)} samples")
+    print(f"  Eval:  {len(x_eval)} samples")
+
     trainer = GbmEmbeddingTrainer()
-    result = train_model(f"gbm_{route_name}", df, trainer)
+    trainer.fit(x_train, y_train)
+
+    artifact_path = Path(cfg["artifact"])
+    artifact_path.mkdir(parents=True, exist_ok=True)
+    trainer.save(artifact_path)
+    print(f"  Saved: {artifact_path}")
+
+    # Eval reporting
+    eval_pred = trainer.predict(x_eval)
+    eval_df = df.filter(~pl.Series(train_mask)).with_columns(pl.Series("pred", eval_pred))
 
     res = run(
-        xeval=result.df.select("desc"),
-        yeval=result.df[result.real],
-        ypred=result.df["pred"],
+        xeval=eval_df.select("desc"),
+        yeval=eval_df[proxy_target],
+        ypred=eval_df["pred"],
         show=False,
     )
     print(res["metrics"])
@@ -141,8 +173,8 @@ def train_route(route_name: str) -> None:
     all_x = df.select(feature_names).to_numpy()
     all_leaves = trainer.leaf_indices(all_x)
 
-    outcome_names: list[str] = MODELS[f"gbm_{route_name}"]["outcomes"]
-    index_path = Path(MODELS[f"gbm_{route_name}"]["artifact"]) / "index.npz"
+    outcome_names: list[str] = cfg["index_outcomes"]
+    index_path = artifact_path / "index.npz"
     np.savez(
         index_path,
         leaves=all_leaves.astype(np.int32),

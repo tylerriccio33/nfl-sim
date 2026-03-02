@@ -77,6 +77,14 @@ train-time: ## Train time model
 train-punt: ## Train punt yards model (blocked is sampled at 0.05%)
 	@uv run training/train_punt.py
 
+TREE ?= 0
+
+infer-predict: ## Inspect GBM: predicted vs actual on 100 plays
+	@uv run python -m training.infer_play predict
+
+infer-embed: ## Inspect GBM: leaf-level aggregates (TREE=0 default)
+	@uv run python -m training.infer_play embed $(TREE)
+
 refresh-data: ## Refresh all data files
 	@uv run python data/refresh_data.py
 

@@ -45,6 +45,7 @@ outcomes = ["intent"]
 
 [models.gbm_run]
 artifact = "training/artifacts/gbm/run"
+proxy_target = "epa"
 features = [
     "down",
     "ydstogo",
@@ -56,11 +57,12 @@ features = [
     "spread_line",
     "season_epa",
 ]
-outcomes = ["yards_gained", "turnover_type", "complete_pass"]
+index_outcomes = ["yards_gained", "turnover_type", "complete_pass"]
 index_file = "index.npz"
 
 [models.gbm_pass]
 artifact = "training/artifacts/gbm/pass"
+proxy_target = "epa"
 features = [
     "down",
     "ydstogo",
@@ -72,12 +74,12 @@ features = [
     "spread_line",
     "season_epa",
 ]
-outcomes = ["yards_gained", "turnover_type", "complete_pass"]
+index_outcomes = ["yards_gained", "turnover_type", "complete_pass"]
 index_file = "index.npz"
 
 # ── GBM Training & Inference ────────────────────────────────────────
 [gbm]
-# LightGBM hyperparameters (proxy task: predict yards_gained)
+# LightGBM hyperparameters (proxy task: predict epa)
 n_estimators = 100
 max_depth = 6
 min_child_samples = 50

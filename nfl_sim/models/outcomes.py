@@ -146,7 +146,7 @@ class OutcomeModel:
 
             npz = np.load(art_dir / cfg["index_file"])
             leaves = npz["leaves"].astype(np.int32)  # (N, T)
-            outcomes = {col: npz[col] for col in cfg["outcomes"]}
+            outcomes = {col: npz[col] for col in cfg["index_outcomes"]}
             self._index[route] = _build_play_index(leaves, outcomes)
 
         # Simple sklearn models

@@ -36,6 +36,7 @@ nfl-sim = "nfl_sim.__main__:main"
 [dependency-groups]
 dev = [
     "complexipy>=5.1.0",
+    "great-tables>=0.20.0",
     "hypothesis>=6.100.0",
     "joblib>=1.5.3",
     "line-profiler>=4.1.0",

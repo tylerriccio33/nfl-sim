@@ -85,6 +85,7 @@ def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
                 "total_home_score",
                 "total_away_score",
                 "time_elapsed",
+                "epa",
             ]
         )
         .filter(pl.col("play_type").is_in(set(PLAY_TYPE_MAP.keys())))
