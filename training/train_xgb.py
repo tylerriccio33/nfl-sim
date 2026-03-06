@@ -18,11 +18,7 @@ import treelite.frontend
 import xgboost as xgb
 from pysuite import run
 
-from nfl_sim.pipeline_config import (
-    MODELS,
-    TOKEN_NAMES,
-    XGB_CONFIG,
-)
+from nfl_sim.pipeline_config import MODELS, TOKEN_NAMES, XGB_CONFIG
 from training.prepare import prepare
 
 
@@ -122,7 +118,7 @@ def main() -> None:
     print(f"  Eval:  {len(x_eval)} samples")
     print(f"  Classes: {len(TOKEN_NAMES)}")
 
-    model = xgb.XGBClassifier(
+    model = xgb.XGBClassifier(  # ty:ignore[possibly-missing-attribute]
         objective="multi:softprob",
         num_class=len(TOKEN_NAMES),
         n_estimators=XGB_CONFIG["n_estimators"],

@@ -101,23 +101,6 @@ def _compute_histogram(
     return result
 
 
-def _compute_aligned_histograms(
-    values1: list[int], values2: list[int], bucket_size: int = 7
-) -> tuple[list[dict], list[dict]]:
-    """Compute two histograms with aligned x-axis ranges."""
-    if not values1 and not values2:
-        return [], []
-
-    all_values = values1 + values2
-    min_bucket = (min(all_values) // bucket_size) * bucket_size
-    max_bucket = (max(all_values) // bucket_size) * bucket_size
-
-    hist1 = _compute_histogram(values1, bucket_size, min_bucket, max_bucket)
-    hist2 = _compute_histogram(values2, bucket_size, min_bucket, max_bucket)
-
-    return hist1, hist2
-
-
 @bp.route("/game/<game_id>/stats")
 def stats_panel(game_id: str):
     """Get statistics panel for current simulation."""
@@ -129,11 +112,14 @@ def stats_panel(game_id: str):
     margin_hist = _compute_histogram(game_stats.margin_all, bucket_size=7)
 
     # Compute aligned score histograms so they share the same x-axis
-    home_score_hist, away_score_hist = _compute_aligned_histograms(
-        game_stats.home_score_all,
-        game_stats.away_score_all,
-        bucket_size=7,
-    )
+    all_scores = game_stats.home_score_all + game_stats.away_score_all
+    if all_scores:
+        min_bucket = (min(all_scores) // 7) * 7
+        max_bucket = (max(all_scores) // 7) * 7
+        home_score_hist = _compute_histogram(game_stats.home_score_all, 7, min_bucket, max_bucket)
+        away_score_hist = _compute_histogram(game_stats.away_score_all, 7, min_bucket, max_bucket)
+    else:
+        home_score_hist, away_score_hist = [], []
 
     return render_template(
         "partials/stats_panel.html",

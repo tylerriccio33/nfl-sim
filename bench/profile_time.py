@@ -12,7 +12,6 @@ from loguru import logger
 
 from nfl_sim.engine.api import (
     _run_batched_game_loop,
-    _run_one_game,
     _simulate_game,
     _traces_to_dataframe,
     sim_games,
@@ -26,7 +25,6 @@ FUNCTIONS = (
     sim_games,
     _simulate_game,
     _run_batched_game_loop,
-    _run_one_game,
     ## State transitions:
     apply_outcome,
     ## Models:

@@ -157,16 +157,6 @@ def _simulate_game(
     return GameResult(home=home, away=away, home_score=h, away_score=a, trace=trace)
 
 
-def _run_one_game(
-    game_id: str,
-    context: GameContext,
-    n: int,
-) -> tuple[str, list[GameTrace]]:
-    """Simulate all n iterations of a single game. Unit of parallel work."""
-    traces = _run_batched_game_loop(n, context)
-    return game_id, traces
-
-
 def sim_games(
     games: dict[str, GameContext],
     *,
@@ -192,22 +182,21 @@ def sim_games(
 
     workers = max_workers or min(len(game_items), (os.cpu_count() or 1))
 
-    def _submit(gid: str, ctx: GameContext) -> tuple[str, list[GameTrace]]:
-        return _run_one_game(gid, ctx, n)
-
     # Skip process overhead when it can't help
     if workers <= 1 or len(game_items) <= 1:
-        return dict(_submit(gid, ctx) for (gid, ctx) in game_items)
+        return {gid: _run_batched_game_loop(n, ctx) for (gid, ctx) in game_items}
 
     results: dict[str, list[GameTrace]] = {}
     with Progress() as progress:
         task = progress.add_task("Simulating games", total=len(game_items))
 
         with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(_run_one_game, gid, ctx, n): gid for (gid, ctx) in game_items}
+            futures = {
+                pool.submit(_run_batched_game_loop, n, ctx): gid for (gid, ctx) in game_items
+            }
             for future in as_completed(futures):
-                gid, traces = future.result()
-                results[gid] = traces
+                gid = futures[future]
+                results[gid] = future.result()
                 progress.advance(task)
 
     return results

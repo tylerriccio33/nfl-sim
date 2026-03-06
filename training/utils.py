@@ -73,25 +73,6 @@ def row_to_state(row: dict) -> _GameState:
     )
 
 
-def row_to_outcome_dict(row: dict) -> dict:
-    """Extract outcome conditioning fields from a DataFrame row.
-
-    Returns only the fields needed for time model feature conditioning:
-    yards_gained and completion status.
-
-    Args:
-        row: A row dict from df.iter_rows(named=True)
-
-    Returns:
-        Dict with keys 'yards_gained' and 'completion' for feature building
-
-    """
-    return {
-        "yards_gained": row["yards_gained"],
-        "completion": bool(row["complete_pass"]),
-    }
-
-
 def make_model_context(row: dict, contexts: dict[str, GameContext]) -> ModelContext:
     """Build a ModelContext from a DataFrame row.
 

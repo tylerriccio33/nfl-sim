@@ -104,16 +104,6 @@ class GameContext:
         )
 
 
-def _rows_to_contexts(data: pl.DataFrame) -> dict[str, GameContext]:
-    """Convert a DataFrame with game info rows to a dict of GameContext."""
-    result: dict[str, GameContext] = {}
-    for row in data.iter_rows(named=True):
-        game_id = row["game_id"]
-        result[game_id] = GameContext.from_row(row)
-
-    return result
-
-
 def engineer_game_features(
     pbp: pl.DataFrame, schedule_data: pl.DataFrame, game_ids: list[str]
 ) -> pl.DataFrame:
@@ -182,7 +172,7 @@ def ctx_from_game_id(
 
     """
     joined = engineer_game_features(pbp, schedule_data, game_ids)
-    return _rows_to_contexts(joined)
+    return {row["game_id"]: GameContext.from_row(row) for row in joined.iter_rows(named=True)}
 
 
 class DerivedContext:
