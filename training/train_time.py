@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
-import treelite
+import tl2cgen
 import treelite.sklearn
 from pysuite import run
 from sklearn.ensemble import RandomForestRegressor
@@ -47,13 +47,17 @@ class TimeTrainer(Trainer):
         return self.model.predict(x)
 
     def save(self, path: Path) -> None:
-        """Save model as treelite-compiled artifact."""
+        """AOT-compile model to native shared library via tl2cgen."""
         assert self.model is not None, "Model not trained yet"
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Convert sklearn RF to treelite and serialize
         treelite_model = treelite.sklearn.import_model(self.model)
-        treelite_model.serialize(str(path))
+        tl2cgen.export_lib(
+            treelite_model,
+            toolchain="clang",
+            libpath=str(path),
+            verbose=True,
+        )
 
 
 def main() -> None:

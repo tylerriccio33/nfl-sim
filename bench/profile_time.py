@@ -63,7 +63,7 @@ def main() -> None:
         profiler.add_function(fn)
 
     # Profile N simulations
-    n_sims = 1
+    n_sims = 100
     print(f"Profiling {context.home} vs {context.away} ({n_sims} simulations)...")
     res = profiler.runcall(sim_games, {context.game_id: context}, n=n_sims, max_workers=1)
     profiler.runcall(_traces_to_dataframe, res)

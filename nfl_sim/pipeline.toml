@@ -159,7 +159,7 @@ rush_attempt = false
 
 [models.xgb]
 artifact = "training/artifacts/xgb"
-compiled = "model.tl"
+compiled = "model.dylib"
 raw = "model.ubj"
 features = [
     "down",
@@ -180,7 +180,7 @@ features = ["yardline_100"]
 outcomes = ["kick_distance"]
 
 [models.time]
-artifact = "training/artifacts/time/model.tl"
+artifact = "training/artifacts/time/model.dylib"
 features = ["yards_gained", "complete_pass", "pass_attempt", "rush_attempt"]
 outcomes = ["time_elapsed"]
 

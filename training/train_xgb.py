@@ -8,10 +8,12 @@ that encodes play type + outcome bucket. The XGB model predicts the token
 distribution, which is sampled at inference to produce Intent + Outcome.
 """
 
+import os
 from pathlib import Path
 
 import numpy as np
 import polars as pl
+import tl2cgen
 import treelite.frontend
 import xgboost as xgb
 from pysuite import run
@@ -166,11 +168,19 @@ def main() -> None:
     model.save_model(str(ubj_path))
     print(f"\nSaved: {ubj_path}")
 
-    # Compile to treelite for fast predict_proba at inference
+    # AOT-compile to native shared library via tl2cgen for fast inference.
+    # This generates C code from the tree structure and compiles it with clang,
+    # producing a .dylib that eliminates interpreter overhead entirely.
     tl_model = treelite.frontend.from_xgboost(model.get_booster())
-    tl_path = artifact_dir / cfg["compiled"]
-    tl_model.serialize(str(tl_path))
-    print(f"Compiled treelite model: {tl_path}")
+    dylib_path = artifact_dir / cfg["compiled"]
+    tl2cgen.export_lib(
+        tl_model,
+        toolchain="clang",
+        libpath=str(dylib_path),
+        params={"parallel_comp": os.cpu_count() or 4},
+        verbose=True,
+    )
+    print(f"AOT-compiled model: {dylib_path}")
 
 
 if __name__ == "__main__":

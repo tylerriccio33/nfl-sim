@@ -15,13 +15,10 @@ from typing import Any
 
 import joblib
 import numpy as np
-import treelite
-import treelite.gtil
+import tl2cgen
 
-# Treelite and torch both bundle their own libomp. Without this, importing both
-# in the same process aborts with "libomp.dylib already initialized". We also
-# pass nthread=1 to all treelite.gtil.predict() calls to avoid the actual
-# segfault that occurs when both runtimes try to use OpenMP threads.
+# tl2cgen and torch both bundle their own libomp. With nthread=1 no OpenMP
+# threads are spawned, but the env var prevents an abort if both libs are loaded.
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from nfl_sim.engine.state import (
@@ -67,7 +64,7 @@ class OutcomeModel:
     _loaded: bool
     _punt_yards: Any
     _rng: np.random.Generator
-    _xgb: treelite.Model
+    _xgb: tl2cgen.Predictor
 
     def __init__(self) -> None:
         self._loaded = False
@@ -76,9 +73,10 @@ class OutcomeModel:
         """Load every artifact into attributes, or fail loudly."""
         self._rng = np.random.default_rng()
 
-        # XGB token model (treelite-compiled for fast inference)
-        self._xgb = treelite.Model.deserialize(
-            str(ARTIFACT_PATHS.xgb_dir / ARTIFACT_PATHS.xgb_compiled)
+        # XGB token model (AOT-compiled shared library for fast inference)
+        self._xgb = tl2cgen.Predictor(
+            str(ARTIFACT_PATHS.xgb_dir / ARTIFACT_PATHS.xgb_compiled),
+            nthread=1,
         )
 
         # Punt yards model (used when PUNT token is sampled)
@@ -94,12 +92,9 @@ class OutcomeModel:
 
     def predict_probs_batch(self, features_batch: np.ndarray) -> np.ndarray:
         """Batch XGB predict: (N, 9) → (N, num_tokens) probabilities."""
-        raw = treelite.gtil.predict(
-            self._xgb,
-            features_batch.astype(np.float32),
-            nthread=1,
-        )
-        # treelite multiclass returns (N, 1, num_class) → squeeze to (N, num_class)
+        dmat = tl2cgen.DMatrix(features_batch.astype(np.float32))
+        raw = self._xgb.predict(dmat)
+        # tl2cgen multiclass returns (N, 1, num_class) → squeeze to (N, num_class)
         return raw[:, 0]
 
     def sample_tokens_batch(self, probs_batch: np.ndarray) -> list[int]:
@@ -201,32 +196,28 @@ class AfterPlayModel:
     __slots__ = ("_loaded", "_time_model")
 
     _loaded: bool
-    _time_model: treelite.Model
+    _time_model: tl2cgen.Predictor
 
     def __init__(self) -> None:
         self._loaded = False
 
     def _load(self) -> None:
         time_model_path = ARTIFACT_PATHS.time_dir / ARTIFACT_PATHS.time_file
-        self._time_model = treelite.Model.deserialize(str(time_model_path))
+        self._time_model = tl2cgen.Predictor(str(time_model_path), nthread=1)
         self._loaded = True
 
     def _predict_time(self, context: ModelContext, outcome: Outcome) -> int:
         """Predict seconds consumed by the play, conditioned on outcome fields.
 
-        Uses treelite-compiled single-tree random forest for fast inference.
+        Uses AOT-compiled shared library for fast inference.
         Creates a fresh ModelContext with the outcome set rather than mutating.
         """
         ctx_with_outcome = ModelContext(
             context.state, context.derived, context.game_context, outcome
         )
         full_features = build_features_for_model("time", ctx_with_outcome)
-        pred = treelite.gtil.predict(
-            self._time_model,
-            full_features.reshape(1, -1).astype(np.float32),
-            nthread=1,
-        )[0, 0][0]  # treelite returns shape (n_rows, n_groups) of arrays; unwrap scalar
-        raw = float(pred)
+        dmat = tl2cgen.DMatrix(full_features.reshape(1, -1).astype(np.float32))
+        raw = float(self._time_model.predict(dmat)[0, 0, 0])
         return max(1, round(raw)) if math.isfinite(raw) else 20
 
     def predict_time_batch(self, features_batch: np.ndarray) -> np.ndarray:
@@ -235,17 +226,12 @@ class AfterPlayModel:
         Returns raw float predictions. Caller is responsible for clamping
         to remaining clock and rounding.
         """
-        raw = treelite.gtil.predict(
-            self._time_model,
-            features_batch.astype(np.float32),
-            nthread=1,
-        )
-        # treelite regression returns (N, 1) of arrays — extract scalars
-        result = np.empty(features_batch.shape[0], dtype=np.float64)
-        for i in range(features_batch.shape[0]):
-            val = float(raw[i, 0][0])
-            result[i] = max(1.0, round(val)) if math.isfinite(val) else 20.0
-        return result
+        dmat = tl2cgen.DMatrix(features_batch.astype(np.float32))
+        raw = self._time_model.predict(dmat)
+        # tl2cgen regression returns (N, 1, 1) → extract to (N,)
+        preds = raw[:, 0, 0].astype(np.float64)
+        preds = np.where(np.isfinite(preds), np.maximum(1.0, np.round(preds)), 20.0)
+        return preds
 
     def __call__(self, context: ModelContext, intent: Intent, outcome: Outcome) -> Outcome:
         """Predict after-play events and set it on the outcome."""
