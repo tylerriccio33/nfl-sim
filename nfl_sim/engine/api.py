@@ -18,11 +18,19 @@ from nfl_sim.engine.state import (
     _SC,
     _YL,
     GameTrace,
+    Intent,
+    Outcome,
     PlayEvent,
     _GameState,
 )
-from nfl_sim.models.context import DerivedContext, GameContext, ModelContext
+from nfl_sim.models.context import (
+    DerivedContext,
+    GameContext,
+    ModelContext,
+    build_features_for_model,
+)
 from nfl_sim.models.outcomes import aftermath_model, outcome_model
+from nfl_sim.pipeline_config import TOKEN_NAMES
 
 
 @dataclass(frozen=True)
@@ -36,6 +44,7 @@ class GameResult:
     trace: GameTrace
 
 
+# TODO: This should just be conts
 def _create_initial_state() -> _GameState:
     """Standard kickoff state.
 
@@ -46,22 +55,93 @@ def _create_initial_state() -> _GameState:
     return (1, 900, "HOME", "AWAY", 1, 10, 75, (0, 0))
 
 
-def _run_game_loop(initial_state: _GameState, game_context: GameContext) -> GameTrace:
-    """Core game loop. Runs until terminal state."""
-    state = initial_state
-    trace: GameTrace = []
+def _run_batched_game_loop(n: int, game_context: GameContext) -> list[GameTrace]:
+    """Run n sims of the same game in lockstep, batching inference.
 
-    while not is_terminal(state):
-        derived = DerivedContext(trace)
-        context = ModelContext(state, derived, game_context)
-        intent, outcome = outcome_model(context)
-        outcome = aftermath_model(context, intent, outcome)
-        new_state = apply_outcome(state, intent, outcome)
+    Instead of running each sim sequentially (for each sim → for each play),
+    this flips the loop order (for each play-step → across all N sims) so that
+    treelite calls operate on (N, F) batches instead of N individual (1, F) calls.
+    """
+    # Ensure models are loaded before the hot loop
+    if not outcome_model._loaded:
+        outcome_model._load()
+    if not aftermath_model._loaded:
+        aftermath_model._load()
 
-        trace.append(PlayEvent(state, intent, outcome, new_state))
-        state = new_state
+    initial = _create_initial_state()
+    states: list[_GameState] = [initial] * n
+    traces: list[GameTrace] = [[] for _ in range(n)]
+    alive: list[int] = list(range(n))
 
-    return trace
+    while alive:
+        alive_n = len(alive)
+
+        # ── 1. Build contexts + XGB features for all alive sims ──
+        contexts: list[ModelContext] = []
+        features_list: list[np.ndarray] = []
+        for i in alive:
+            derived = DerivedContext(traces[i])
+            ctx = ModelContext(states[i], derived, game_context)
+            contexts.append(ctx)
+            features_list.append(build_features_for_model("xgb", ctx))
+
+        features_batch = np.stack(features_list)  # (alive_n, 9)
+
+        # ── 2. Batch XGB predict → (alive_n, num_tokens) ──
+        probs = outcome_model.predict_probs_batch(features_batch)
+
+        # ── 3. Vectorized token sampling ──
+        token_indices = outcome_model.sample_tokens_batch(probs)
+
+        # ── 4. Parse tokens → Intent + Outcome (per-sim, cheap) ──
+        # PUNT/FG need sub-model routing so these stay per-sim.
+        intents: list[Intent] = []
+        outcomes: list[Outcome] = []
+        for j in range(alive_n):
+            token_name = TOKEN_NAMES[token_indices[j]]
+            intent, outcome = outcome_model._token_to_outcome(token_name, contexts[j])
+            outcome.touchdown = False
+            intents.append(intent)
+            outcomes.append(outcome)
+
+        # ── 5. Batch time prediction for RUN/PASS plays ──
+        time_indices: list[int] = []
+        time_features: list[np.ndarray] = []
+        for j in range(alive_n):
+            if intents[j] in (Intent.RUN, Intent.PASS):
+                time_indices.append(j)
+                ctx_with_outcome = ModelContext(
+                    contexts[j].state,
+                    contexts[j].derived,
+                    contexts[j].game_context,
+                    outcomes[j],
+                )
+                time_features.append(build_features_for_model("time", ctx_with_outcome))
+
+        if time_features:
+            time_batch = np.stack(time_features)
+            time_preds = aftermath_model.predict_time_batch(time_batch)
+            for k, j in enumerate(time_indices):
+                outcomes[j].time_elapsed = min(int(time_preds[k]), contexts[j].state[_CLK])
+
+        # Fixed times for ST plays (capped at remaining clock)
+        for j in range(alive_n):
+            if intents[j] == Intent.FIELD_GOAL:
+                outcomes[j].time_elapsed = min(5, contexts[j].state[_CLK])
+            elif intents[j] == Intent.PUNT:
+                outcomes[j].time_elapsed = min(10, contexts[j].state[_CLK])
+
+        # ── 6. Apply outcomes, update traces, prune terminal sims ──
+        new_alive: list[int] = []
+        for j, i in enumerate(alive):
+            new_state = apply_outcome(states[i], intents[j], outcomes[j])
+            traces[i].append(PlayEvent(states[i], intents[j], outcomes[j], new_state))
+            states[i] = new_state
+            if not is_terminal(new_state):
+                new_alive.append(i)
+        alive = new_alive
+
+    return traces
 
 
 def _simulate_game(
@@ -70,31 +150,11 @@ def _simulate_game(
     *,
     context: GameContext,
 ) -> GameResult:
-    """Simulate a single game.
-
-    Args:
-        home: Home team identifier
-        away: Away team identifier
-        context: GameContext with spread and other features
-
-    Returns:
-        GameResult with final score and full play trace
-
-    """
-    initial_state = _create_initial_state()
-    trace = _run_game_loop(initial_state, context)
-
-    # Extract final score from last play
+    """Simulate a single game. Thin wrapper over the batched loop."""
+    trace = _run_batched_game_loop(1, context)[0]
     final_state = trace[-1].state_after
-    home_score, away_score = final_state[_SC]
-
-    return GameResult(
-        home=home,
-        away=away,
-        home_score=home_score,
-        away_score=away_score,
-        trace=trace,
-    )
+    h, a = final_state[_SC]
+    return GameResult(home=home, away=away, home_score=h, away_score=a, trace=trace)
 
 
 def _run_one_game(
@@ -103,15 +163,7 @@ def _run_one_game(
     n: int,
 ) -> tuple[str, list[GameTrace]]:
     """Simulate all n iterations of a single game. Unit of parallel work."""
-    traces: list[GameTrace] = []
-    for _ in range(n):
-        result = _simulate_game(
-            context.home,
-            context.away,
-            context=context,
-        )
-        traces.append(result.trace)
-
+    traces = _run_batched_game_loop(n, context)
     return game_id, traces
 
 

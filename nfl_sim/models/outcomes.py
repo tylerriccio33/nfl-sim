@@ -88,13 +88,30 @@ class OutcomeModel:
 
     def _predict_token(self, features: np.ndarray) -> str:
         """Predict a token by sampling from the XGB probability distribution."""
-        probs = treelite.gtil.predict(
-            self._xgb,
-            features.reshape(1, -1).astype(np.float32),
-            nthread=1,
-        )[0, 0]  # (1, 1, num_class) → (num_class,)
-        idx = int(self._rng.choice(len(TOKEN_NAMES), p=probs))
+        probs = self.predict_probs_batch(features.reshape(1, -1))
+        idx = int(self._rng.choice(len(TOKEN_NAMES), p=probs[0]))
         return TOKEN_NAMES[idx]
+
+    def predict_probs_batch(self, features_batch: np.ndarray) -> np.ndarray:
+        """Batch XGB predict: (N, 9) → (N, num_tokens) probabilities."""
+        raw = treelite.gtil.predict(
+            self._xgb,
+            features_batch.astype(np.float32),
+            nthread=1,
+        )
+        # treelite multiclass returns (N, 1, num_class) → squeeze to (N, num_class)
+        return raw[:, 0]
+
+    def sample_tokens_batch(self, probs_batch: np.ndarray) -> list[int]:
+        """Vectorized token sampling: (N, num_tokens) → list of token indices.
+
+        Uses cumulative-sum trick to sample from each row's distribution in one
+        shot instead of N separate rng.choice calls.
+        """
+        u = self._rng.random(probs_batch.shape[0])
+        cumprobs = np.cumsum(probs_batch, axis=1)
+        # For each row, find the first column where cumprob >= u
+        return np.argmax(cumprobs >= u[:, None], axis=1).tolist()
 
     def _token_to_outcome(self, token: str, context: ModelContext) -> tuple[Intent, Outcome]:
         """Parse a token into Intent + Outcome using TOML config."""
@@ -211,6 +228,24 @@ class AfterPlayModel:
         )[0, 0][0]  # treelite returns shape (n_rows, n_groups) of arrays; unwrap scalar
         raw = float(pred)
         return max(1, round(raw)) if math.isfinite(raw) else 20
+
+    def predict_time_batch(self, features_batch: np.ndarray) -> np.ndarray:
+        """Batch time prediction: (N, F) → (N,) predicted seconds.
+
+        Returns raw float predictions. Caller is responsible for clamping
+        to remaining clock and rounding.
+        """
+        raw = treelite.gtil.predict(
+            self._time_model,
+            features_batch.astype(np.float32),
+            nthread=1,
+        )
+        # treelite regression returns (N, 1) of arrays — extract scalars
+        result = np.empty(features_batch.shape[0], dtype=np.float64)
+        for i in range(features_batch.shape[0]):
+            val = float(raw[i, 0][0])
+            result[i] = max(1.0, round(val)) if math.isfinite(val) else 20.0
+        return result
 
     def __call__(self, context: ModelContext, intent: Intent, outcome: Outcome) -> Outcome:
         """Predict after-play events and set it on the outcome."""

@@ -8,8 +8,10 @@ from rich.table import Table
 from nfl_sim import sim_games
 from nfl_sim.models.context import GameContext
 
+NSIMS = 100
 
-def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
+
+def run_benchmark(n_sims_per_game: int) -> dict[str, float]:
     """Run N simulations for a matchup and return timing stats.
 
     Args:
@@ -29,7 +31,7 @@ def run_benchmark(n_sims_per_game: int = 100) -> dict[str, float]:
     )
 
     # warm up
-    sim_games({"KC_NYJ": context}, n=5)
+    sim_games({"KC_NYJ": context}, n=1)
 
     # Time just the simulation (no data loading overhead)
     start = time.perf_counter()
@@ -73,7 +75,7 @@ def report_results(stats: dict[str, float]) -> None:
 
 def main() -> None:
     """Run timing benchmark and display results."""
-    stats = run_benchmark(n_sims_per_game=100)
+    stats = run_benchmark(n_sims_per_game=NSIMS)
     report_results(stats)
 
 
