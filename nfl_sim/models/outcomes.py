@@ -1,7 +1,7 @@
 """All model inference lives here.
 
 Two model classes:
-  1. ``OutcomeModel`` — pre-whistle: intent (RF) → route → outcome (GBM proximity)
+  1. ``OutcomeModel`` — pre-whistle: XGB token prediction → Intent + Outcome
   2. ``AfterPlayModel`` — post-whistle: time elapsed prediction, conditioned on
      game state/context and the outcome that just happened
 
@@ -9,11 +9,8 @@ Both are lazy-loaded on first call.  This lets the module be imported freely
 (e.g. during training or in tests) without requiring trained artifacts on disk.
 """
 
-import json
 import math
 import os
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import joblib
@@ -31,198 +28,112 @@ from nfl_sim.engine.state import (
     _CLK,
     Intent,
     Outcome,
-    Route,
     TurnoverType,
-    route_from_intent,
 )
 from nfl_sim.models.context import ModelContext, build_features_for_model
-from nfl_sim.pipeline_config import ARTIFACT_PATHS, GBM_CONFIG, MODELS
+from nfl_sim.pipeline_config import ARTIFACT_PATHS, TOKEN_NAMES, TOKENS
 
-# Training data uses 0/1/2 for turnover_type, but the enum uses auto() → 1/2/3.
-# This list maps index → TurnoverType enum value.
-_TURNOVER_INDEX = [TurnoverType.NONE, TurnoverType.INTERCEPTION, TurnoverType.FUMBLE]
+# Map turnover string from TOML → TurnoverType enum
+_TURNOVER_MAP = {
+    "NONE": TurnoverType.NONE,
+    "INTERCEPTION": TurnoverType.INTERCEPTION,
+    "FUMBLE": TurnoverType.FUMBLE,
+}
 
-_TOP_K: int = GBM_CONFIG["top_k"]
-
-
-@dataclass(frozen=True, slots=True)
-class _PlayIndex:
-    """CSR-style flat index over GBM leaf assignments for fast proximity lookup.
-
-    For each tree, plays are sorted by leaf id. ``starts[t, lv]`` and
-    ``ends[t, lv]`` give the slice into ``groups[t]`` containing all play
-    indices that landed in leaf ``lv``. This gives O(1) lookup per tree
-    (no Python dicts) and is fully numba-compatible.
-    """
-
-    groups: np.ndarray  # (T, N) int32 — play indices sorted by leaf per tree
-    starts: np.ndarray  # (T, max_leaf+1) int32 — start offset per (tree, leaf)
-    ends: np.ndarray  # (T, max_leaf+1) int32 — end offset per (tree, leaf)
-    outcomes: dict[str, np.ndarray]  # col_name → (N,) array
-
-
-def _build_play_index(leaves: np.ndarray, outcomes: dict[str, np.ndarray]) -> _PlayIndex:
-    """Build CSR-style flat arrays from a raw (N, T) leaf matrix.
-
-    For each tree, sort play indices by their leaf value and record the
-    start/end boundaries per leaf id. This turns dict-based lookups into
-    simple array slices that numba can consume.
-    """
-    n_plays, n_trees = leaves.shape
-    max_leaf = int(leaves.max()) + 1
-
-    groups = np.empty((n_trees, n_plays), dtype=np.int32)
-    starts = np.zeros((n_trees, max_leaf + 1), dtype=np.int32)
-    ends = np.zeros((n_trees, max_leaf + 1), dtype=np.int32)
-
-    for t in range(n_trees):
-        order = np.argsort(leaves[:, t], kind="stable").astype(np.int32)
-        groups[t] = order
-        sorted_col = leaves[order, t]
-        for lv in range(max_leaf + 1):
-            starts[t, lv] = np.searchsorted(sorted_col, lv, side="left")
-            ends[t, lv] = np.searchsorted(sorted_col, lv, side="right")
-
-    return _PlayIndex(groups=groups, starts=starts, ends=ends, outcomes=outcomes)
+# Map intent string from TOML → Intent enum
+_INTENT_MAP = {
+    "RUN": Intent.RUN,
+    "PASS": Intent.PASS,
+    "FIELD_GOAL": Intent.FIELD_GOAL,
+    "PUNT": Intent.PUNT,
+}
 
 
 class OutcomeModel:
-    """Lazy-loading callable that implements the full model graph.
+    """Lazy-loading callable that predicts play tokens via XGBoost.
 
-    Models are expensive to load and the artifacts may not exist yet (e.g.
-    during training or in lightweight test imports).  We defer loading until
-    the first real call.
-
-    The ``__call__`` method IS the model graph: features → intent → route →
-    outcome.
+    The XGB model outputs a probability distribution over ~16 tokens.
+    A token is sampled from this distribution and parsed into Intent + Outcome
+    using the TOML token definitions.
     """
 
     __slots__ = (
-        "_gbm",
-        "_index",
-        "_intent_classes",
-        "_intent_model",
         "_loaded",
         "_punt_yards",
         "_rng",
+        "_xgb",
     )
 
-    _gbm: dict[Route, treelite.Model]  # treelite-compiled GBM per route
-    _index: dict[Route, _PlayIndex]
-    _intent_classes: list[Intent]
-    _intent_model: treelite.Model
     _loaded: bool
     _punt_yards: Any
     _rng: np.random.Generator
+    _xgb: treelite.Model
 
     def __init__(self) -> None:
         self._loaded = False
-
-    # ------------------------------------------------------------------
-    # Loading — runs once on first call
-    # ------------------------------------------------------------------
 
     def _load(self) -> None:
         """Load every artifact into attributes, or fail loudly."""
         self._rng = np.random.default_rng()
 
-        # Intent (treelite-compiled RF)
-        intent_dir = ARTIFACT_PATHS.intent_dir
-        self._intent_model = treelite.Model.deserialize(
-            str(intent_dir / ARTIFACT_PATHS.intent_compiled)
+        # XGB token model (treelite-compiled for fast inference)
+        self._xgb = treelite.Model.deserialize(
+            str(ARTIFACT_PATHS.xgb_dir / ARTIFACT_PATHS.xgb_compiled)
         )
-        meta: dict[str, Any] = json.loads((intent_dir / ARTIFACT_PATHS.intent_meta).read_text())
-        self._intent_classes = [Intent(c) for c in meta["classes"]]
 
-        # GBM models + play indices (one per offensive route)
-        self._gbm = {}
-        self._index = {}
-        for route, model_key in [(Route.RUN, "gbm_run"), (Route.PASS, "gbm_pass")]:
-            cfg = MODELS[model_key]
-            art_dir = Path(cfg["artifact"])
-
-            # Load treelite-compiled model for fast predict_leaf.
-            self._gbm[route] = treelite.Model.deserialize(str(art_dir / "model.tl"))
-
-            npz = np.load(art_dir / cfg["index_file"])
-            leaves = npz["leaves"].astype(np.int32)  # (N, T)
-            outcomes = {col: npz[col] for col in cfg["index_outcomes"]}
-            self._index[route] = _build_play_index(leaves, outcomes)
-
-        # Simple sklearn models
+        # Punt yards model (used when PUNT token is sampled)
         self._punt_yards = joblib.load(ARTIFACT_PATHS.punt_yards_path)
 
         self._loaded = True
 
-    # ------------------------------------------------------------------
-    # Inference — called millions of times per simulation run
-    # ------------------------------------------------------------------
-
-    def _predict_intent(self, features: np.ndarray) -> Intent:
-        """Predict the highest-probability intent from the RF model."""
+    def _predict_token(self, features: np.ndarray) -> str:
+        """Predict a token by sampling from the XGB probability distribution."""
         probs = treelite.gtil.predict(
-            self._intent_model,
+            self._xgb,
             features.reshape(1, -1).astype(np.float32),
             nthread=1,
-        )[0, 0]
-        best_idx = int(np.argmax(probs))
-        return self._intent_classes[best_idx]
+        )[0, 0]  # (1, 1, num_class) → (num_class,)
+        idx = int(self._rng.choice(len(TOKEN_NAMES), p=probs))
+        return TOKEN_NAMES[idx]
 
-    def _predict_outcome(self, route: Route, features: np.ndarray) -> Outcome:
-        """Find similar historical plays via GBM leaf proximity sampling."""
-        gbm = self._gbm[route]
-        idx = self._index[route]
+    def _token_to_outcome(self, token: str, context: ModelContext) -> tuple[Intent, Outcome]:
+        """Parse a token into Intent + Outcome using TOML config."""
+        cfg = TOKENS[token]
+        intent = _INTENT_MAP[cfg["intent"]]
 
-        # Pick one random tree, grab one random play from its leaf bucket.
-        query_leaves = treelite.gtil.predict_leaf(
-            gbm, features.reshape(1, -1).astype(np.float32), nthread=1
-        )  # (1, T)
-        t = int(self._rng.integers(idx.groups.shape[0]))
-        lv = int(query_leaves[0, t])
-        s, e = idx.starts[t, lv], idx.ends[t, lv]
-        pick = int(idx.groups[t, s + self._rng.integers(e - s)])
+        # Special teams routing
+        match intent:
+            case Intent.PUNT:
+                return intent, self._predict_punt(context)
+            case Intent.FIELD_GOAL:
+                return intent, self._predict_fg(context)
+            case _:
+                pass
 
-        yards = int(idx.outcomes["yards_gained"][pick])
-        complete = bool(idx.outcomes["complete_pass"][pick])
+        # Sample yards uniformly from the token's bucket
+        lo, hi = cfg["yards"]
+        yards = int(self._rng.integers(lo, hi + 1)) if lo != hi else lo
 
-        # Incomplete passes yield 0 yards
-        if route == Route.PASS and not complete:
-            yards = 0
-
-        return Outcome(
+        return intent, Outcome(
             yards_gained=yards,
-            turnover_type=_TURNOVER_INDEX[int(idx.outcomes["turnover_type"][pick])],
+            turnover_type=_TURNOVER_MAP[cfg["turnover"]],
             touchdown=False,
             time_elapsed=0,
-            complete_pass=complete,
+            complete_pass=cfg["complete_pass"],
+            pass_attempt=cfg["pass_attempt"],
+            rush_attempt=cfg["rush_attempt"],
         )
 
-    def _predict_st(self, context: ModelContext, intent: Intent) -> Outcome:
-        """Predict special-teams outcome (FG or punt).
+    def _predict_punt(self, context: ModelContext) -> Outcome:
+        """Predict punt outcome using the dedicated punt yards model."""
+        blocked_prob = 0.0005
+        rng = self._rng
 
-        Blocked probability is fixed at 0.05% (0.0005) for both FGs and punts.
-        """
-        blocked_prob = 0.0005  # 0.05%
-        yardline_100 = context.state[6]  # _YL index
-
-        rng = np.random.default_rng()
-
-        match intent:
-            case Intent.FIELD_GOAL:
-                # 0.05% chance of blocked, otherwise made
-                blocked = rng.random() < blocked_prob
-                yards_gained = yardline_100 - 20 if blocked else yardline_100 + 10
-            case Intent.PUNT:
-                # 0.05% chance of blocked, otherwise predict yards_gained
-                blocked = rng.random() < blocked_prob
-                if blocked:
-                    yards_gained = -35  # blocked: defense returns
-                else:
-                    # Use unified feature API to build punt features
-                    x = build_features_for_model("punt", context).reshape(1, -1)
-                    yards_gained = max(0, round(float(self._punt_yards.predict(x)[0])))
-            case _:
-                raise ValueError(f"Unexpected ST intent: {intent}")
+        if rng.random() < blocked_prob:
+            yards_gained = -35
+        else:
+            x = build_features_for_model("punt", context).reshape(1, -1)
+            yards_gained = max(0, round(float(self._punt_yards.predict(x)[0])))
 
         return Outcome(
             yards_gained=yards_gained,
@@ -231,40 +142,38 @@ class OutcomeModel:
             time_elapsed=20,
         )
 
-    # ------------------------------------------------------------------
-    # Model graph — the only thing callers interact with
-    # ------------------------------------------------------------------
+    def _predict_fg(self, context: ModelContext) -> Outcome:
+        """Predict field goal outcome."""
+        blocked_prob = 0.0005
+        yardline_100 = context.state[6]  # _YL index
+        rng = self._rng
+
+        blocked = rng.random() < blocked_prob
+        yards_gained = yardline_100 - 20 if blocked else yardline_100 + 10
+
+        return Outcome(
+            yards_gained=yards_gained,
+            turnover_type=TurnoverType.NONE,
+            touchdown=False,
+            time_elapsed=20,
+        )
 
     def __call__(self, context: ModelContext) -> tuple[Intent, Outcome]:
         """Run the full model graph for a single play.
 
-        features → intent (RF) → route → outcome (GBM proximity / ST)
+        features → XGB token prediction → sample → parse → Intent + Outcome
 
         Time elapsed is NOT set here — that's AfterPlayModel's job.
         """
         if not self._loaded:
             self._load()
 
-        # Build intent model features (9 base features: state + game context)
-        intent_features = build_features_for_model("intent", context)
+        features = build_features_for_model("xgb", context)
+        token = self._predict_token(features)
+        intent, outcome = self._token_to_outcome(token, context)
 
-        # First, we predict intent which is mapped to a route.
-        intent = self._predict_intent(intent_features)
-        route = route_from_intent(intent)
-
-        match route:
-            case Route.RUN | Route.PASS:
-                model = "gbm_run" if route == Route.RUN else "gbm_pass"
-                features = build_features_for_model(model, context)
-                outcome: Outcome = self._predict_outcome(route, features)
-
-            case Route.ST:
-                outcome = self._predict_st(context, intent)
-
-        ## POST-OUTCOME PROCESSING ##
-        outcome.touchdown = False  # engine detects via yardline_100
-        outcome.pass_attempt = intent == Intent.PASS
-        outcome.rush_attempt = intent == Intent.RUN
+        # Engine detects touchdowns via yardline_100
+        outcome.touchdown = False
 
         return intent, outcome
 

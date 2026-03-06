@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Run XGB token predictions on random plays for inspection.
+
+Usage: uv run training/infer_plays.py (or `make infer-plays`)
+
+Samples 1000 random plays from the training data, runs them through the
+XGB token model, and prints the predicted token alongside the real token
+and game state for manual inspection.
+"""
+
+import numpy as np
+import polars as pl
+
+from nfl_sim.models.context import build_features_for_model
+from nfl_sim.models.outcomes import OutcomeModel
+from training.prepare import prepare
+from training.train_xgb import _tokenize_row
+from training.utils import build_contexts, make_model_context
+
+N_SAMPLES = 1000
+
+
+def main() -> None:
+    """Predict tokens for random plays and display results."""
+    print("Preparing data...")
+    df = prepare()
+
+    # Tokenize each play to get the "real" token
+    tokens = [_tokenize_row(row) for row in df.iter_rows(named=True)]
+    df = df.with_columns(pl.Series("real_token", tokens))
+    df = df.drop_nulls(subset=["real_token"])
+
+    # Sample N_SAMPLES random plays
+    rng = np.random.default_rng(42)
+    n = min(N_SAMPLES, len(df))
+    indices = rng.choice(len(df), size=n, replace=False)
+    df = df[indices.tolist()]
+
+    # Build game contexts for feature extraction
+    contexts = build_contexts(df)
+
+    # Load the model
+    model = OutcomeModel()
+
+    rows = []
+
+    for row in df.iter_rows(named=True):
+        game_id = row["game_id"]
+        if game_id not in contexts:
+            continue
+
+        ctx = make_model_context(row, contexts)
+
+        # Predict token using the model's internal method
+        if not model._loaded:
+            model._load()
+
+        features = build_features_for_model("xgb", ctx)
+        pred_token = model._predict_token(features)
+
+        rows.append(
+            {
+                "game_id": game_id,
+                "play_type": row["play_type"],
+                "down": row["down"],
+                "ydstogo": row["ydstogo"],
+                "yardline_100": row["yardline_100"],
+                "yards_gained": row["yards_gained"],
+                "real_token": row["real_token"],
+                "pred_token": pred_token,
+                "match": row["real_token"] == pred_token,
+            }
+        )
+
+    result = pl.DataFrame(rows)
+
+    # Print summary
+    n_match = result["match"].sum()
+    print(f"\nAccuracy: {n_match}/{len(result)} ({n_match / len(result) * 100:.1f}%)")
+
+    # Token-level accuracy
+    print("\nPer-token accuracy:")
+    for token in result["real_token"].unique().sort().to_list():
+        mask = result.filter(pl.col("real_token") == token)
+        acc = mask["match"].sum() / len(mask)
+        print(f"  {token:15s} {acc:.3f}  (n={len(mask)})")
+
+    # Print sample of results
+    print(f"\nSample predictions ({len(result)} total):")
+    print(
+        result.select(
+            "game_id",
+            "play_type",
+            "down",
+            "ydstogo",
+            "yardline_100",
+            "yards_gained",
+            "real_token",
+            "pred_token",
+            "match",
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

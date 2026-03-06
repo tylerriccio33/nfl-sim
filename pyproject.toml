@@ -16,6 +16,7 @@ dependencies = [
     "pysuite>=0.1.0",
     "rich>=14.2.0",
     "torch>=2.10.0",
+    "xgboost>=3.2.0",
 ]
 
 [build-system]

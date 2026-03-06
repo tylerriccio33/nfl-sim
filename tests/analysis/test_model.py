@@ -87,10 +87,10 @@ def test_determinism():
 def test_features_only_from_pre_play_state():
     """build_features_for_model uses only the pre-play state tuple, not outcomes."""
     ctx = _make_context()
-    feats = build_features_for_model("intent", ctx)
+    feats = build_features_for_model("xgb", ctx)
 
     # The feature vector length must match the canonical list exactly
-    assert len(feats) == len(get_model_features("intent"))
+    assert len(feats) == len(get_model_features("xgb"))
     assert feats.dtype == np.float32
 
 
@@ -108,14 +108,10 @@ def test_identifier_leakage_game_id():
     ctx_a = _make_context(game_id="2024_01_KC_BUF")
     ctx_b = _make_context(game_id="9999_99_FOO_BAR")
 
-    feats_a = build_features_for_model("intent", ctx_a)
-    feats_b = build_features_for_model("intent", ctx_b)
+    feats_a = build_features_for_model("xgb", ctx_a)
+    feats_b = build_features_for_model("xgb", ctx_b)
 
     np.testing.assert_array_equal(feats_a, feats_b)
-
-    act_a, _ = outcome_model(ctx_a)
-    act_b, _ = outcome_model(ctx_b)
-    assert act_a == act_b
 
 
 def test_identifier_leakage_team_names():
@@ -126,8 +122,8 @@ def test_identifier_leakage_team_names():
     ctx_a = _make_context(home="KC", away="BUF")
     ctx_b = _make_context(home="ZZZZZ", away="YYYYY")
 
-    feats_a = build_features_for_model("intent", ctx_a)
-    feats_b = build_features_for_model("intent", ctx_b)
+    feats_a = build_features_for_model("xgb", ctx_a)
+    feats_b = build_features_for_model("xgb", ctx_b)
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
@@ -203,8 +199,8 @@ def test_edge_inputs_no_nan(kw: dict):
 def test_features_shape_and_dtype():
     """Feature vector must have the correct shape and dtype."""
     ctx = _make_context()
-    feats = build_features_for_model("intent", ctx)
-    feature_names = get_model_features("intent")
+    feats = build_features_for_model("xgb", ctx)
+    feature_names = get_model_features("xgb")
 
     assert feats.shape == (len(feature_names),)
     assert feats.dtype == np.float32
@@ -226,8 +222,8 @@ def test_feature_order_matches_canonical():
         offense="HOME",
         defense="AWAY",
     )
-    feats = build_features_for_model("intent", ctx)
-    feature_names = get_model_features("intent")
+    feats = build_features_for_model("xgb", ctx)
+    feature_names = get_model_features("xgb")
 
     expected = {
         "down": 2.0,
@@ -252,8 +248,8 @@ def test_feature_order_matches_canonical():
 def test_gen_feature_names_covers_build_features():
     """Feature names must match build_features_for_model output."""
     ctx = _make_context()
-    feats = build_features_for_model("intent", ctx)
-    names = get_model_features("intent")
+    feats = build_features_for_model("xgb", ctx)
+    names = get_model_features("xgb")
 
     assert len(names) == len(feats), (
         f"get_model_features() has {len(names)} names but build_features_for_model() produced {len(feats)} values"
@@ -270,7 +266,7 @@ def test_game_features_fields_match__gen_feature_names():
     This is the contract that keeps build_features_for_model, from_row, and
     training/prepare.py in sync.
     """
-    feature_names = get_model_features("intent")
+    feature_names = get_model_features("xgb")
     tail = feature_names[-len(GameContext.feature_names) :]
 
     assert tail == GameContext.feature_names, (

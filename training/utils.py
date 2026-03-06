@@ -68,7 +68,7 @@ def row_to_state(row: dict) -> _GameState:
         row["defense"],  # _DEF (HOME/AWAY, from prepare())
         row["down"],  # _DN
         row["ydstogo"],  # _DIST
-        row["yardline_100_100"],  # _YL
+        row["yardline_100"],  # _YL
         (row["total_home_score"], row["total_away_score"]),  # _SC
     )
 

@@ -23,13 +23,144 @@ qb_kneel = "RUN"
 punt = "PUNT"
 field_goal = "FIELD_GOAL"
 
+# ── Tokens ────────────────────────────────────────────────────────────
+# Each token encodes a play type + outcome bucket. The XGB model predicts
+# a token, which is then parsed into Intent + Outcome.
+
+[tokens.RUN_NEG]
+intent = "RUN"
+yards = [-15, -1]
+turnover = "NONE"
+complete_pass = false
+pass_attempt = false
+rush_attempt = true
+
+[tokens.RUN_0_5]
+intent = "RUN"
+yards = [0, 5]
+turnover = "NONE"
+complete_pass = false
+pass_attempt = false
+rush_attempt = true
+
+[tokens.RUN_5_10]
+intent = "RUN"
+yards = [5, 10]
+turnover = "NONE"
+complete_pass = false
+pass_attempt = false
+rush_attempt = true
+
+[tokens.RUN_10_20]
+intent = "RUN"
+yards = [10, 20]
+turnover = "NONE"
+complete_pass = false
+pass_attempt = false
+rush_attempt = true
+
+[tokens.RUN_20P]
+intent = "RUN"
+yards = [20, 80]
+turnover = "NONE"
+complete_pass = false
+pass_attempt = false
+rush_attempt = true
+
+[tokens.CP_0_5]
+intent = "PASS"
+yards = [0, 5]
+turnover = "NONE"
+complete_pass = true
+pass_attempt = true
+rush_attempt = false
+
+[tokens.CP_5_10]
+intent = "PASS"
+yards = [5, 10]
+turnover = "NONE"
+complete_pass = true
+pass_attempt = true
+rush_attempt = false
+
+[tokens.CP_10_20]
+intent = "PASS"
+yards = [10, 20]
+turnover = "NONE"
+complete_pass = true
+pass_attempt = true
+rush_attempt = false
+
+[tokens.CP_20P]
+intent = "PASS"
+yards = [20, 80]
+turnover = "NONE"
+complete_pass = true
+pass_attempt = true
+rush_attempt = false
+
+[tokens.IC]
+intent = "PASS"
+yards = [0, 0]
+turnover = "NONE"
+complete_pass = false
+pass_attempt = true
+rush_attempt = false
+
+[tokens.SACK]
+intent = "PASS"
+yards = [-15, -1]
+turnover = "NONE"
+complete_pass = false
+pass_attempt = true
+rush_attempt = false
+
+[tokens.RUN_FUM]
+intent = "RUN"
+yards = [-5, 5]
+turnover = "FUMBLE"
+complete_pass = false
+pass_attempt = false
+rush_attempt = true
+
+[tokens.PASS_FUM]
+intent = "PASS"
+yards = [-5, 5]
+turnover = "FUMBLE"
+complete_pass = false
+pass_attempt = true
+rush_attempt = false
+
+[tokens.PASS_INT]
+intent = "PASS"
+yards = [-5, 20]
+turnover = "INTERCEPTION"
+complete_pass = false
+pass_attempt = true
+rush_attempt = false
+
+[tokens.PUNT]
+intent = "PUNT"
+yards = [0, 0]
+turnover = "NONE"
+complete_pass = false
+pass_attempt = false
+rush_attempt = false
+
+[tokens.FG]
+intent = "FIELD_GOAL"
+yards = [0, 0]
+turnover = "NONE"
+complete_pass = false
+pass_attempt = false
+rush_attempt = false
+
 # ── Models ───────────────────────────────────────────────────────────
-# Each model declares: artifact location, input features, output outcomes
 
-[models.intent]
-artifact = "training/artifacts/rf/intent"
-metadata = "meta.json" # relative to artifact dir
-compiled = "model.tl" # relative to artifact dir
+[models.xgb]
+artifact = "training/artifacts/xgb"
+compiled = "model.tl"
+raw = "model.ubj"
 features = [
     "down",
     "ydstogo",
@@ -41,53 +172,7 @@ features = [
     "spread_line",
     "season_epa",
 ]
-outcomes = ["intent"]
-
-[models.gbm_run]
-artifact = "training/artifacts/gbm/run"
-proxy_target = "epa"
-features = [
-    "down",
-    "ydstogo",
-    "yardline_100",
-    "score_diff",
-    "qtr",
-    "game_seconds_remaining",
-    "goal_to_go",
-    "spread_line",
-    "season_epa",
-]
-index_outcomes = ["yards_gained", "turnover_type", "complete_pass"]
-index_file = "index.npz"
-
-[models.gbm_pass]
-artifact = "training/artifacts/gbm/pass"
-proxy_target = "epa"
-features = [
-    "down",
-    "ydstogo",
-    "yardline_100",
-    "score_diff",
-    "qtr",
-    "game_seconds_remaining",
-    "goal_to_go",
-    "spread_line",
-    "season_epa",
-]
-index_outcomes = ["yards_gained", "turnover_type", "complete_pass"]
-index_file = "index.npz"
-
-# ── GBM Training & Inference ────────────────────────────────────────
-[gbm]
-# LightGBM hyperparameters (proxy task: predict epa)
-n_estimators = 100
-max_depth = 6
-min_child_samples = 50
-learning_rate = 0.05
-random_state = 42
-
-# Proximity sampling: how many top-overlap plays to sample from
-top_k = 50
+outcomes = ["token"]
 
 [models.punt]
 artifact = "training/artifacts/punt/yards.joblib"
@@ -103,9 +188,14 @@ outcomes = ["time_elapsed"]
 [st.time_override]
 value = 20
 
+# ── XGB Hyperparameters ───────────────────────────────────────────────
+[xgb]
+n_estimators = 200
+max_depth = 6
+learning_rate = 0.1
+random_state = 42
+
 # ── Outcome ──────────────────────────────────────────────────────────
-# Defines the Outcome dataclass fields. Run `make generate-outcome` to regenerate.
-# Fields without a default come first; fields with a default come after.
 
 [outcome.yards_gained]
 type = "int"

@@ -19,58 +19,53 @@ new_state = apply_outcome(state, intent, outcome)
 
 **Model Logic:**
 1. Features (`ModelContext`):
-    1. Long term memory in the form of embeddings are built for each team. They bring these into the game as a whole. These are things like spread, epa, run success, etc.
-    2. State of the current game in the form of time, score, yardline, etc.
-2. `Intent` model takes the model context and predicts intent (RF).
-3. Intent maps to a route (RUN/PASS/ST). For RUN/PASS, the GBM leaf proximity model finds similar historical plays and samples an outcome. ST routes use dedicated punt/FG models.
+    1. Game-level features: spread, EPA (prior-week), etc.
+    2. State of the current game: time, score, yardline, down, distance, etc.
+2. XGBoost token model predicts a probability distribution over ~16 play tokens.
+3. A token is sampled from the distribution and parsed into `Intent` + `Outcome`.
+4. Dedicated models handle punt yards and time elapsed prediction.
 
-There are miniature models predicting smaller constrained outputs like punt yards or FG odds.
+### The Main Model: XGBoost Token Classifier
 
-### The Main Model: GBM Leaf Proximity Lookup
+A single XGBoost multiclass classifier replaces the old 3-model stack (RF intent + GBM leaf proximity). Each play is mapped to a **token** that encodes play type + outcome bucket. The model predicts the token distribution, and a token is sampled stochastically.
 
-The GBM handles the tabular structure — it finds the splits, interactions, and nonlinearities naturally. Rather than feeding embeddings to a neural net, we use the leaf structure directly as a similarity kernel over historical plays.
+**Token vocabulary (~16 tokens):**
+```
+RUN_NEG, RUN_0_5, RUN_5_10, RUN_10_20, RUN_20P
+CP_0_5, CP_5_10, CP_10_20, CP_20P
+IC, SACK
+RUN_FUM, PASS_FUM, PASS_INT
+PUNT, FG
+```
+
+Each token is defined in `pipeline.toml` with: `intent`, `yards = [lo, hi]`, `turnover`, `complete_pass`, `pass_attempt`, `rush_attempt`.
 
 **How it works:**
 
-A GBM with T trees partitions the feature space. When you pass an input through, each tree routes it to a leaf. Two plays landing in the same leaves had similar game contexts — the GBM already learned that "3rd & 7 in Q4 trailing" is a meaningful partition.
-
 ```
-input → tree_1 → leaf 47
-      → tree_2 → leaf 12
-      → tree_3 → leaf 93
-      ...
-      → tree_T → leaf 31
-
-leaf_embedding = [47, 12, 93, ..., 31]
-```
-
-At training time, we record the leaf embedding and outcome columns (yards, turnover, completion) for every historical play — the "play index." At inference, a new play's leaf embedding is compared against the index by counting how many trees agree (leaf overlap). The top-K most similar plays are found, and one is sampled uniformly to produce the outcome.
-
-```
-                  ┌─────────┐
-features (9) ──→  │ GBM     │──→ query leaf embedding ──┐
-                  │(frozen) │                            │
-                  └─────────┘                            ▼
-                                               ┌─────────────────┐
-                                               │ Play Index       │
-                                               │ (N historical    │
-                                               │  plays with      │  overlap
-                                               │  leaf embeddings │ ────────→ top-K → sample → Outcome
-                                               │  + outcomes)     │
-                                               └─────────────────┘
+                  ┌──────────┐
+features (9) ──→  │ XGBoost  │──→ P(token) ──→ sample ──→ token ──→ Intent + Outcome
+                  │ softprob │                              │
+                  └──────────┘                              ▼
+                                                    ┌──────────────┐
+                                                    │ TOML config  │
+                                                    │ yards=[lo,hi]│
+                                                    │ turnover     │ → Outcome
+                                                    │ intent       │ → Intent
+                                                    └──────────────┘
 ```
 
-**Training:**
-1. Train GBM per route (run/pass) on yards_gained as proxy task. Freeze it.
-2. Compute leaf embeddings for all training plays.
-3. Save leaf embeddings + outcome columns as the play index (`.npz`).
+**Training** (`make train-xgb`):
+1. Each historical play is tokenized based on `(play_type, yards_gained, complete_pass, sack, turnover_type)`.
+2. XGBoost multiclass softprob classifier trained on 9 game-state features.
+3. Model compiled with treelite for fast inference (~10 µs per prediction).
 
 **Inference:**
-1. Pass features through frozen GBM → leaf embedding.
-2. Count leaf overlap with every play in the index (vectorized numpy).
-3. Sample uniformly from top-K most similar plays.
+1. Build feature vector from game state + game context.
+2. XGB predict_proba → sample token from distribution.
+3. Parse token config → `(Intent, Outcome)`. For PUNT/FG, route to dedicated models.
 
-No neural nets in the inference path. The GBM is trained once and frozen. Proximity search is a single vectorized numpy comparison — fast and deterministic given the same RNG seed. All hyperparameters (n_estimators, max_depth, top_k, etc.) live in `pipeline.toml`.
+All token definitions and hyperparameters live in `pipeline.toml`.
 
 ## Code Style and Conventions
 

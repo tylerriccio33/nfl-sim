@@ -126,6 +126,7 @@ def main() -> None:
         yeval=results_df["result"],
         ypred=results_df["sim_result"],
     )
+    print(f"Model Res: {res['metrics']}")
 
     res.show()
 

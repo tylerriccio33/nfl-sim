@@ -48,42 +48,29 @@ bench-time: ## Run performance benchmarks for time
 bench-prof: ## Run line profiler on single game
 	@uv run python bench/profile_time.py > bench/profile_results.txt
 	@echo "Profile results written to bench/profile_results.txt"
-	
+
 bench-perf: ## Run performance of results against real
 	@uv run --no-sync bench/accuracy_perf.py
 
 bench-converge: ## Run convergence benchmark
 	@uv run --no-sync bench/convergence_perf.py
 
-train-run: ## Train RUN outcome
-	@uv run training/train_gbm.py run
+infer-plays: ## Run XGB predictions on 1k random plays for inspection
+	@uv run training/infer_plays.py
 
-train-pass: ## Train PASS outcome
-	@uv run training/train_gbm.py pass
+train-xgb: ## Train XGB token model
+	@uv run training/train_xgb.py
 
 train-all: ## Run all model training scripts
-	@uv run training/train_intent.py
-	@uv run training/train_gbm.py run
-	@uv run training/train_gbm.py pass
+	@uv run training/train_xgb.py
 	@uv run training/train_time.py
 	@uv run training/train_punt.py
-
-train-intent: ## Train and compile intent (RF) model
-	@uv run training/train_intent.py
 
 train-time: ## Train time model
 	@uv run training/train_time.py
 
 train-punt: ## Train punt yards model (blocked is sampled at 0.05%)
 	@uv run training/train_punt.py
-
-TREE ?= 0
-
-infer-predict: ## Inspect GBM: predicted vs actual on 100 plays
-	@uv run python -m training.infer_play predict
-
-infer-embed: ## Inspect GBM: leaf-level aggregates (TREE=0 default)
-	@uv run python -m training.infer_play embed $(TREE)
 
 refresh-data: ## Refresh all data files
 	@uv run python data/refresh_data.py

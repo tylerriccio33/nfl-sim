@@ -33,6 +33,11 @@ PLAY_TYPE_MAP: dict[str, str] = CONFIG["play_type_map"]
 
 MODELS: dict[str, Any] = CONFIG["models"]
 
+# ── Tokens ───────────────────────────────────────────────────────
+
+TOKENS: dict[str, Any] = CONFIG["tokens"]
+TOKEN_NAMES: list[str] = list(TOKENS.keys())
+
 # ── Artifact paths ───────────────────────────────────────────────
 
 
@@ -42,12 +47,11 @@ class ArtifactPaths:
 
     base: Path = Path("training/artifacts")
 
-    # Intent model
-    intent_dir: Path = field(default_factory=lambda: Path(MODELS["intent"]["artifact"]))
-    intent_compiled: str = MODELS["intent"]["compiled"]
-    intent_meta: str = MODELS["intent"]["metadata"]
+    # XGB model
+    xgb_dir: Path = field(default_factory=lambda: Path(MODELS["xgb"]["artifact"]))
+    xgb_compiled: str = MODELS["xgb"]["compiled"]
 
-    # Time model - split path into dir and filename for compatibility
+    # Time model
     time_path: Path = field(default_factory=lambda: Path(MODELS["time"]["artifact"]))
     time_dir: Path = field(default_factory=lambda: Path(MODELS["time"]["artifact"]).parent)
     time_file: str = field(default_factory=lambda: Path(MODELS["time"]["artifact"]).name)
@@ -58,9 +62,9 @@ class ArtifactPaths:
 
 ARTIFACT_PATHS = ArtifactPaths()
 
-# ── GBM config ──────────────────────────────────────────────────
+# ── XGB config ───────────────────────────────────────────────────
 
-GBM_CONFIG: dict[str, Any] = CONFIG["gbm"]
+XGB_CONFIG: dict[str, Any] = CONFIG["xgb"]
 
 # ── Training config ──────────────────────────────────────────────
 
@@ -72,7 +76,7 @@ def get_model_features(model_name: str) -> list[str]:
     """Get the feature names for a specific model from TOML.
 
     Args:
-        model_name: Model name ("intent", "run", "pass", "punt", "time")
+        model_name: Model name ("xgb", "punt", "time")
 
     Returns:
         List of feature names as declared in pipeline.toml

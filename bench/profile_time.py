@@ -32,8 +32,6 @@ FUNCTIONS = (
     apply_outcome,
     ## Models:
     OutcomeModel.__call__,
-    OutcomeModel._predict_outcome,
-    OutcomeModel._predict_intent,
     ## DataFrame conversion:
     _traces_to_dataframe,
     _event_from_play,
