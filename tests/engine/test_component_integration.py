@@ -13,6 +13,7 @@ import pickle
 import polars as pl
 import pytest
 
+from nfl_sim.analysis.EXPR import EVENT_EXPR
 from nfl_sim.engine.api import (
     GameResult,
     _simulate_game,
@@ -165,7 +166,8 @@ class TestTracesToDataframe:
             "yardline_100",
             "posteam",
             "yards_gained",
-            "event",
+            "touchdown",
+            "turnover_type",
             "home_score",
             "away_score",
         ]
@@ -186,8 +188,8 @@ class TestTracesToDataframe:
         assert sim_ids == [0, 1, 2, 3, 4]
 
     def test_events_are_valid(self, sims_multiple):
-        """Event column should have valid event types."""
-        df = _traces_to_dataframe(sims_multiple)
+        """Event column (derived in analysis layer) should have valid event types."""
+        df = _traces_to_dataframe(sims_multiple).with_columns(EVENT_EXPR)
 
         valid_events = {
             "Play",
@@ -198,6 +200,8 @@ class TestTracesToDataframe:
             "FieldGoalSuccess",
             "FieldGoalMiss",
             "PuntRegular",
+            "PickSix",
+            "FumbleSix",
         }
         actual_events = set(df["event"].unique().to_list())
 

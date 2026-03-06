@@ -18,10 +18,9 @@ from nfl_sim.engine.state import (
 def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameState:
     """The reducer/transition function.
 
-    This is the hardest part and should be:
-        - Exhaustively unit-tested
-        - Boring
-        - Deterministic
+    Also handles fixups on the outcome object:
+    - Sets outcome.touchdown when yardline_100 reaches the endzone
+    - Zeros outcome.yards_gained for ST plays (nflfastR convention)
     """
     # Apply time first
     new_clock = state[_CLK] - outcome.time_elapsed
@@ -30,13 +29,12 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
         new_clock = 900  # 15 min quarters
         new_quarter = state[_Q] + 1
 
-    # Apply yards (TD check uses <= 0, so don't clamp the lower bound here)
-    # Upper bound: >100 would be safety - clamp to 99 for now (safety handling TBD)
-    new_yardline_100 = min(99, state[_YL] - outcome.yards_gained)
-
     # Handle field goal (special case - points without TD, changes possession)
     if intent == Intent.FIELD_GOAL:
-        fg_made = new_yardline_100 <= 0
+        # outcome.yards_gained communicates kick distance from the model;
+        # consume it for the made/miss check, then zero it for the trace.
+        fg_made = state[_YL] - outcome.yards_gained <= 0
+        outcome.yards_gained = 0
         score = state[_SC]
         if fg_made:
             offense_idx = 0 if state[_OFF] == "HOME" else 1
@@ -46,11 +44,10 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
 
     # Handle punt (intentional possession change)
     if intent == Intent.PUNT:
-        # Fixed punt distance. Punt return outcomes (TD, touchback, fair catch) are
-        # not modeled - outcomes default to 50 yards and the receiving team's field position
-        # is determined mechanically from this distance. Future work could model specific
-        # return outcomes (fair catch, touchback, return TD) separately.
-        punt_distance = 50
+        # The punt model predicts yards; use outcome.yards_gained as punt distance.
+        punt_distance = outcome.yards_gained
+        outcome.yards_gained = 0  # zero for trace (nflfastR convention)
+
         punt_landing = state[_YL] - punt_distance
         if punt_landing <= 0:
             # Into or past endzone - touchback at the 25
@@ -69,8 +66,13 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
             state[_SC],
         )
 
+    # Apply yards (TD check uses <= 0, so don't clamp the lower bound here)
+    # Upper bound: >100 would be safety - clamp to 99 for now (safety handling TBD)
+    new_yardline_100 = min(99, state[_YL] - outcome.yards_gained)
+
     # Handle touchdown (yardline_100 reached endzone)
     if new_yardline_100 <= 0:
+        outcome.touchdown = True
         offense_idx = 0 if state[_OFF] == "HOME" else 1
         sc = state[_SC]
         score = (sc[0] + 7, sc[1]) if offense_idx == 0 else (sc[0], sc[1] + 7)

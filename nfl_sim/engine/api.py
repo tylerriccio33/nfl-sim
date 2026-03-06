@@ -18,9 +18,7 @@ from nfl_sim.engine.state import (
     _SC,
     _YL,
     GameTrace,
-    Intent,
     PlayEvent,
-    TurnoverType,
     _GameState,
 )
 from nfl_sim.models.context import DerivedContext, GameContext, ModelContext
@@ -59,20 +57,6 @@ def _run_game_loop(initial_state: _GameState, game_context: GameContext) -> Game
         intent, outcome = outcome_model(context)
         outcome = aftermath_model(context, intent, outcome)
         new_state = apply_outcome(state, intent, outcome)
-
-        # Post-apply fixups: the outcome object is now the canonical record for
-        # trace consumers, so we reconcile it with what the engine actually did.
-
-        # Engine detects TDs by yardline_100 - reflect this in the outcome for consumers
-        if intent not in (Intent.FIELD_GOAL, Intent.PUNT):
-            new_yardline_100 = state[_YL] - outcome.yards_gained
-            if new_yardline_100 <= 0:
-                outcome.touchdown = True
-        else:
-            # Per nflfastR: yards_gained is 0 for non-run/pass plays. The model
-            # uses yards_gained internally to communicate kick distance to
-            # apply_outcome, but once consumed it should be zeroed for the trace.
-            outcome.yards_gained = 0
 
         trace.append(PlayEvent(state, intent, outcome, new_state))
         state = new_state
@@ -177,62 +161,6 @@ def sim_games(
     return results
 
 
-def _event_from_play(play: PlayEvent) -> str:
-    """Derive the event string from a PlayEvent for summarization.
-
-    Event mapping (case-insensitive, matches EXPR.py expectations):
-    - Touchdown: yardline_100 reached endzone
-    - Interception: turnover_type == INTERCEPTION
-    - FumbleLost: turnover_type == FUMBLE
-    - TurnoverOnDowns: 4th down failure (possession changed but no model turnover)
-    - FieldGoalSuccess: FG action + yardline_100 reached 0
-    - PuntRegular: punt action
-    - Play: default (normal run/pass)
-    """
-    sb = play.state_before
-    sa = play.state_after
-    intent = play.intent
-    outcome = play.outcome
-
-    # Field goal miss (FG intent, no score change, possession changed)
-    if intent == Intent.FIELD_GOAL:
-        offense_idx = 0 if sb[_OFF] == "HOME" else 1
-        if sa[_SC][offense_idx] == sb[_SC][offense_idx]:
-            return "FieldGoalMiss"
-        return "FieldGoalSuccess"
-
-    # Punt
-    if intent == Intent.PUNT:
-        return "PuntRegular"
-
-    # Model-generated turnovers
-    if outcome.turnover_type == TurnoverType.INTERCEPTION:
-        return "Interception"
-    if outcome.turnover_type == TurnoverType.FUMBLE:
-        return "FumbleLost"
-
-    # Check for touchdown (yardline_100 reached/passed endzone)
-    if sa[_YL] == 75 and sa[_OFF] != sb[_OFF]:
-        # Possession changed with reset to 75 - could be TD, FG, punt, or turnover
-        # Check if score increased for the offense
-        offense_idx = 0 if sb[_OFF] == "HOME" else 1
-        score_before = sb[_SC][offense_idx]
-        score_after = sa[_SC][offense_idx]
-
-        if score_after - score_before == 7:
-            return "Touchdown"
-        if score_after - score_before == 3:
-            return "FieldGoalSuccess"
-
-    # Turnover on downs: 4th down, possession changed, but not a model turnover
-    if sb[_DN] == 4 and sa[_OFF] != sb[_OFF]:
-        if outcome.turnover_type == TurnoverType.NONE:
-            return "TurnoverOnDowns"
-
-    # Default: normal play
-    return "Play"
-
-
 def _traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
     """Convert simulation traces to a play-by-play DataFrame.
 
@@ -242,7 +170,7 @@ def _traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
     Returns:
         DataFrame with columns:
             game_id, sim_id, play_id, quarter, clock, down, distance, yardline_100,
-            posteam, intent, yards_gained, event, home_score, away_score
+            posteam, intent, yards_gained, touchdown, turnover_type, home_score, away_score
 
     """
     # ------------------------------------------------------------------
@@ -266,8 +194,8 @@ def _traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
 
     intent = np.empty(total_rows, dtype=object)
     yards_gained = np.empty(total_rows, dtype=np.int16)
-    event = np.empty(total_rows, dtype=object)
-
+    touchdown = np.empty(total_rows, dtype=np.bool_)
+    turnover_type = np.empty(total_rows, dtype=object)
     home_score = np.empty(total_rows, dtype=np.int16)
     away_score = np.empty(total_rows, dtype=np.int16)
 
@@ -296,9 +224,10 @@ def _traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
                     yardline_100[i] = sb[_YL]
                     posteam[i] = sb[_OFF]
 
-                    intent[i] = str(play.intent.value)
+                    intent[i] = play.intent.name.lower()
                     yards_gained[i] = play.outcome.yards_gained
-                    event[i] = _event_from_play(play)
+                    touchdown[i] = play.outcome.touchdown
+                    turnover_type[i] = play.outcome.turnover_type.name
 
                     home_score[i] = sa[_SC][0]
                     away_score[i] = sa[_SC][1]
@@ -326,7 +255,8 @@ def _traces_to_dataframe(traces: dict[str, list[GameTrace]]) -> pl.DataFrame:
             "posteam": posteam,
             "intent": intent,
             "yards_gained": yards_gained,
-            "event": event,
+            "touchdown": touchdown,
+            "turnover_type": turnover_type,
             "home_score": home_score,
             "away_score": away_score,
         }

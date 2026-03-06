@@ -19,6 +19,7 @@ Main entry points:
 
 import polars as pl
 
+from nfl_sim.analysis.EXPR import EVENT_EXPR
 from nfl_sim.analysis.understand import understand
 from nfl_sim.const import (
     DATABASE,
@@ -54,7 +55,7 @@ def place_sim_results_at_db() -> None:
 
     ## Sim Data:
     traces = sim_games(ctx, n=25)
-    sim_pbp: pl.DataFrame = _traces_to_dataframe(traces)
+    sim_pbp: pl.DataFrame = _traces_to_dataframe(traces).with_columns(EVENT_EXPR)
     sim_pbp.write_parquet(DATABASE())
 
     ## Understand Data (unified GameAggs with home_*/away_* stats):

@@ -102,13 +102,10 @@ class OutcomeModel:
         intent = _INTENT_MAP[cfg["intent"]]
 
         # Special teams routing
-        match intent:
-            case Intent.PUNT:
-                return intent, self._predict_punt(context)
-            case Intent.FIELD_GOAL:
-                return intent, self._predict_fg(context)
-            case _:
-                pass
+        if intent == Intent.PUNT:
+            return intent, self._predict_punt(context)
+        if intent == Intent.FIELD_GOAL:
+            return intent, self._predict_fg(context)
 
         # Sample yards uniformly from the token's bucket
         lo, hi = cfg["yards"]
@@ -201,9 +198,12 @@ class AfterPlayModel:
         """Predict seconds consumed by the play, conditioned on outcome fields.
 
         Uses treelite-compiled single-tree random forest for fast inference.
+        Creates a fresh ModelContext with the outcome set rather than mutating.
         """
-        context.outcome = outcome
-        full_features = build_features_for_model("time", context)
+        ctx_with_outcome = ModelContext(
+            context.state, context.derived, context.game_context, outcome
+        )
+        full_features = build_features_for_model("time", ctx_with_outcome)
         pred = treelite.gtil.predict(
             self._time_model,
             full_features.reshape(1, -1).astype(np.float32),
@@ -221,7 +221,7 @@ class AfterPlayModel:
             pred_time = self._predict_time(context, outcome)
         elif intent == Intent.FIELD_GOAL:
             pred_time = 5
-        else:
+        else:  # TODO: What?
             pred_time = 10
 
         outcome.time_elapsed = min(pred_time, context.state[_CLK])

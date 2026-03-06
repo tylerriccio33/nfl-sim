@@ -1,17 +1,16 @@
 """Module for collecting data relevant to the current game."""
 
-import contextlib
+import dataclasses
+import inspect
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Literal, Self
+from typing import ClassVar, Literal, Self
 
 import numpy as np
 import polars as pl
 
+from nfl_sim.engine._GENERATED_outcome import Outcome
 from nfl_sim.engine.state import _CLK, _DEF, _DIST, _DN, _OFF, _Q, _SC, _YL, GameTrace, _GameState
-from nfl_sim.pipeline_config import get_model_features
-
-if TYPE_CHECKING:
-    from nfl_sim.engine.state import Outcome
+from nfl_sim.pipeline_config import MODELS, get_model_features
 
 # Mapping of feature names to _GameState indices (names follow nflfastR pbp conventions)
 STATE_FEATURE_MAP = {
@@ -251,37 +250,77 @@ class ModelContext:
     state: _GameState
     derived: DerivedContext
     game_context: GameContext
-    outcome: "Outcome | None" = None
+    outcome: Outcome | None = None
 
     def get_features(self, team: Literal["HOME", "AWAY"], feat: str) -> int | float:
-        """Get a feature from the context.
+        """Get a feature from the context via static dispatch.
 
-        Args:
-            team: Either "HOME" or "AWAY", used for context-dependent features.
-            feat: Feature name to get.
-
-        Returns:
-            The feature value.
-
+        The dispatch map (FEATURE_SOURCE) is built once at module level by
+        introspecting the actual classes, so any unrecognized feature fails
+        loudly at import time rather than silently falling through.
         """
-        # 1 - Try State
-        with contextlib.suppress(KeyError):
+        source = FEATURE_SOURCE[feat]
+        if source == _SRC_STATE:
             return self.state[STATE_FEATURE_MAP[feat]]  # ty:ignore[invalid-return-type]
-
-        # 2 - Try DerivedContext
-        with contextlib.suppress(AttributeError):
+        if source == _SRC_DERIVED:
             return getattr(self.derived, feat)
-
-        # 3 - Try GameContext
-        with contextlib.suppress(AttributeError):
+        if source == _SRC_GAME:
             return self.game_context.get_feature(team, feat)
+        # _SRC_OUTCOME
+        assert self.outcome is not None, f"Outcome feature '{feat}' requested but outcome is None"
+        return getattr(self.outcome, feat)
 
-        # 4 - Try Outcome (for conditioning features like yards_gained, complete_pass)
-        if self.outcome is not None:
-            with contextlib.suppress(AttributeError):
-                return getattr(self.outcome, feat)
 
-        raise AttributeError(f"Feature '{feat}' not found in any context")
+# ---------------------------------------------------------------------------
+# Static feature dispatch — built once at import by introspecting actual classes.
+# If a model feature from TOML isn't found in any source, we fail immediately.
+# ---------------------------------------------------------------------------
+
+_SRC_STATE = 0
+_SRC_DERIVED = 1
+_SRC_GAME = 2
+_SRC_OUTCOME = 3
+
+
+def _build_feature_source() -> dict[str, int]:
+    """Build a mapping from feature name → source constant.
+
+    Sources are discovered by introspecting the actual classes so nothing
+    is hardcoded beyond the class definitions themselves.
+    """
+    known: dict[str, int] = {}
+
+    # State features from the explicit index map
+    for feat in STATE_FEATURE_MAP:
+        known[feat] = _SRC_STATE
+
+    # DerivedContext: all public properties (not _private, not inherited from object)
+    for name, obj in inspect.getmembers(DerivedContext):
+        if isinstance(obj, property) and not name.startswith("_"):
+            known[name] = _SRC_DERIVED
+
+    # GameContext: declared feature_names class var
+    for feat in GameContext.feature_names:
+        known[feat] = _SRC_GAME
+
+    # Outcome: all dataclass fields
+    for f in dataclasses.fields(Outcome):
+        known[f.name] = _SRC_OUTCOME
+
+    # Validate: every model feature in TOML must be in the map
+    for model_name, model_cfg in MODELS.items():
+        for feat in model_cfg.get("features", []):
+            if feat not in known:
+                msg = (
+                    f"Model '{model_name}' declares feature '{feat}' "
+                    f"but it's not found in any source (State, Derived, Game, Outcome)"
+                )
+                raise ValueError(msg)
+
+    return known
+
+
+FEATURE_SOURCE: dict[str, int] = _build_feature_source()
 
 
 def build_features_for_model(model_name: str, context: ModelContext) -> np.ndarray:

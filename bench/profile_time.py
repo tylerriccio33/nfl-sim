@@ -11,7 +11,6 @@ from line_profiler import LineProfiler
 from loguru import logger
 
 from nfl_sim.engine.api import (
-    _event_from_play,
     _run_game_loop,
     _run_one_game,
     _simulate_game,
@@ -32,9 +31,9 @@ FUNCTIONS = (
     apply_outcome,
     ## Models:
     OutcomeModel.__call__,
+    OutcomeModel._predict_token,
     ## DataFrame conversion:
     _traces_to_dataframe,
-    _event_from_play,
     build_features_for_model,
 )
 

@@ -14,9 +14,50 @@ _PLAY_SCHEMA: dict[str, type[pl.DataType]] = {
     "yards_gained": pl.Int64,
     "event": pl.String,
     "down": pl.Int64,
+    "touchdown": pl.Boolean,
+    "turnover_type": pl.String,
     "home_score": pl.Int64,
     "away_score": pl.Int64,
 }
+
+
+# ---------------------------------------------------------------------------
+# Derived event column — maps raw outcome fields to a human-readable event.
+# Order matters: more specific events (e.g. PickSix) checked before general
+# ones (e.g. Interception).
+# ---------------------------------------------------------------------------
+EVENT_EXPR: pl.Expr = (
+    pl.when(pl.col("turnover_type").eq("INTERCEPTION") & pl.col("touchdown"))
+    .then(pl.lit("PickSix"))
+    .when(pl.col("turnover_type").eq("FUMBLE") & pl.col("touchdown"))
+    .then(pl.lit("FumbleSix"))
+    .when(pl.col("turnover_type").eq("INTERCEPTION"))
+    .then(pl.lit("Interception"))
+    .when(pl.col("turnover_type").eq("FUMBLE"))
+    .then(pl.lit("FumbleLost"))
+    .when(pl.col("touchdown"))
+    .then(pl.lit("Touchdown"))
+    .when(
+        pl.col("intent").eq("field_goal")
+        & (
+            (pl.col("home_score") != pl.col("home_score").shift(1).over("game_id", "sim_id"))
+            | (pl.col("away_score") != pl.col("away_score").shift(1).over("game_id", "sim_id"))
+        )
+    )
+    .then(pl.lit("FieldGoalSuccess"))
+    .when(pl.col("intent").eq("field_goal"))
+    .then(pl.lit("FieldGoalMiss"))
+    .when(
+        pl.col("down").eq(4)
+        & pl.col("intent").is_in(["run", "pass"])
+        & (pl.col("yards_gained") < pl.col("distance"))
+    )
+    .then(pl.lit("TurnoverOnDowns"))
+    .when(pl.col("intent").eq("punt"))
+    .then(pl.lit("PuntRegular"))
+    .otherwise(pl.lit("Play"))
+    .alias("event")
+)
 
 
 def _resolve_schema(

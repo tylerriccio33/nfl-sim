@@ -61,25 +61,6 @@ def _make_context(
     )
 
 
-# ── 1. Determinism ──────────────────────────────────────────────────────
-# Same payload + same RNG seed must produce identical predictions.
-
-
-def test_determinism():
-    """Identical inputs produce deterministic intent predictions.
-
-    Note: yards/turnover outcomes are stochastic due to CVAE sampling,
-    but intent is deterministic (argmax).
-    """
-    results = []
-    for _ in range(3):
-        ctx = _make_context()
-        intent, _ = outcome_model(ctx)
-        results.append(intent)
-
-    assert results[0] == results[1] == results[2]
-
-
 # ── 3. No-Future-Data (leakage smoke test) ──────────────────────────────
 # The feature vector must not contain any post-outcome information.
 

@@ -5,7 +5,7 @@ Aggregates GameSims (list of PBP DataFrames) into summary statistics.
 
 import polars as pl
 
-from nfl_sim.analysis.EXPR import GAME_LEVEL_EXPRS, SIM_LEVEL_EXPRS
+from nfl_sim.analysis.EXPR import EVENT_EXPR, GAME_LEVEL_EXPRS, SIM_LEVEL_EXPRS
 
 
 def understand(sims: pl.DataFrame) -> pl.DataFrame:
@@ -38,6 +38,10 @@ def understand(sims: pl.DataFrame) -> pl.DataFrame:
     assert "game_id" in schema
     assert "sim_id" in schema
     assert "play_id" in schema
+
+    # Derive event column from raw outcome fields if not already present
+    if "event" not in sims.collect_schema():
+        sims = sims.with_columns(EVENT_EXPR)
 
     return (
         sims.group_by("game_id", "sim_id")
