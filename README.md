@@ -2,16 +2,42 @@
 
 A play-by-play NFL game simulation engine.
 
+## Package Structure
+
+Two core packages with a strict one-directional dependency: `model/ → engine/` (never the reverse).
+
+```
+nfl_sim/
+├── engine/              # Simulation loop + game rules (pure, no ML)
+│   ├── state.py         # Types: _GameState, Intent, Outcome, PlayEvent, GameTrace
+│   ├── logic.py         # Game rules: apply_outcome(), is_terminal()
+│   ├── loop.py          # Sim orchestration: sim_games(), _run_batched_game_loop()
+│   └── _GENERATED_outcome.py
+├── model/               # Everything ML
+│   ├── config.py        # TOML loader: tokens, artifact paths, feature lists
+│   ├── features.py      # GameContext, ModelContext, feature engineering
+│   ├── inference.py     # XGB/punt/FG/time model loading + prediction
+│   └── pipeline.toml    # Central config (tokens, hyperparams, model declarations)
+├── analysis/            # Post-sim aggregation and understanding
+├── web/                 # Flask UI
+├── const.py             # Env-based file paths
+└── utils.py
+```
+
+**`engine/`** knows about game state, rules, and types. It has no ML imports (no numpy in `state.py` or `logic.py`). The sim loop in `loop.py` imports from `model/` to call inference, but `state.py` and `logic.py` are completely pure.
+
+**`model/`** owns features, inference, and configuration. Everything token/TOML/XGB lives here. `pipeline.toml` is colocated with the code that reads it.
+
 **The key section of game logic:**
 - Trace: All plays up to this point
 - State: The state of the game right now
-- Game Context: Details about the teams and game.
+- Game Features: Details about the teams and game.
 - Intent: The type of play the team will run.
 - Outcome: The outcome of said play.
 ```{python}
 derived = DerivedContext(trace)
-context = ModelContext(state, derived, rng, game_context)
-intent, outcome = model(context) # Completely abstracted from game logic.
+features = ModelContext(state, derived, game_features)
+intent, outcome = model(features)
 new_state = apply_outcome(state, intent, outcome)
 ```
 
@@ -38,7 +64,7 @@ RUN_FUM, PASS_FUM, PASS_INT
 PUNT, FG
 ```
 
-Each token is defined in `pipeline.toml` with: `intent`, `yards = [lo, hi]`, `turnover`, `complete_pass`, `pass_attempt`, `rush_attempt`.
+Each token is defined in `model/pipeline.toml` with: `intent`, `yards = [lo, hi]`, `turnover`, `complete_pass`, `pass_attempt`, `rush_attempt`.
 
 **How it works:**
 
@@ -65,7 +91,7 @@ features (9) ──→  │ XGBoost  │──→ P(token) ──→ sample ─�
 2. XGB predict_proba → sample token from distribution.
 3. Parse token config → `(Intent, Outcome)`. For PUNT/FG, route to dedicated models.
 
-All token definitions and hyperparameters live in `pipeline.toml`.
+All token definitions and hyperparameters live in `model/pipeline.toml`.
 
 ## Code Style and Conventions
 

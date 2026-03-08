@@ -1,13 +1,8 @@
-import os
-
 import pytest
 
 from nfl_sim.analysis._agg_types import GameAggs
 
 
-@pytest.mark.skipif(
-    os.getenv("NFL_SIM_PARITY", "0") != "1", reason="Run parity tests with `make parity`."
-)
 @pytest.mark.parametrize("stat", GameAggs._fields)
 def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str):
     real_stats, sim_stats = build_comparison_data
@@ -29,9 +24,6 @@ def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str):
     assert savg <= one_std_abv, msg
 
 
-@pytest.mark.skipif(
-    os.getenv("NFL_SIM_PARITY", "0") != "1", reason="Run parity tests with `make parity`."
-)
 def test_avg_points_in_range(build_comparison_data: tuple[dict, dict]):
     """Average total points per game should be in a realistic range (35-55)."""
     _, sim_stats = build_comparison_data
@@ -41,9 +33,6 @@ def test_avg_points_in_range(build_comparison_data: tuple[dict, dict]):
     assert 35 <= total <= 55, f"Total points avg {total:.1f} outside [35, 55]"
 
 
-@pytest.mark.skipif(
-    os.getenv("NFL_SIM_PARITY", "0") != "1", reason="Run parity tests with `make parity`."
-)
 def test_no_team_negative_yards(build_comparison_data: tuple[dict, dict]):
     """No team should average negative yards across simulations."""
     _, sim_stats = build_comparison_data
@@ -53,9 +42,6 @@ def test_no_team_negative_yards(build_comparison_data: tuple[dict, dict]):
     assert away_yards >= 0, f"Away team avg yards {away_yards:.1f} is negative"
 
 
-@pytest.mark.skipif(
-    os.getenv("NFL_SIM_PARITY", "0") != "1", reason="Run parity tests with `make parity`."
-)
 def test_turnovers_plausible(build_comparison_data: tuple[dict, dict]):
     """Turnovers per game should be within plausible bounds (0-8)."""
     _, sim_stats = build_comparison_data
@@ -67,9 +53,6 @@ def test_turnovers_plausible(build_comparison_data: tuple[dict, dict]):
     assert 0 <= total_turnovers <= 8, f"Total turnovers avg {total_turnovers:.1f} outside [0, 8]"
 
 
-@pytest.mark.skipif(
-    os.getenv("NFL_SIM_PARITY", "0") != "1", reason="Run parity tests with `make parity`."
-)
 def test_total_plays_sane(build_comparison_data: tuple[dict, dict]):
     """Total plays per game should be within sane bounds (80-200)."""
     _, sim_stats = build_comparison_data

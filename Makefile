@@ -19,16 +19,13 @@ types: ## Generate type stubs for aggregation types
 	@uv run --no-sync python scripts/gen_agg_stubs.py
 
 test: ## Run tests
-	@uv run --no-sync pytest \
+	@uv run pytest \
 		--cov nfl_sim \
 		--cov-report term-missing \
 		--durations 10
 
-test-train: ## Run training-related tests
-	@NFL_SIM_TRAIN_TEST=1 uv run pytest -sv tests/analysis/test_model.py tests/analysis/test_model_efficacy.py
-
-parity: ## Run parity tests
-	@NFL_SIM_PARITY=1 uv run pytest tests/engine/test_parity.py
+test-model: ## Run model grading tests (parity, efficacy, contract)
+	@uv run pytest tests/model/
 
 cov-api: ## Run web API integration tests with coverage
 	@uv run --no-sync pytest tests/web/test_web_integration.py \

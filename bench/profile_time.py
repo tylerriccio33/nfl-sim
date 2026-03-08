@@ -28,9 +28,9 @@ FUNCTIONS = (
     ## State transitions:
     apply_outcome,
     ## Models:
-    OutcomeModel.__call__,
     OutcomeModel._predict_token,
     OutcomeModel.predict_probs_batch,
+    OutcomeModel._token_to_outcome,
     ## DataFrame conversion:
     _traces_to_dataframe,
     build_features_for_model,

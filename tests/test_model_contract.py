@@ -296,12 +296,5 @@ def test_game_context_features_not_play_level(raw_pbp: pl.DataFrame):
     )
 
 
-@pytest.mark.xfail
-def test_model_2nd_down_problem():
-    # Test the model can identify if a team is sacked on 2nd down 100% of the time.
-    # It should predict a sack
-    raise NotImplementedError
-
-
 if __name__ == "__main__":
     pytest.main([__file__, "-sv"])

@@ -1,6 +1,5 @@
 """Shared fixtures for NFL sim tests."""
 
-import os
 from pathlib import Path
 
 import polars as pl
@@ -214,13 +213,6 @@ def _stats_to_avg_std(stats: pl.DataFrame) -> dict[str, tuple[float, float]]:
 def build_comparison_data(
     raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame
 ) -> tuple[dict[str, tuple[float, float]], dict[str, tuple[float, float]]]:
-    # Only build comparison data if parity tests are explicitly enabled.
-    # This fixture is expensive (simulates 100 games * n=2) and only used by
-    # test_parity.py, which is skipped by default.
-
-    if os.getenv("NFL_SIM_PARITY", "0") != "1":
-        pytest.skip("Parity tests disabled. Run with `make parity` to enable.")
-
     ## Real data: reshape into sim schema and aggregate
     real_pbp = _real_pbp_to_sim_schema(raw_pbp)
     real_stats = understand(real_pbp)
