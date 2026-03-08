@@ -14,7 +14,7 @@ from dataclasses import replace
 import pytest
 
 from nfl_sim import place_sim_results_at_db
-from nfl_sim.engine.apply import apply_outcome, is_terminal
+from nfl_sim.engine.logic import apply_outcome, is_terminal
 from nfl_sim.engine.state import (
     _CLK,
     _DEF,

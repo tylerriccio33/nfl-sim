@@ -8,15 +8,15 @@ import polars as pl
 import pytest
 
 from nfl_sim.engine.state import Intent, TurnoverType
-from nfl_sim.models.context import (
+from nfl_sim.model.config import get_model_features
+from nfl_sim.model.features import (
     DerivedContext,
     GameContext,
     ModelContext,
     build_features_for_model,
     ctx_from_game_id,
 )
-from nfl_sim.models.outcomes import aftermath_model, outcome_model
-from nfl_sim.pipeline_config import get_model_features
+from nfl_sim.model.inference import aftermath_model, outcome_model
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 

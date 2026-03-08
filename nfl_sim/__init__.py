@@ -28,8 +28,8 @@ from nfl_sim.const import (
     PBP_DATA,
     SCHEDULES_DATA,
 )
-from nfl_sim.engine.api import _traces_to_dataframe, sim_games
-from nfl_sim.models.context import GameContext, ctx_from_game_id
+from nfl_sim.engine.loop import _traces_to_dataframe, sim_games
+from nfl_sim.model.features import GameContext, ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
 
 __all__ = [

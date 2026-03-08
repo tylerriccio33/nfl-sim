@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, Protocol
 import numpy as np
 import polars as pl
 
-from nfl_sim.models.context import DerivedContext, GameContext, ModelContext, ctx_from_game_id
-from nfl_sim.pipeline_config import MODELS, TRAINING_CONFIG
+from nfl_sim.model.config import MODELS, TRAINING_CONFIG
+from nfl_sim.model.features import DerivedContext, GameContext, ModelContext, ctx_from_game_id
 
 if TYPE_CHECKING:
     from nfl_sim.engine.state import _GameState

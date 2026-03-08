@@ -14,7 +14,7 @@ import polars as pl
 import pytest
 
 from nfl_sim.analysis.EXPR import EVENT_EXPR
-from nfl_sim.engine.api import (
+from nfl_sim.engine.loop import (
     GameResult,
     _simulate_game,
     _traces_to_dataframe,

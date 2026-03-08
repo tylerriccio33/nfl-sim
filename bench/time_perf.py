@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.table import Table
 
 from nfl_sim import sim_games
-from nfl_sim.models.context import GameContext
+from nfl_sim.model.features import GameContext
 
 NSIMS = [1, 50, 100]
 TRIALS = 3

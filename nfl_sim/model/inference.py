@@ -27,8 +27,8 @@ from nfl_sim.engine.state import (
     Outcome,
     TurnoverType,
 )
-from nfl_sim.models.context import ModelContext, build_features_for_model
-from nfl_sim.pipeline_config import ARTIFACT_PATHS, TOKEN_NAMES, TOKENS
+from nfl_sim.model.config import ARTIFACT_PATHS, TOKEN_NAMES, TOKENS
+from nfl_sim.model.features import ModelContext, build_features_for_model
 
 # Map turnover string from TOML → TurnoverType enum
 _TURNOVER_MAP = {

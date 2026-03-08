@@ -8,9 +8,9 @@ import polars.selectors as cs
 import pytest
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
-from nfl_sim.engine.api import GameResult, GameTrace, _simulate_game, _traces_to_dataframe
+from nfl_sim.engine.loop import GameResult, GameTrace, _simulate_game, _traces_to_dataframe
 from nfl_sim.engine.state import Outcome, _GameState
-from nfl_sim.models.context import DerivedContext, ModelContext, ctx_from_game_id
+from nfl_sim.model.features import DerivedContext, ModelContext, ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
 

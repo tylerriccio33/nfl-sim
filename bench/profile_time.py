@@ -10,15 +10,15 @@ from pathlib import Path
 from line_profiler import LineProfiler
 from loguru import logger
 
-from nfl_sim.engine.api import (
+from nfl_sim.engine.logic import apply_outcome
+from nfl_sim.engine.loop import (
     _run_batched_game_loop,
     _simulate_game,
     _traces_to_dataframe,
     sim_games,
 )
-from nfl_sim.engine.apply import apply_outcome
-from nfl_sim.models.context import GameContext, build_features_for_model
-from nfl_sim.models.outcomes import OutcomeModel
+from nfl_sim.model.features import GameContext, build_features_for_model
+from nfl_sim.model.inference import OutcomeModel
 
 FUNCTIONS = (
     ## High-level API:

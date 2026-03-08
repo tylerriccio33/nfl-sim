@@ -10,7 +10,7 @@ import polars as pl
 
 from nfl_sim.engine._GENERATED_outcome import Outcome
 from nfl_sim.engine.state import _CLK, _DEF, _DIST, _DN, _OFF, _Q, _SC, _YL, GameTrace, _GameState
-from nfl_sim.pipeline_config import MODELS, get_model_features
+from nfl_sim.model.config import MODELS, get_model_features
 
 # Mapping of feature names to _GameState indices (names follow nflfastR pbp conventions)
 STATE_FEATURE_MAP = {

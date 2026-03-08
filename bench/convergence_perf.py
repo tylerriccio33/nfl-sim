@@ -18,8 +18,8 @@ import polars as pl
 from rich.console import Console
 
 from nfl_sim import sim_games
-from nfl_sim.engine.api import _traces_to_dataframe
-from nfl_sim.models.context import ctx_from_game_id
+from nfl_sim.engine.loop import _traces_to_dataframe
+from nfl_sim.model.features import ctx_from_game_id
 
 START_AT = 100
 MAX_SIMS = 3_000

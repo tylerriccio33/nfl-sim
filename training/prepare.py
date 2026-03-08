@@ -19,12 +19,12 @@ from pathlib import Path
 
 import polars as pl
 
-from nfl_sim.models.context import engineer_game_features
-from nfl_sim.pipeline_config import (
+from nfl_sim.model.config import (
     INTENT_VALUES,
     PLAY_TYPE_MAP,
     TRAINING_CONFIG,
 )
+from nfl_sim.model.features import engineer_game_features
 
 DATA_PATH = Path(TRAINING_CONFIG["pbp_path"])
 SCHEDULE_PATH = Path(TRAINING_CONFIG["schedule_path"])

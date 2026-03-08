@@ -7,7 +7,7 @@ import pytest
 
 from nfl_sim import understand
 from nfl_sim.analysis.EXPR import _PLAY_SCHEMA, SIM_LEVEL_EXPRS, _resolve_schema
-from nfl_sim.engine.api import _traces_to_dataframe
+from nfl_sim.engine.loop import _traces_to_dataframe
 
 
 def test_full_pipeline_completes(ctx, sims_multiple):

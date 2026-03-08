@@ -18,7 +18,7 @@ import treelite.frontend
 import xgboost as xgb
 from pysuite import run
 
-from nfl_sim.pipeline_config import MODELS, TOKEN_NAMES, XGB_CONFIG
+from nfl_sim.model.config import MODELS, TOKEN_NAMES, XGB_CONFIG
 from training.prepare import prepare
 
 
@@ -144,18 +144,6 @@ def main() -> None:
             acc = float((eval_pred[mask] == idx).mean())
             print(f"  {name:15s} {acc:.3f}  (n={int(mask.sum())})")
 
-    # pysuite evaluation
-    eval_df = df.filter(~pl.Series(train_mask)).with_columns(
-        pl.Series("pred", eval_pred.astype(np.float64)),
-        pl.Series("real", y_eval.astype(np.float64)),
-    )
-    run(
-        xeval=eval_df.select(*feature_names, "desc"),
-        yeval=eval_df["real"],
-        ypred=eval_df["pred"],
-        show=True,
-    )
-
     # Save model (.ubj for backup, .tl for fast treelite inference)
     artifact_dir = Path(cfg["artifact"])
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -177,6 +165,19 @@ def main() -> None:
         verbose=True,
     )
     print(f"AOT-compiled model: {dylib_path}")
+
+    # pysuite evaluation (token-level classification)
+    idx_to_token = dict(enumerate(TOKEN_NAMES))
+    eval_df = df.filter(~pl.Series(train_mask)).with_columns(
+        pl.Series("pred_token", [idx_to_token[int(p)] for p in eval_pred]),
+        pl.Series("real_token", [idx_to_token[int(y)] for y in y_eval]),
+    )
+    run(
+        xeval=eval_df.select(*feature_names, "desc"),
+        yeval=eval_df["real_token"],
+        ypred=eval_df["pred_token"],
+        show=True,
+    )
 
 
 if __name__ == "__main__":

@@ -10,9 +10,10 @@ and game state for manual inspection.
 
 import numpy as np
 import polars as pl
+from pysuite import run
 
-from nfl_sim.models.context import build_features_for_model
-from nfl_sim.models.outcomes import OutcomeModel
+from nfl_sim.model.features import build_features_for_model
+from nfl_sim.model.inference import OutcomeModel
 from training.prepare import prepare
 from training.train_xgb import _tokenize_row
 from training.utils import build_contexts, make_model_context
@@ -99,6 +100,14 @@ def main() -> None:
             "pred_token",
             "match",
         )
+    )
+
+    # pysuite evaluation (token-level classification)
+    run(
+        xeval=result.select("play_type", "down", "ydstogo", "yardline_100"),
+        yeval=result["real_token"],
+        ypred=result["pred_token"],
+        show=True,
     )
 
 

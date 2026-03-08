@@ -11,7 +11,7 @@ import polars as pl
 import pytest
 
 from nfl_sim.analysis.understand import understand
-from nfl_sim.engine.api import GameTrace, _traces_to_dataframe
+from nfl_sim.engine.loop import GameTrace, _traces_to_dataframe
 
 pytestmark = pytest.mark.skipif(
     os.getenv("NFL_SIM_EFFICACY", "1") != "0",

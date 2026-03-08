@@ -2,7 +2,7 @@
 
 import pytest
 
-from nfl_sim.pipeline_config import MODELS, get_model_features
+from nfl_sim.model.config import MODELS, get_model_features
 
 
 class TestFeatureCompleteness:

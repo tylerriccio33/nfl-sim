@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 from rich.progress import Progress
 
-from nfl_sim.engine.apply import apply_outcome, is_terminal
+from nfl_sim.engine.logic import apply_outcome, is_terminal
 from nfl_sim.engine.state import (
     _CLK,
     _DIST,
@@ -23,14 +23,14 @@ from nfl_sim.engine.state import (
     PlayEvent,
     _GameState,
 )
-from nfl_sim.models.context import (
+from nfl_sim.model.config import TOKEN_NAMES
+from nfl_sim.model.features import (
     DerivedContext,
     GameContext,
     ModelContext,
     build_features_for_model,
 )
-from nfl_sim.models.outcomes import aftermath_model, outcome_model
-from nfl_sim.pipeline_config import TOKEN_NAMES
+from nfl_sim.model.inference import aftermath_model, outcome_model
 
 
 @dataclass(frozen=True)
