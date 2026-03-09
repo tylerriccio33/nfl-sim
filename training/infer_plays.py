@@ -12,6 +12,7 @@ import numpy as np
 import polars as pl
 from pysuite import run
 
+from nfl_sim.model.config import TOKEN_NAMES
 from nfl_sim.model.features import build_features_for_model
 from nfl_sim.model.inference import OutcomeModel
 from training.prepare import prepare
@@ -57,7 +58,9 @@ def main() -> None:
             model._load()
 
         features = build_features_for_model("xgb", ctx)
-        pred_token = model._predict_token(features)
+        probs = model.predict_probs_batch(features.reshape(1, -1))
+        idx = model.sample_tokens_batch(probs)[0]
+        pred_token = TOKEN_NAMES[idx]
 
         rows.append(
             {

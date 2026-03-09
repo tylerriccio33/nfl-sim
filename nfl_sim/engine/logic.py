@@ -49,7 +49,7 @@ def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameS
         outcome.yards_gained = 0  # zero for trace (nflfastR convention)
 
         punt_landing = state[_YL] - punt_distance
-        if punt_landing <= 0:
+        if punt_landing <= 0:  # TODO: Why?
             # Into or past endzone - touchback at the 25
             receiving_yardline_100 = 75
         else:

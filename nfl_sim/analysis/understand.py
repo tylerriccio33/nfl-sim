@@ -40,7 +40,7 @@ def understand(sims: pl.DataFrame) -> pl.DataFrame:
     assert "play_id" in schema
 
     # Derive event column from raw outcome fields if not already present
-    if "event" not in sims.collect_schema():
+    if "event" not in sims.collect_schema():  # TODO: Why would this never be there
         sims = sims.with_columns(EVENT_EXPR)
 
     return (

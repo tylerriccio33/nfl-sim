@@ -7,8 +7,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from nfl_sim.engine.state import Intent, TurnoverType
-from nfl_sim.model.config import get_model_features
+from nfl_sim.engine.state import _CLK, Intent, Outcome, TurnoverType
+from nfl_sim.model.config import TOKEN_NAMES, get_model_features
 from nfl_sim.model.features import (
     DerivedContext,
     GameContext,
@@ -19,6 +19,36 @@ from nfl_sim.model.features import (
 from nfl_sim.model.inference import aftermath_model, outcome_model
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
+
+def _predict_single(ctx: ModelContext) -> tuple[Intent, Outcome]:
+    """Run the outcome model for a single play using the batch APIs."""
+    if not outcome_model._loaded:
+        outcome_model._load()
+    features = build_features_for_model("xgb", ctx)
+    probs = outcome_model.predict_probs_batch(features.reshape(1, -1))
+    idx = outcome_model.sample_tokens_batch(probs)[0]
+    token = TOKEN_NAMES[idx]
+    intent, outcome = outcome_model._token_to_outcome(token, ctx)
+    outcome.touchdown = False
+    return intent, outcome
+
+
+def _predict_time_single(ctx: ModelContext, intent: Intent, outcome: Outcome) -> Outcome:
+    """Run the aftermath model for a single play using the batch API."""
+    if not aftermath_model._loaded:
+        aftermath_model._load()
+    if intent in (Intent.RUN, Intent.PASS):
+        ctx_with_outcome = ModelContext(ctx.state, ctx.derived, ctx.game_context, outcome)
+        time_features = build_features_for_model("time", ctx_with_outcome)
+        preds = aftermath_model.predict_time_batch(time_features.reshape(1, -1))
+        pred_time = int(min(preds[0], ctx.state[_CLK]))
+    elif intent == Intent.FIELD_GOAL:
+        pred_time = min(5, ctx.state[_CLK])
+    else:
+        pred_time = min(10, ctx.state[_CLK])
+    outcome.time_elapsed = pred_time
+    return outcome
 
 
 def _make_state(
@@ -116,7 +146,7 @@ def test_identifier_leakage_team_names():
 def test_zero_features_produce_finite_output():
     """Model should handle a zeroed-out state without crashing."""
     ctx = _make_context(quarter=0, clock=0, down=0, distance=0, yardline_100=0, score=(0, 0))
-    intent, out = outcome_model(ctx)
+    intent, out = _predict_single(ctx)
     assert isinstance(intent, Intent)
     assert isinstance(out.yards_gained, int)
 
@@ -132,8 +162,8 @@ def test_neutral_state_produces_sane_output():
         score=(0, 0),
         spread=0.0,
     )
-    intent, out = outcome_model(ctx)
-    out = aftermath_model(ctx, intent, out)
+    intent, out = _predict_single(ctx)
+    out = _predict_time_single(ctx, intent, out)
 
     assert isinstance(intent, Intent)
     assert -15 <= out.yards_gained <= 100
@@ -167,7 +197,7 @@ def test_neutral_state_produces_sane_output():
 def test_edge_inputs_no_nan(kw: dict):
     """Edge-case game states must produce finite, bounded predictions."""
     ctx = _make_context(**kw)
-    intent, out = outcome_model(ctx)
+    intent, out = _predict_single(ctx)
 
     assert isinstance(intent, Intent)
     assert np.isfinite(out.yards_gained), f"yards_gained is not finite: {out.yards_gained}"

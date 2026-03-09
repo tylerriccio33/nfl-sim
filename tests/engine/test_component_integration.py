@@ -16,7 +16,7 @@ import pytest
 from nfl_sim.analysis.EXPR import EVENT_EXPR
 from nfl_sim.engine.loop import (
     GameResult,
-    _simulate_game,
+    _run_batched_game_loop,
     _traces_to_dataframe,
 )
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, Intent
@@ -27,7 +27,7 @@ from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, Intent
 
 
 class TestSimulateGame:
-    """Tests for _simulate_game function."""
+    """Tests for single game simulation."""
 
     def test_game_completes(self, game_result):
         """A game should run to completion and return a result."""
@@ -250,28 +250,28 @@ def test_zero_zero_start(game_result):
 def test_no_hidden_global_state(ctx):
     """Running the same game twice should not leak state between runs."""
     first = next(iter(ctx.values()))
-    result_a = _simulate_game(first.home, first.away, context=first)
-    result_b = _simulate_game(first.home, first.away, context=first)
+    trace_a = _run_batched_game_loop(1, first)[0]
+    trace_b = _run_batched_game_loop(1, first)[0]
 
     # Both should complete without error and have valid traces
-    assert len(result_a.trace) > 0
-    assert len(result_b.trace) > 0
+    assert len(trace_a) > 0
+    assert len(trace_b) > 0
     # Initial state should be identical for both
-    assert result_a.trace[0].state_before == result_b.trace[0].state_before
+    assert trace_a[0].state_before == trace_b[0].state_before
 
 
 def test_stored_result_not_mutated(ctx):
     """Storing a result and running another sim should not mutate the stored one."""
     first = next(iter(ctx.values()))
-    result_a = _simulate_game(first.home, first.away, context=first)
-    score_a = (result_a.home_score, result_a.away_score)
-    trace_len_a = len(result_a.trace)
+    trace_a = _run_batched_game_loop(1, first)[0]
+    final_a = trace_a[-1].state_after[_SC]
+    trace_len_a = len(trace_a)
 
-    # Run another simulation — should not mutate result_a
-    _simulate_game(first.home, first.away, context=first)
+    # Run another simulation — should not mutate trace_a
+    _run_batched_game_loop(1, first)
 
-    assert (result_a.home_score, result_a.away_score) == score_a
-    assert len(result_a.trace) == trace_len_a
+    assert trace_a[-1].state_after[_SC] == final_a
+    assert len(trace_a) == trace_len_a
 
 
 def test_blowouts_possible(sims_multiple):

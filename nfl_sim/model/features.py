@@ -196,7 +196,7 @@ class DerivedContext:
     def offense(self) -> Literal["HOME", "AWAY"]:
         """Get the current offense from the last state in the trace."""
         if len(self._trace) == 0:
-            return "HOME"
+            return "HOME"  # TODO: Uhhhh does this run
         return self._trace[-1].state_after[_OFF]
 
     @property
@@ -300,7 +300,7 @@ def _build_feature_source() -> dict[str, int]:
     # Validate: every model feature in TOML must be in the map
     for model_name, model_cfg in MODELS.items():
         for feat in model_cfg.get("features", []):
-            if feat not in known:
+            if feat not in known:  # pragma: no cover
                 msg = (
                     f"Model '{model_name}' declares feature '{feat}' "
                     f"but it's not found in any source (State, Derived, Game, Outcome)"

@@ -74,7 +74,7 @@ def _run_batched_game_loop(n: int, game_context: GameContext) -> list[GameTrace]
     alive: list[int] = list(range(n))
 
     while alive:
-        alive_n = len(alive)
+        alive_n: int = len(alive)
 
         # ── 1. Build contexts + XGB features for all alive sims ──
         contexts: list[ModelContext] = []
@@ -100,11 +100,12 @@ def _run_batched_game_loop(n: int, game_context: GameContext) -> list[GameTrace]
         for j in range(alive_n):
             token_name = TOKEN_NAMES[token_indices[j]]
             intent, outcome = outcome_model._token_to_outcome(token_name, contexts[j])
-            outcome.touchdown = False
+            outcome.touchdown = False # TODO: What
             intents.append(intent)
             outcomes.append(outcome)
 
         # ── 5. Batch time prediction for RUN/PASS plays ──
+        # ST time is not modeled.
         time_indices: list[int] = []
         time_features: list[np.ndarray] = []
         for j in range(alive_n):
@@ -125,7 +126,7 @@ def _run_batched_game_loop(n: int, game_context: GameContext) -> list[GameTrace]
                 outcomes[j].time_elapsed = min(int(time_preds[k]), contexts[j].state[_CLK])
 
         # Fixed times for ST plays (capped at remaining clock)
-        for j in range(alive_n):
+        for j in range(alive_n): # TODO: Obviously shouldn't be happening here
             if intents[j] == Intent.FIELD_GOAL:
                 outcomes[j].time_elapsed = min(5, contexts[j].state[_CLK])
             elif intents[j] == Intent.PUNT:
@@ -142,19 +143,6 @@ def _run_batched_game_loop(n: int, game_context: GameContext) -> list[GameTrace]
         alive = new_alive
 
     return traces
-
-
-def _simulate_game(
-    home: str,
-    away: str,
-    *,
-    context: GameContext,
-) -> GameResult:
-    """Simulate a single game. Thin wrapper over the batched loop."""
-    trace = _run_batched_game_loop(1, context)[0]
-    final_state = trace[-1].state_after
-    h, a = final_state[_SC]
-    return GameResult(home=home, away=away, home_score=h, away_score=a, trace=trace)
 
 
 def sim_games(

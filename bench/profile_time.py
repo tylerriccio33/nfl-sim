@@ -13,7 +13,6 @@ from loguru import logger
 from nfl_sim.engine.logic import apply_outcome
 from nfl_sim.engine.loop import (
     _run_batched_game_loop,
-    _simulate_game,
     _traces_to_dataframe,
     sim_games,
 )
@@ -23,12 +22,10 @@ from nfl_sim.model.inference import OutcomeModel
 FUNCTIONS = (
     ## High-level API:
     sim_games,
-    _simulate_game,
     _run_batched_game_loop,
     ## State transitions:
     apply_outcome,
     ## Models:
-    OutcomeModel._predict_token,
     OutcomeModel.predict_probs_batch,
     OutcomeModel._token_to_outcome,
     ## DataFrame conversion:

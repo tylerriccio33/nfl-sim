@@ -7,8 +7,8 @@ import polars.selectors as cs
 import pytest
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
-from nfl_sim.engine.loop import GameResult, GameTrace, _simulate_game, _traces_to_dataframe
-from nfl_sim.engine.state import Outcome, _GameState
+from nfl_sim.engine.loop import GameResult, GameTrace, _run_batched_game_loop, _traces_to_dataframe
+from nfl_sim.engine.state import _SC, Outcome, _GameState
 from nfl_sim.model.features import DerivedContext, ModelContext, ctx_from_game_id
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
@@ -120,7 +120,15 @@ def ctx() -> dict[str, GameContext]:
 def game_result(ctx: dict[str, GameContext]) -> GameResult:
     """A single game result for tests that just need *a* completed game."""
     first = next(iter(ctx.values()))
-    return _simulate_game(first.home, first.away, context=first)
+    trace = _run_batched_game_loop(1, first)[0]
+    final = trace[-1].state_after
+    return GameResult(
+        home=first.home,
+        away=first.away,
+        home_score=final[_SC][0],
+        away_score=final[_SC][1],
+        trace=trace,
+    )
 
 
 @pytest.fixture(scope="session")
