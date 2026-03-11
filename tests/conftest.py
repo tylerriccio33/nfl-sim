@@ -120,7 +120,7 @@ def ctx() -> dict[str, GameContext]:
 def game_result(ctx: dict[str, GameContext]) -> GameResult:
     """A single game result for tests that just need *a* completed game."""
     first = next(iter(ctx.values()))
-    trace = _run_batched_game_loop(1, first)[0]
+    trace = _run_batched_game_loop([first])[0]
     final = trace[-1].state_after
     return GameResult(
         home=first.home,

@@ -250,8 +250,8 @@ def test_zero_zero_start(game_result):
 def test_no_hidden_global_state(ctx):
     """Running the same game twice should not leak state between runs."""
     first = next(iter(ctx.values()))
-    trace_a = _run_batched_game_loop(1, first)[0]
-    trace_b = _run_batched_game_loop(1, first)[0]
+    trace_a = _run_batched_game_loop([first])[0]
+    trace_b = _run_batched_game_loop([first])[0]
 
     # Both should complete without error and have valid traces
     assert len(trace_a) > 0
@@ -263,12 +263,12 @@ def test_no_hidden_global_state(ctx):
 def test_stored_result_not_mutated(ctx):
     """Storing a result and running another sim should not mutate the stored one."""
     first = next(iter(ctx.values()))
-    trace_a = _run_batched_game_loop(1, first)[0]
+    trace_a = _run_batched_game_loop([first])[0]
     final_a = trace_a[-1].state_after[_SC]
     trace_len_a = len(trace_a)
 
     # Run another simulation — should not mutate trace_a
-    _run_batched_game_loop(1, first)
+    _run_batched_game_loop([first])
 
     assert trace_a[-1].state_after[_SC] == final_a
     assert len(trace_a) == trace_len_a

@@ -14,7 +14,7 @@ from dataclasses import replace
 import pytest
 
 from nfl_sim import place_sim_results_at_db
-from nfl_sim.engine.logic import apply_outcome, is_terminal
+from nfl_sim.engine.logic import apply_outcome, apply_time, is_terminal
 from nfl_sim.engine.state import (
     _CLK,
     _DEF,
@@ -328,6 +328,7 @@ class TestClockManagement:
         outcome = make_outcome(time_elapsed=7)
 
         result = apply_outcome(state, Intent.RUN, outcome)
+        result = apply_time(result, outcome.time_elapsed)
 
         assert result[_CLK] == 593
 
@@ -337,6 +338,7 @@ class TestClockManagement:
         outcome = make_outcome(time_elapsed=5)
 
         result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_time(result, outcome.time_elapsed)
 
         assert result[_CLK] == 115
 
@@ -346,6 +348,7 @@ class TestClockManagement:
         outcome = make_outcome(time_elapsed=10)
 
         result = apply_outcome(state, Intent.RUN, outcome)
+        result = apply_time(result, outcome.time_elapsed)
 
         assert result[_Q] == 2
         assert result[_CLK] == 900  # Reset to 15 minutes
@@ -365,6 +368,7 @@ class TestQuarterTransitions:
         outcome = make_outcome(time_elapsed=5)
 
         result = apply_outcome(state, Intent.RUN, outcome)
+        result = apply_time(result, outcome.time_elapsed)
 
         assert result[_Q] == 2
         assert result[_CLK] == 900
@@ -375,6 +379,7 @@ class TestQuarterTransitions:
         outcome = make_outcome(time_elapsed=10)
 
         result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_time(result, outcome.time_elapsed)
 
         assert result[_Q] == 3
 
@@ -384,6 +389,7 @@ class TestQuarterTransitions:
         outcome = make_outcome(time_elapsed=5)
 
         result = apply_outcome(state, Intent.RUN, outcome)
+        result = apply_time(result, outcome.time_elapsed)
 
         assert result[_Q] == 4
 
@@ -393,6 +399,7 @@ class TestQuarterTransitions:
         outcome = make_outcome(time_elapsed=10)
 
         result = apply_outcome(state, Intent.RUN, outcome)
+        result = apply_time(result, outcome.time_elapsed)
 
         assert result[_Q] == 5
 

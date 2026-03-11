@@ -15,19 +15,37 @@ from nfl_sim.engine.state import (
 )
 
 
+def apply_time(state: _GameState, seconds: int) -> _GameState:
+    """Decrement clock and handle quarter transitions."""
+    new_clock = state[_CLK] - seconds
+    new_quarter = state[_Q]
+    if new_clock <= 0:
+        new_clock = 900
+        new_quarter = state[_Q] + 1
+    return (
+        new_quarter,
+        new_clock,
+        state[_OFF],
+        state[_DEF],
+        state[_DN],
+        state[_DIST],
+        state[_YL],
+        state[_SC],
+    )
+
+
 def apply_outcome(state: _GameState, intent: Intent, outcome: Outcome) -> _GameState:
     """The reducer/transition function.
+
+    Handles spatial transitions only (yards, TD, turnover, possession).
+    Clock/quarter transitions are handled separately by apply_time().
 
     Also handles fixups on the outcome object:
     - Sets outcome.touchdown when yardline_100 reaches the endzone
     - Zeros outcome.yards_gained for ST plays (nflfastR convention)
     """
-    # Apply time first
-    new_clock = state[_CLK] - outcome.time_elapsed
+    new_clock = state[_CLK]
     new_quarter = state[_Q]
-    if new_clock <= 0:
-        new_clock = 900  # 15 min quarters
-        new_quarter = state[_Q] + 1
 
     # Handle field goal (special case - points without TD, changes possession)
     if intent == Intent.FIELD_GOAL:

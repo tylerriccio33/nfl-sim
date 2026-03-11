@@ -78,7 +78,7 @@ def run_accuracy_benchmark(n_games: int | None = 100, n_sims_per_game: int = 50)
         chunk_schedule = schedule.filter(pl.col("game_id").is_in(chunk_ids))
 
         contexts = ctx_from_game_id(pbp, chunk_schedule, chunk_ids)
-        traces = sim_games(games=contexts, n=n_sims_per_game, max_workers=1)
+        traces = sim_games(games=contexts, n=n_sims_per_game, max_workers=8)
 
         chunk_df: pl.DataFrame = (
             _traces_to_dataframe(traces)

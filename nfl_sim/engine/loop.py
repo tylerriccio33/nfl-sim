@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 from rich.progress import Progress
 
-from nfl_sim.engine.logic import apply_outcome, is_terminal
+from nfl_sim.engine.logic import apply_outcome, apply_time, is_terminal
 from nfl_sim.engine.state import (
     _CLK,
     _DIST,
@@ -55,12 +55,12 @@ def _create_initial_state() -> _GameState:
     return (1, 900, "HOME", "AWAY", 1, 10, 75, (0, 0))
 
 
-def _run_batched_game_loop(n: int, game_context: GameContext) -> list[GameTrace]:
-    """Run n sims of the same game in lockstep, batching inference.
+def _run_batched_game_loop(game_contexts: list[GameContext]) -> list[GameTrace]:
+    """Run sims in lockstep, batching inference across all games.
 
-    Instead of running each sim sequentially (for each sim → for each play),
-    this flips the loop order (for each play-step → across all N sims) so that
-    treelite calls operate on (N, F) batches instead of N individual (1, F) calls.
+    Each element in game_contexts is one simulation (possibly different games).
+    The loop batches inference across ALL alive sims regardless of which game
+    they belong to.
     """
     # Ensure models are loaded before the hot loop
     if not outcome_model._loaded:
@@ -68,6 +68,7 @@ def _run_batched_game_loop(n: int, game_context: GameContext) -> list[GameTrace]
     if not aftermath_model._loaded:
         aftermath_model._load()
 
+    n = len(game_contexts)
     initial = _create_initial_state()
     states: list[_GameState] = [initial] * n
     traces: list[GameTrace] = [[] for _ in range(n)]
@@ -81,7 +82,7 @@ def _run_batched_game_loop(n: int, game_context: GameContext) -> list[GameTrace]
         features_list: list[np.ndarray] = []
         for i in alive:
             derived = DerivedContext(traces[i])
-            ctx = ModelContext(states[i], derived, game_context)
+            ctx = ModelContext(states[i], derived, game_contexts[i])
             contexts.append(ctx)
             features_list.append(build_features_for_model("xgb", ctx))
 
@@ -91,54 +92,47 @@ def _run_batched_game_loop(n: int, game_context: GameContext) -> list[GameTrace]
         probs = outcome_model.predict_probs_batch(features_batch)
 
         # ── 3. Vectorized token sampling ──
-        token_indices = outcome_model.sample_tokens_batch(probs)
+        token_indices: list[int] = outcome_model.sample_tokens_batch(probs)
 
         # ── 4. Parse tokens → Intent + Outcome (per-sim, cheap) ──
         # PUNT/FG need sub-model routing so these stay per-sim.
         intents: list[Intent] = []
         outcomes: list[Outcome] = []
         for j in range(alive_n):
-            token_name = TOKEN_NAMES[token_indices[j]]
+            token_name: str = TOKEN_NAMES[token_indices[j]]
             intent, outcome = outcome_model._token_to_outcome(token_name, contexts[j])
-            outcome.touchdown = False # TODO: What
+            outcome.touchdown = False  # TODO: What
             intents.append(intent)
             outcomes.append(outcome)
 
-        # ── 5. Batch time prediction for RUN/PASS plays ──
-        # ST time is not modeled.
-        time_indices: list[int] = []
+        # ── 5. Apply spatial outcomes (no clock changes yet) ──
+        new_states: list[_GameState] = []
+        for j, i in enumerate(alive):
+            new_states.append(apply_outcome(states[i], intents[j], outcomes[j]))
+
+        # ── 6. Batch time prediction for ALL plays ──
         time_features: list[np.ndarray] = []
         for j in range(alive_n):
-            if intents[j] in (Intent.RUN, Intent.PASS):
-                time_indices.append(j)
-                ctx_with_outcome = ModelContext(
-                    contexts[j].state,
-                    contexts[j].derived,
-                    contexts[j].game_context,
-                    outcomes[j],
-                )
-                time_features.append(build_features_for_model("time", ctx_with_outcome))
+            ctx_with_outcome = ModelContext(
+                new_states[j],
+                contexts[j].derived,
+                contexts[j].game_context,
+                outcomes[j],
+            )
+            time_features.append(build_features_for_model("time", ctx_with_outcome))
 
-        if time_features:
-            time_batch = np.stack(time_features)
-            time_preds = aftermath_model.predict_time_batch(time_batch)
-            for k, j in enumerate(time_indices):
-                outcomes[j].time_elapsed = min(int(time_preds[k]), contexts[j].state[_CLK])
+        time_batch = np.stack(time_features)
+        time_preds = aftermath_model.predict_time_batch(time_batch)
+        for j in range(alive_n):
+            outcomes[j].time_elapsed = min(int(time_preds[j]), contexts[j].state[_CLK])
 
-        # Fixed times for ST plays (capped at remaining clock)
-        for j in range(alive_n): # TODO: Obviously shouldn't be happening here
-            if intents[j] == Intent.FIELD_GOAL:
-                outcomes[j].time_elapsed = min(5, contexts[j].state[_CLK])
-            elif intents[j] == Intent.PUNT:
-                outcomes[j].time_elapsed = min(10, contexts[j].state[_CLK])
-
-        # ── 6. Apply outcomes, update traces, prune terminal sims ──
+        # ── 7. Apply time, update traces, prune terminal sims ──
         new_alive: list[int] = []
         for j, i in enumerate(alive):
-            new_state = apply_outcome(states[i], intents[j], outcomes[j])
-            traces[i].append(PlayEvent(states[i], intents[j], outcomes[j], new_state))
-            states[i] = new_state
-            if not is_terminal(new_state):
+            final_state = apply_time(new_states[j], outcomes[j].time_elapsed)
+            traces[i].append(PlayEvent(states[i], intents[j], outcomes[j], final_state))
+            states[i] = final_state
+            if not is_terminal(final_state):
                 new_alive.append(i)
         alive = new_alive
 
@@ -150,43 +144,68 @@ def sim_games(
     *,
     n: int = 1,
     max_workers: int | None = None,
+    chunk_size: int = 1_000,
 ) -> dict[str, list[GameTrace]]:
     """Simulate multiple games n times each.
 
-    Each game is an independent work unit. When multiple games are provided,
-    they are distributed across processes (one game per core).
+    Flattens all sims across all games into a single list, chunks them,
+    and distributes chunks across processes. Each chunk runs in a single
+    batched loop regardless of which game each sim belongs to.
 
     Args:
         games: Dict mapping game_id to GameContext
         n: Number of simulations per game
-        max_workers: Process count. Defaults to min(num_games, cpu_count).
+        max_workers: Process count. Defaults to min(num_chunks, cpu_count).
             Set to 1 to force sequential execution.
+        chunk_size: Number of sims per work unit (default 100).
 
     Returns:
         Dict mapping game_id to list of GameTrace
 
     """
-    game_items = list(games.items())
+    # ── 1. Flatten: repeat each game context n times ──
+    flat_ids: list[str] = []
+    flat_contexts: list[GameContext] = []
+    for gid, ctx in games.items():
+        for _ in range(n):
+            flat_ids.append(gid)
+            flat_contexts.append(ctx)
 
-    workers = max_workers or min(len(game_items), (os.cpu_count() or 1))
+    total = len(flat_contexts)
 
-    # Skip process overhead when it can't help
-    if workers <= 1 or len(game_items) <= 1:
-        return {gid: _run_batched_game_loop(n, ctx) for (gid, ctx) in game_items}
+    # ── 2. Chunk ──
+    chunks = [flat_contexts[i : i + chunk_size] for i in range(0, total, chunk_size)]
+    chunk_ids = [flat_ids[i : i + chunk_size] for i in range(0, total, chunk_size)]
 
-    results: dict[str, list[GameTrace]] = {}
-    with Progress() as progress:
-        task = progress.add_task("Simulating games", total=len(game_items))
+    workers = max_workers or min(len(chunks), os.cpu_count() or 1)
 
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = {
-                pool.submit(_run_batched_game_loop, n, ctx): gid for (gid, ctx) in game_items
-            }
-            for future in as_completed(futures):
-                gid = futures[future]
-                results[gid] = future.result()
-                progress.advance(task)
+    # ── 3. Execute ──
+    all_traces: list[GameTrace] = []
+    all_ids: list[str] = []
 
+    if workers <= 1 or len(chunks) <= 1:
+        for ids, chunk in zip(chunk_ids, chunks):
+            all_traces.extend(_run_batched_game_loop(chunk))
+            all_ids.extend(ids)
+    else:
+        with Progress() as progress:
+            task = progress.add_task("Simulating games", total=len(chunks))
+            with ProcessPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(_run_batched_game_loop, chunk): ids
+                    for ids, chunk in zip(chunk_ids, chunks)
+                }
+                for future in as_completed(futures):
+                    ids = futures[future]
+                    traces = future.result()
+                    all_traces.extend(traces)
+                    all_ids.extend(ids)
+                    progress.advance(task)
+
+    # ── 4. Regroup by game_id ──
+    results: dict[str, list[GameTrace]] = {gid: [] for gid in games}
+    for gid, trace in zip(all_ids, all_traces):
+        results[gid].append(trace)
     return results
 
 
