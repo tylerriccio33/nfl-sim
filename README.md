@@ -95,6 +95,12 @@ All token definitions and hyperparameters live in `model/pipeline.toml`.
 
 ## Code Style and Conventions
 
+#### For Fixing the tl2cgen problem:
+mkdir -p ~/.local/share/uv/python/cpython-3.14.3-macos-aarch64-none/lib
+
+ln -s /opt/homebrew/opt/libomp/lib/libomp.dylib \
+~/.local/share/uv/python/cpython-3.14.3-macos-aarch64-none/lib/libomp.dylib
+
 ## The Perfect Documentation/Model
 
 This is an example of one of the most perfectly documented piece of inline code I grabbed from online. Seek to emulate this for extremely dense sections or at the developer's request.

@@ -4,8 +4,9 @@ version = "0.1.0"
 authors = [
     { name = "Tyler Riccio", email = "tylerriccio8@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
+    "cinderx>=0.0.1",
     "fire>=0.7.1",
     "flask>=3.0.0",
     "jinja2>=3.1.6",
@@ -13,9 +14,10 @@ dependencies = [
     "loguru>=0.7.3",
     "numpy>=2.0.0",
     "polars>=1.36.1",
-    "pysuite>=0.1.0",
     "rich>=14.2.0",
+    "tl2cgen>=1.0.0",
     "treelite>=4.6.1",
+    "treelite-runtime>=3.9.1",
     "xgboost>=3.2.0",
 ]
 
@@ -36,7 +38,6 @@ nfl-sim = "nfl_sim.__main__:main"
 
 [dependency-groups]
 dev = [
-    "complexipy>=5.1.0",
     "great-tables>=0.20.0",
     "hypothesis>=6.100.0",
     "line-profiler>=4.1.0",
@@ -51,8 +52,6 @@ dev = [
     "requests>=2.32.5",
     "ruff>=0.14.10",
     "scikit-learn>=1.8.0",
-    "tl2cgen>=1.0.0",
-    "torchmetrics>=1.8.2",
     "ty>=0.0.8",
 ]
 
@@ -118,7 +117,9 @@ ignore = [
   "D213",
   "D107",
   "S101", # Use assert
-  "S105" # Secret keys
+  "S105", # Secret keys
+  "TC002", # future import annotations is not needed in Python 3.14+
+  "TC003" # future import annotations is not needed in Python 3.14+
 ]
 
 [tool.ruff.lint.per-file-ignores]

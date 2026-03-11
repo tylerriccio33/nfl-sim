@@ -49,7 +49,7 @@ def fetch_completed_games(n_games: int | None = NGAMES, min_season: int = 2020) 
     return completed
 
 
-def run_accuracy_benchmark(n_games: int | None = 100, n_sims_per_game: int = 50) -> pl.DataFrame:
+def run_accuracy_benchmark(n_games: int | None = 100, n_sims_per_game: int = NSIMS) -> pl.DataFrame:
     """Run N simulations per game and compare against actual results.
 
     Returns a DataFrame with columns: game_id, sim_result, gameday,
@@ -78,7 +78,7 @@ def run_accuracy_benchmark(n_games: int | None = 100, n_sims_per_game: int = 50)
         chunk_schedule = schedule.filter(pl.col("game_id").is_in(chunk_ids))
 
         contexts = ctx_from_game_id(pbp, chunk_schedule, chunk_ids)
-        traces = sim_games(games=contexts, n=n_sims_per_game, max_workers=8)
+        traces = sim_games(games=contexts, n=n_sims_per_game)
 
         chunk_df: pl.DataFrame = (
             _traces_to_dataframe(traces)

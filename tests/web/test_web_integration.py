@@ -11,7 +11,9 @@ from nfl_sim.utils import home_away_from_gameid
 from nfl_sim.web.storage import pull_game_metadata
 
 
-def test_full_user_journey(client, latest_rand_game_id: str | tuple[str, str], build_results) -> None:
+def test_full_user_journey(
+    client, latest_rand_game_id: str | tuple[str, str], build_results
+) -> None:
     """Simulate a user navigating through the entire app sequentially.
 
     Flow:

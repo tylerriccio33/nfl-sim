@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from nfl_sim.engine.state import _CLK, Intent, Outcome, TurnoverType
+from nfl_sim.engine.state import _CLK, Intent, Outcome, TurnoverType, _GameState
 from nfl_sim.model.config import TOKEN_NAMES, get_model_features
 from nfl_sim.model.features import (
     DerivedContext,
@@ -61,13 +61,13 @@ def _make_state(
     yardline_100: int = 45,
     score: tuple[int, int] = (10, 7),
     ydstogo: int | None = None,
-) -> tuple[int, int, str, str, int, int, int, tuple[int, int]]:
+) -> _GameState:
     # Support both 'distance' and 'ydstogo' parameter names for flexibility
     if ydstogo is not None:
         distance = ydstogo
     elif distance is None:
         distance = 7
-    return (quarter, clock, offense, defense, down, distance, yardline_100, score)
+    return (quarter, clock, offense, defense, down, distance, yardline_100, score)  # ty: ignore
 
 
 def _make_context(

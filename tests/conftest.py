@@ -1,11 +1,11 @@
 """Shared fixtures for NFL sim tests."""
 
-from flask.testing import FlaskClient
 from pathlib import Path
 
 import polars as pl
 import polars.selectors as cs
 import pytest
+from flask.testing import FlaskClient
 
 from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
 from nfl_sim.engine.loop import GameResult, GameTrace, _run_batched_game_loop, _traces_to_dataframe
