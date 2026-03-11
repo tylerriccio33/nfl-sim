@@ -189,7 +189,7 @@ class DerivedContext:
     decision making.
     """
 
-    def __init__(self, trace: GameTrace):
+    def __init__(self, trace: GameTrace) -> None:
         self._trace = trace
 
     @property

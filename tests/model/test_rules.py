@@ -85,7 +85,7 @@ MODEL_RULES: tuple[RuleChecker, ...] = (
 
 
 @pytest.mark.parametrize("checker", MODEL_RULES)
-def test_model_rules(checker: RuleChecker, sims: dict[str, list[GameTrace]]):
+def test_model_rules(checker: RuleChecker, sims: dict[str, list[GameTrace]]) -> None:
     for sim in sims.values():
         for trace in sim:
             checker(trace)
@@ -108,7 +108,7 @@ def sim_pbp(sims: dict[str, list[GameTrace]]) -> pl.DataFrame:
     return _traces_to_dataframe(sims)
 
 
-def test_understand_sanity(sim_pbp: pl.DataFrame):
+def test_understand_sanity(sim_pbp: pl.DataFrame) -> None:
     """Game-level aggregates from understand() should be within football norms."""
     stats = understand(sim_pbp)
     assert stats.height > 0

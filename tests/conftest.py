@@ -1,5 +1,6 @@
 """Shared fixtures for NFL sim tests."""
 
+from flask.testing import FlaskClient
 from pathlib import Path
 
 import polars as pl
@@ -46,7 +47,7 @@ def raw_schedules() -> pl.DataFrame:
 
 
 @pytest.fixture
-def client():
+def client() -> FlaskClient:
     """Flask test client."""
     app = create_app()
     app.config["TESTING"] = True
@@ -74,7 +75,7 @@ def latest_rand_game_id(raw_schedules: pl.DataFrame) -> tuple[str, str] | str:
 
 
 @pytest.fixture
-def override_const(monkeypatch, tmp_path: Path):
+def override_const(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("NFL_SIM_SCHEDULE_LOC", "data/schedules.parquet")
     monkeypatch.setenv("NFL_SIM_PBP_LOC", "data/pbp.parquet")
     monkeypatch.setenv("NFL_SIM_DATABASE", str(tmp_path / "1"))

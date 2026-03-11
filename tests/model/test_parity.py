@@ -4,7 +4,7 @@ from nfl_sim.analysis._agg_types import GameAggs
 
 
 @pytest.mark.parametrize("stat", GameAggs._fields)
-def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str):
+def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str) -> None:
     real_stats, sim_stats = build_comparison_data
 
     if stat not in real_stats:
@@ -24,7 +24,7 @@ def test_meta_parity(build_comparison_data: tuple[dict, dict], stat: str):
     assert savg <= one_std_abv, msg
 
 
-def test_avg_points_in_range(build_comparison_data: tuple[dict, dict]):
+def test_avg_points_in_range(build_comparison_data: tuple[dict, dict]) -> None:
     """Average total points per game should be in a realistic range (35-55)."""
     _, sim_stats = build_comparison_data
     home_avg = sim_stats["home_score_avg"][0]
@@ -33,7 +33,7 @@ def test_avg_points_in_range(build_comparison_data: tuple[dict, dict]):
     assert 35 <= total <= 55, f"Total points avg {total:.1f} outside [35, 55]"
 
 
-def test_no_team_negative_yards(build_comparison_data: tuple[dict, dict]):
+def test_no_team_negative_yards(build_comparison_data: tuple[dict, dict]) -> None:
     """No team should average negative yards across simulations."""
     _, sim_stats = build_comparison_data
     home_yards = sim_stats["home_yards_gained_avg"][0]
@@ -42,7 +42,7 @@ def test_no_team_negative_yards(build_comparison_data: tuple[dict, dict]):
     assert away_yards >= 0, f"Away team avg yards {away_yards:.1f} is negative"
 
 
-def test_turnovers_plausible(build_comparison_data: tuple[dict, dict]):
+def test_turnovers_plausible(build_comparison_data: tuple[dict, dict]) -> None:
     """Turnovers per game should be within plausible bounds (0-8)."""
     _, sim_stats = build_comparison_data
     home_int = sim_stats["home_interceptions_avg"][0]
@@ -53,7 +53,7 @@ def test_turnovers_plausible(build_comparison_data: tuple[dict, dict]):
     assert 0 <= total_turnovers <= 8, f"Total turnovers avg {total_turnovers:.1f} outside [0, 8]"
 
 
-def test_total_plays_sane(build_comparison_data: tuple[dict, dict]):
+def test_total_plays_sane(build_comparison_data: tuple[dict, dict]) -> None:
     """Total plays per game should be within sane bounds (80-200)."""
     _, sim_stats = build_comparison_data
     total_plays = sim_stats["total_plays_avg"][0]

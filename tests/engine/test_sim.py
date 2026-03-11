@@ -86,7 +86,7 @@ def make_outcome(**kwargs) -> Outcome:
 class TestDownProgression:
     """Tests for normal down advancement (1st → 2nd → 3rd → 4th)."""
 
-    def test_incomplete_pass_advances_down(self):
+    def test_incomplete_pass_advances_down(self) -> None:
         """Incomplete pass (0 yards) should advance down without moving."""
         state = make_state(down=1, distance=10, yardline_100=75)
         outcome = make_outcome(yards_gained=0)
@@ -97,7 +97,7 @@ class TestDownProgression:
         assert result[_DIST] == 10
         assert result[_YL] == 75
 
-    def test_short_gain_advances_down(self):
+    def test_short_gain_advances_down(self) -> None:
         """3 yard gain on 1st & 10 → 2nd & 7."""
         state = make_state(down=1, distance=10, yardline_100=75)
         outcome = make_outcome(yards_gained=3)
@@ -108,7 +108,7 @@ class TestDownProgression:
         assert result[_DIST] == 7
         assert result[_YL] == 72
 
-    def test_second_to_third_down(self):
+    def test_second_to_third_down(self) -> None:
         """2nd & 7 with 2 yard gain → 3rd & 5."""
         state = make_state(down=2, distance=7, yardline_100=72)
         outcome = make_outcome(yards_gained=2)
@@ -119,7 +119,7 @@ class TestDownProgression:
         assert result[_DIST] == 5
         assert result[_YL] == 70
 
-    def test_third_to_fourth_down(self):
+    def test_third_to_fourth_down(self) -> None:
         """3rd & 5 with 1 yard gain → 4th & 4."""
         state = make_state(down=3, distance=5, yardline_100=70)
         outcome = make_outcome(yards_gained=1)
@@ -130,7 +130,7 @@ class TestDownProgression:
         assert result[_DIST] == 4
         assert result[_YL] == 69
 
-    def test_loss_of_yards_increases_distance(self):
+    def test_loss_of_yards_increases_distance(self) -> None:
         """Sack for -5 yards on 2nd & 8 → 3rd & 13."""
         state = make_state(down=2, distance=8, yardline_100=50)
         outcome = make_outcome(yards_gained=-5)
@@ -150,7 +150,7 @@ class TestDownProgression:
 class TestFirstDown:
     """Tests for achieving first downs."""
 
-    def test_exact_first_down(self):
+    def test_exact_first_down(self) -> None:
         """Gain exactly the needed yards → new 1st & 10."""
         state = make_state(down=2, distance=7, yardline_100=50)
         outcome = make_outcome(yards_gained=7)
@@ -161,7 +161,7 @@ class TestFirstDown:
         assert result[_DIST] == 10
         assert result[_YL] == 43
 
-    def test_first_down_with_extra_yards(self):
+    def test_first_down_with_extra_yards(self) -> None:
         """Gain more than needed → still new 1st & 10."""
         state = make_state(down=3, distance=4, yardline_100=40)
         outcome = make_outcome(yards_gained=15)
@@ -172,7 +172,7 @@ class TestFirstDown:
         assert result[_DIST] == 10
         assert result[_YL] == 25
 
-    def test_first_down_on_fourth_down_conversion(self):
+    def test_first_down_on_fourth_down_conversion(self) -> None:
         """Converting 4th down gives new set of downs."""
         state = make_state(down=4, distance=1, yardline_100=30)
         outcome = make_outcome(yards_gained=3)
@@ -184,7 +184,7 @@ class TestFirstDown:
         assert result[_YL] == 27
         assert result[_OFF] == "HOME"  # Kept possession
 
-    def test_goal_to_go_first_down(self):
+    def test_goal_to_go_first_down(self) -> None:
         """First down inside 10 yard line → goal to go."""
         state = make_state(down=2, distance=6, yardline_100=12)
         outcome = make_outcome(yards_gained=8)
@@ -204,7 +204,7 @@ class TestFirstDown:
 class TestTurnoverOnDowns:
     """Tests for failing to convert on 4th down."""
 
-    def test_fourth_down_failure(self):
+    def test_fourth_down_failure(self) -> None:
         """Failing on 4th down → turnover on downs."""
         state = make_state(down=4, distance=5, yardline_100=50, offense="HOME", defense="AWAY")
         outcome = make_outcome(yards_gained=2)  # Short of first down
@@ -217,7 +217,7 @@ class TestTurnoverOnDowns:
         assert result[_DIST] == 10
         assert result[_YL] == 52  # 100 - 48
 
-    def test_fourth_down_incomplete_pass(self):
+    def test_fourth_down_incomplete_pass(self) -> None:
         """Incomplete pass on 4th down → turnover."""
         state = make_state(down=4, distance=10, yardline_100=65, offense="AWAY", defense="HOME")
         outcome = make_outcome(yards_gained=0)
@@ -238,7 +238,7 @@ class TestTurnoverOnDowns:
 class TestTurnovers:
     """Tests for fumbles and interceptions."""
 
-    def test_fumble_changes_possession(self):
+    def test_fumble_changes_possession(self) -> None:
         """Fumble on run → defense gets ball at spot."""
         state = make_state(down=1, distance=10, yardline_100=50, offense="HOME", defense="AWAY")
         outcome = make_outcome(yards_gained=5, turnover=True)
@@ -251,7 +251,7 @@ class TestTurnovers:
         assert result[_DIST] == 10
         assert result[_YL] == 55  # 100 - 45 (spot of fumble)
 
-    def test_interception_changes_possession(self):
+    def test_interception_changes_possession(self) -> None:
         """Interception → defense gets ball."""
         state = make_state(down=2, distance=8, yardline_100=40, offense="AWAY", defense="HOME")
         outcome = make_outcome(yards_gained=0, turnover=True)
@@ -272,7 +272,7 @@ class TestTurnovers:
 class TestTouchdowns:
     """Tests for scoring touchdowns."""
 
-    def test_touchdown_scores_seven_points(self):
+    def test_touchdown_scores_seven_points(self) -> None:
         """Reaching the endzone adds 7 points."""
         state = make_state(yardline_100=5, offense="HOME", defense="AWAY", score=(14, 7))
         outcome = make_outcome(yards_gained=5)  # Exactly to endzone
@@ -281,7 +281,7 @@ class TestTouchdowns:
 
         assert result[_SC] == (21, 7)
 
-    def test_away_team_touchdown(self):
+    def test_away_team_touchdown(self) -> None:
         """Away team scoring gets correct score update."""
         state = make_state(yardline_100=10, offense="AWAY", defense="HOME", score=(7, 14))
         outcome = make_outcome(yards_gained=15)
@@ -290,7 +290,7 @@ class TestTouchdowns:
 
         assert result[_SC] == (7, 21)
 
-    def test_touchdown_resets_possession(self):
+    def test_touchdown_resets_possession(self) -> None:
         """After TD, other team gets ball at their 25."""
         state = make_state(yardline_100=8, offense="HOME", defense="AWAY")
         outcome = make_outcome(yards_gained=10)
@@ -303,7 +303,7 @@ class TestTouchdowns:
         assert result[_DIST] == 10
         assert result[_YL] == 75  # Their 25 = 75 from opponent endzone
 
-    def test_long_touchdown_run(self):
+    def test_long_touchdown_run(self) -> None:
         """75+ yard TD run from own 25."""
         state = make_state(yardline_100=75, offense="HOME", score=(0, 0))
         outcome = make_outcome(yards_gained=80)
@@ -322,7 +322,7 @@ class TestTouchdowns:
 class TestClockManagement:
     """Tests for game clock progression."""
 
-    def test_clock_decreases_by_time_elapsed(self):
+    def test_clock_decreases_by_time_elapsed(self) -> None:
         """Normal play decreases clock."""
         state = make_state(clock=600)
         outcome = make_outcome(time_elapsed=7)
@@ -332,7 +332,7 @@ class TestClockManagement:
 
         assert result[_CLK] == 593
 
-    def test_quick_play_short_time(self):
+    def test_quick_play_short_time(self) -> None:
         """Short plays take less time."""
         state = make_state(clock=120)
         outcome = make_outcome(time_elapsed=5)
@@ -342,7 +342,7 @@ class TestClockManagement:
 
         assert result[_CLK] == 115
 
-    def test_clock_at_zero_advances_quarter(self):
+    def test_clock_at_zero_advances_quarter(self) -> None:
         """Clock hitting 0 moves to next quarter."""
         state = make_state(quarter=1, clock=5)
         outcome = make_outcome(time_elapsed=10)
@@ -362,7 +362,7 @@ class TestClockManagement:
 class TestQuarterTransitions:
     """Tests for quarter changes."""
 
-    def test_first_to_second_quarter(self):
+    def test_first_to_second_quarter(self) -> None:
         """Q1 → Q2 transition."""
         state = make_state(quarter=1, clock=3)
         outcome = make_outcome(time_elapsed=5)
@@ -373,7 +373,7 @@ class TestQuarterTransitions:
         assert result[_Q] == 2
         assert result[_CLK] == 900
 
-    def test_halftime_transition(self):
+    def test_halftime_transition(self) -> None:
         """Q2 → Q3 (halftime)."""
         state = make_state(quarter=2, clock=2)
         outcome = make_outcome(time_elapsed=10)
@@ -383,7 +383,7 @@ class TestQuarterTransitions:
 
         assert result[_Q] == 3
 
-    def test_third_to_fourth_quarter(self):
+    def test_third_to_fourth_quarter(self) -> None:
         """Q3 → Q4 transition."""
         state = make_state(quarter=3, clock=1)
         outcome = make_outcome(time_elapsed=5)
@@ -393,7 +393,7 @@ class TestQuarterTransitions:
 
         assert result[_Q] == 4
 
-    def test_game_progresses_past_fourth_quarter(self):
+    def test_game_progresses_past_fourth_quarter(self) -> None:
         """Q4 end → quarter becomes 5 (terminal check elsewhere)."""
         state = make_state(quarter=4, clock=2)
         outcome = make_outcome(time_elapsed=10)
@@ -412,15 +412,15 @@ class TestQuarterTransitions:
 class TestIsTerminal:
     """Tests for game ending conditions."""
 
-    def test_quarter_1_not_terminal(self):
+    def test_quarter_1_not_terminal(self) -> None:
         state = make_state(quarter=1)
         assert not is_terminal(state)
 
-    def test_quarter_4_not_terminal(self):
+    def test_quarter_4_not_terminal(self) -> None:
         state = make_state(quarter=4)
         assert not is_terminal(state)
 
-    def test_quarter_5_is_terminal(self):
+    def test_quarter_5_is_terminal(self) -> None:
         """Game ends when quarter > 4."""
         state = make_state(quarter=5)
         assert is_terminal(state)
@@ -434,7 +434,7 @@ class TestIsTerminal:
 class TestFieldPositionEdgeCases:
     """Tests for edge cases in field position."""
 
-    def test_backed_up_deep_in_own_territory(self):
+    def test_backed_up_deep_in_own_territory(self) -> None:
         """Play from own 5 yard line."""
         state = make_state(yardline_100=95)  # 5 yards from own endzone
         outcome = make_outcome(yards_gained=3)
@@ -443,7 +443,7 @@ class TestFieldPositionEdgeCases:
 
         assert result[_YL] == 92
 
-    def test_near_goal_line(self):
+    def test_near_goal_line(self) -> None:
         """Play from opponent's 1 yard line."""
         state = make_state(yardline_100=1, down=1, distance=1)
         outcome = make_outcome(yards_gained=0)
@@ -463,7 +463,7 @@ class TestFieldPositionEdgeCases:
 class TestPossessionContinuity:
     """Tests that possession stays consistent when it should."""
 
-    def test_normal_play_keeps_possession(self):
+    def test_normal_play_keeps_possession(self) -> None:
         """Normal plays don't change possession."""
         state = make_state(offense="HOME", defense="AWAY")
         outcome = make_outcome(yards_gained=5)
@@ -473,7 +473,7 @@ class TestPossessionContinuity:
         assert result[_OFF] == "HOME"
         assert result[_DEF] == "AWAY"
 
-    def test_first_down_keeps_possession(self):
+    def test_first_down_keeps_possession(self) -> None:
         """Getting first down keeps same possession."""
         state = make_state(down=3, distance=4, offense="AWAY")
         outcome = make_outcome(yards_gained=6)
@@ -495,7 +495,7 @@ class TestIntentTypeIndependence:
     (yards, turnover, etc. come from the outcome).
     """
 
-    def test_run_and_pass_same_outcome_same_result(self):
+    def test_run_and_pass_same_outcome_same_result(self) -> None:
         """Same outcome should produce same state regardless of intent."""
         state = make_state()
         outcome = make_outcome(yards_gained=5, time_elapsed=7)
@@ -506,7 +506,7 @@ class TestIntentTypeIndependence:
         assert run_result == pass_result
 
 
-def test_end_to_end_no_error(override_const):
+def test_end_to_end_no_error(override_const) -> None:
     place_sim_results_at_db()
 
 

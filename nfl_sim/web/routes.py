@@ -19,14 +19,14 @@ bp = Blueprint("main", __name__)
 
 
 @bp.route("/")
-def index():
+def index() -> str:
     """Render main page with current week games."""
     games: list[dict[str, Any]] = pull_game_metadata().to_dicts()
     return render_template("index.html", games=games)
 
 
 @bp.route("/simulate/<game_id>", methods=["POST"])
-def simulate(game_id: str):
+def simulate(game_id: str) -> str:
     """Load pre-computed simulation results for a matchup.
 
     In production, results are pulled from S3 parquet files.
@@ -50,7 +50,7 @@ def simulate(game_id: str):
 
 
 @bp.route("/game/<game_id>/<int:sim_idx>/plays")
-def play_by_play(game_id: str, sim_idx: int):
+def play_by_play(game_id: str, sim_idx: int) -> str:
     """Get play-by-play for a specific simulation from storage."""
     home, away = home_away_from_gameid(game_id)
 
@@ -102,7 +102,7 @@ def _compute_histogram(
 
 
 @bp.route("/game/<game_id>/stats")
-def stats_panel(game_id: str):
+def stats_panel(game_id: str) -> str:
     """Get statistics panel for current simulation."""
     home, away = home_away_from_gameid(game_id)
 

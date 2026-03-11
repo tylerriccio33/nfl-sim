@@ -23,7 +23,7 @@ from training.utils import Trainer, train_model
 class PuntYardsTrainer(Trainer):
     """Trainer for punt yards prediction using DecisionTreeRegressor."""
 
-    def __init__(self, max_depth: int = 8, min_samples_leaf: int = 10, random_state: int = 42):
+    def __init__(self, max_depth: int = 8, min_samples_leaf: int = 10, random_state: int = 42) -> None:
         """Initialize trainer with hyperparameters.
 
         Args:

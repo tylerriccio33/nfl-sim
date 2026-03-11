@@ -410,7 +410,7 @@ RULES: tuple[RuleChecker, ...] = (
 
 
 @pytest.mark.parametrize("checker", RULES)
-def test_rules(checker: RuleChecker, sims: dict[str, list[GameTrace]]):
+def test_rules(checker: RuleChecker, sims: dict[str, list[GameTrace]]) -> None:
     for sim in sims.values():
         for trace in sim:
             checker(trace)

@@ -61,7 +61,7 @@ def _make_state(
     yardline_100: int = 45,
     score: tuple[int, int] = (10, 7),
     ydstogo: int | None = None,
-):
+) -> tuple[int, int, str, str, int, int, int, tuple[int, int]]:
     # Support both 'distance' and 'ydstogo' parameter names for flexibility
     if ydstogo is not None:
         distance = ydstogo
@@ -95,7 +95,7 @@ def _make_context(
 # The feature vector must not contain any post-outcome information.
 
 
-def test_features_only_from_pre_play_state():
+def test_features_only_from_pre_play_state() -> None:
     """build_features_for_model uses only the pre-play state tuple, not outcomes."""
     ctx = _make_context()
     feats = build_features_for_model("xgb", ctx)
@@ -110,7 +110,7 @@ def test_features_only_from_pre_play_state():
 # because IDs are not in the feature vector.
 
 
-def test_identifier_leakage_game_id():
+def test_identifier_leakage_game_id() -> None:
     """Changing game_id must not affect feature or intent predictions.
 
     Note: Outcomes (yards, turnover) are stochastic due to CVAE sampling,
@@ -125,7 +125,7 @@ def test_identifier_leakage_game_id():
     np.testing.assert_array_equal(feats_a, feats_b)
 
 
-def test_identifier_leakage_team_names():
+def test_identifier_leakage_team_names() -> None:
     """Changing home/away team names must not affect predictions.
 
     Team names appear in GameContext but should never leak into features.
@@ -143,7 +143,7 @@ def test_identifier_leakage_team_names():
 # All-zero (or neutral) features should produce finite, non-extreme output.
 
 
-def test_zero_features_produce_finite_output():
+def test_zero_features_produce_finite_output() -> None:
     """Model should handle a zeroed-out state without crashing."""
     ctx = _make_context(quarter=0, clock=0, down=0, distance=0, yardline_100=0, score=(0, 0))
     intent, out = _predict_single(ctx)
@@ -151,7 +151,7 @@ def test_zero_features_produce_finite_output():
     assert isinstance(out.yards_gained, int)
 
 
-def test_neutral_state_produces_sane_output():
+def test_neutral_state_produces_sane_output() -> None:
     """A typical mid-game state should produce reasonable output."""
     ctx = _make_context(
         quarter=2,
@@ -194,7 +194,7 @@ def test_neutral_state_produces_sane_output():
         "huge_neg_spread",
     ],
 )
-def test_edge_inputs_no_nan(kw: dict):
+def test_edge_inputs_no_nan(kw: dict) -> None:
     """Edge-case game states must produce finite, bounded predictions."""
     ctx = _make_context(**kw)
     intent, out = _predict_single(ctx)
@@ -207,7 +207,7 @@ def test_edge_inputs_no_nan(kw: dict):
 # ── Feature vector contract ─────────────────────────────────────────────
 
 
-def test_features_shape_and_dtype():
+def test_features_shape_and_dtype() -> None:
     """Feature vector must have the correct shape and dtype."""
     ctx = _make_context()
     feats = build_features_for_model("xgb", ctx)
@@ -217,7 +217,7 @@ def test_features_shape_and_dtype():
     assert feats.dtype == np.float32
 
 
-def test_feature_order_matches_canonical():
+def test_feature_order_matches_canonical() -> None:
     """Feature values should land in the canonical feature order.
 
     We construct a known state and verify each feature position.
@@ -256,7 +256,7 @@ def test_feature_order_matches_canonical():
 # ── Feature name / function alignment ────────────────────────────────────
 
 
-def test_gen_feature_names_covers_build_features():
+def test_gen_feature_names_covers_build_features() -> None:
     """Feature names must match build_features_for_model output."""
     ctx = _make_context()
     feats = build_features_for_model("xgb", ctx)
@@ -271,7 +271,7 @@ def test_gen_feature_names_covers_build_features():
 # ── Context building (ctx_from_game_id + GameFeatures) ──────────────────
 
 
-def test_game_features_fields_match__gen_feature_names():
+def test_game_features_fields_match__gen_feature_names() -> None:
     """GameContext.feature_names must appear at the tail of get_model_features().
 
     This is the contract that keeps build_features_for_model, from_row, and
@@ -287,11 +287,11 @@ def test_game_features_fields_match__gen_feature_names():
 
 def test_feature_engineering_e2e(
     raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame, latest_rand_game_id
-):
+) -> None:
     ctx_from_game_id(raw_pbp, raw_schedules, game_ids=[latest_rand_game_id])
 
 
-def test_game_context_features_not_play_level(raw_pbp: pl.DataFrame):
+def test_game_context_features_not_play_level(raw_pbp: pl.DataFrame) -> None:
     """GameContext feature names must not collide with play-level pbp columns.
 
     If a GameContext feature shares a name with a play-level column in pbp,

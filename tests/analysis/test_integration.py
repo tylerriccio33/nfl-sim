@@ -10,7 +10,7 @@ from nfl_sim.analysis.EXPR import _PLAY_SCHEMA, SIM_LEVEL_EXPRS, _resolve_schema
 from nfl_sim.engine.loop import _traces_to_dataframe
 
 
-def test_full_pipeline_completes(ctx, sims_multiple):
+def test_full_pipeline_completes(ctx, sims_multiple) -> None:
     """Full pipeline should complete without error."""
     df = _traces_to_dataframe(sims_multiple)
     game_stats = understand(df)
@@ -25,7 +25,7 @@ def test_full_pipeline_completes(ctx, sims_multiple):
     assert "home_yards_gained_avg" in schema
 
 
-def test_home_away_symmetry():
+def test_home_away_symmetry() -> None:
     """Every home_ stat should have a corresponding away_ stat, and vice versa."""
     schema = _resolve_schema(_PLAY_SCHEMA, SIM_LEVEL_EXPRS)
     names = schema.names()

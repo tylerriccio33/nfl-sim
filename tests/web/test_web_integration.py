@@ -11,7 +11,7 @@ from nfl_sim.utils import home_away_from_gameid
 from nfl_sim.web.storage import pull_game_metadata
 
 
-def test_full_user_journey(client, latest_rand_game_id: str | tuple[str, str], build_results):
+def test_full_user_journey(client, latest_rand_game_id: str | tuple[str, str], build_results) -> None:
     """Simulate a user navigating through the entire app sequentially.
 
     Flow:
@@ -125,7 +125,7 @@ def test_full_user_journey(client, latest_rand_game_id: str | tuple[str, str], b
     assert b"Game Stats" in resp.data
 
 
-def test_all_game_ids_present_in_index(client, build_results):
+def test_all_game_ids_present_in_index(client, build_results) -> None:
     """Every game_id from the schedule should appear in the index page HTML."""
     expected_ids: list[str] = pull_game_metadata()["game_id"].to_list()
     assert len(expected_ids) > 0
