@@ -9,16 +9,12 @@ Both are lazy-loaded on first call.  This lets the module be imported freely
 (e.g. during training or in tests) without requiring trained artifacts on disk.
 """
 
-import os
 from typing import Any
 
 import joblib
 import numpy as np
 import tl2cgen
-
-# tl2cgen and torch both bundle their own libomp. With nthread=1 no OpenMP
-# threads are spawned, but the env var prevents an abort if both libs are loaded.
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+import xgboost as xgb
 
 from nfl_sim.engine.state import (
     Intent,
@@ -62,7 +58,7 @@ class OutcomeModel:
     _loaded: bool
     _punt_yards: Any
     _rng: np.random.Generator
-    _xgb: tl2cgen.Predictor
+    _xgb: xgb.Booster
 
     def __init__(self) -> None:
         self._loaded = False
@@ -71,11 +67,9 @@ class OutcomeModel:
         """Load every artifact into attributes, or fail loudly."""
         self._rng = np.random.default_rng()
 
-        # XGB token model (AOT-compiled shared library for fast inference)
-        self._xgb = tl2cgen.Predictor(
-            str(ARTIFACT_PATHS.xgb_dir / ARTIFACT_PATHS.xgb_compiled),
-            nthread=1,
-        )
+        # XGB token model (native Booster for fast vectorized inference)
+        self._xgb = xgb.Booster()
+        self._xgb.load_model(str(ARTIFACT_PATHS.xgb_dir / ARTIFACT_PATHS.xgb_raw))
 
         # Punt yards model (used when PUNT token is sampled)
         self._punt_yards = joblib.load(ARTIFACT_PATHS.punt_yards_path)
@@ -84,10 +78,8 @@ class OutcomeModel:
 
     def predict_probs_batch(self, features_batch: np.ndarray) -> np.ndarray:
         """Batch XGB predict: (N, 9) → (N, num_tokens) probabilities."""
-        dmat = tl2cgen.DMatrix(features_batch.astype(np.float32))
-        raw = self._xgb.predict(dmat)
-        # tl2cgen multiclass returns (N, 1, num_class) → squeeze to (N, num_class)
-        return raw[:, 0]
+        dmat = xgb.DMatrix(features_batch.astype(np.float32))
+        return self._xgb.predict(dmat)
 
     def sample_tokens_batch(self, probs_batch: np.ndarray) -> list[int]:
         """Vectorized token sampling: (N, num_tokens) → list of token indices.
@@ -175,8 +167,7 @@ class AfterPlayModel:
         self._loaded = False
 
     def _load(self) -> None:
-        time_model_path = ARTIFACT_PATHS.time_dir / ARTIFACT_PATHS.time_file
-        self._time_model = tl2cgen.Predictor(str(time_model_path), nthread=1)
+        self._time_model = tl2cgen.Predictor(str(ARTIFACT_PATHS.time_path), nthread=-1)
         self._loaded = True
 
     def predict_time_batch(self, features_batch: np.ndarray) -> np.ndarray:

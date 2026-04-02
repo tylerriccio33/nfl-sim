@@ -49,12 +49,10 @@ class ArtifactPaths:
 
     # XGB model
     xgb_dir: Path = field(default_factory=lambda: Path(MODELS["xgb"]["artifact"]))
-    xgb_compiled: str = MODELS["xgb"]["compiled"]
+    xgb_raw: str = MODELS["xgb"]["raw"]
 
     # Time model
     time_path: Path = field(default_factory=lambda: Path(MODELS["time"]["artifact"]))
-    time_dir: Path = field(default_factory=lambda: Path(MODELS["time"]["artifact"]).parent)
-    time_file: str = field(default_factory=lambda: Path(MODELS["time"]["artifact"]).name)
 
     # ST models
     punt_yards_path: Path = field(default_factory=lambda: Path(MODELS["punt"]["artifact"]))

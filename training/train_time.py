@@ -27,15 +27,14 @@ from training.utils import Trainer, train_model
 
 
 class TimeTrainer(Trainer):
-    """Trainer for time elapsed prediction using a single-tree RandomForest."""
+    """Trainer for time elapsed prediction using RandomForest."""
 
     def __init__(self) -> None:
         """Initialize trainer."""
         self.model: RandomForestRegressor | None = None
 
     def fit(self, x: np.ndarray, y: np.ndarray) -> None:
-        """Fit the random forest model (single tree)."""
-        # n_estimators=1 creates a single decision tree
+        """Fit the random forest model."""
         self.model = RandomForestRegressor(
             n_estimators=100, max_depth=10, random_state=42, n_jobs=-1
         )
