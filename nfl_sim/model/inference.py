@@ -9,9 +9,6 @@ Both are lazy-loaded on first call.  This lets the module be imported freely
 (e.g. during training or in tests) without requiring trained artifacts on disk.
 """
 
-from typing import Any
-
-import joblib
 import numpy as np
 import tl2cgen
 import xgboost as xgb
@@ -56,7 +53,7 @@ class OutcomeModel:
     )
 
     _loaded: bool
-    _punt_yards: Any
+    _punt_yards: tl2cgen.Predictor
     _rng: np.random.Generator
     _xgb: xgb.Booster
 
@@ -71,8 +68,8 @@ class OutcomeModel:
         self._xgb = xgb.Booster()
         self._xgb.load_model(str(ARTIFACT_PATHS.xgb_dir / ARTIFACT_PATHS.xgb_raw))
 
-        # Punt yards model (used when PUNT token is sampled)
-        self._punt_yards = joblib.load(ARTIFACT_PATHS.punt_yards_path)
+        # Punt yards model (tl2cgen-compiled RF for batched inference)
+        self._punt_yards = tl2cgen.Predictor(str(ARTIFACT_PATHS.punt_yards_path), nthread=-1)
 
         self._loaded = True
 
@@ -93,15 +90,26 @@ class OutcomeModel:
         return np.argmax(cumprobs >= u[:, None], axis=1).tolist()
 
     def _token_to_outcome(self, token: str, context: ModelContext) -> tuple[Intent, Outcome]:
-        """Parse a token into Intent + Outcome using TOML config."""
+        """Parse a token into Intent + Outcome using TOML config.
+
+        PUNT outcomes get a placeholder here — yards are filled in later by
+        predict_punt_batch() in the game loop.
+        """
         cfg = TOKENS[token]
         intent = _INTENT_MAP[cfg["intent"]]
 
-        # Special teams routing
-        if intent == Intent.PUNT:
-            return intent, self._predict_punt(context)
+        # Field goal: pure math, no model needed
         if intent == Intent.FIELD_GOAL:
             return intent, self._predict_fg(context)
+
+        # Punt: placeholder outcome — yards filled by predict_punt_batch()
+        if intent == Intent.PUNT:
+            return intent, Outcome(
+                yards_gained=0,
+                turnover_type=TurnoverType.NONE,
+                touchdown=False,
+                time_elapsed=20,
+            )
 
         # Sample yards uniformly from the token's bucket
         lo, hi = cfg["yards"]
@@ -117,23 +125,38 @@ class OutcomeModel:
             rush_attempt=cfg["rush_attempt"],
         )
 
-    def _predict_punt(self, context: ModelContext) -> Outcome:
-        """Predict punt outcome using the dedicated punt yards model."""
+    def predict_punt_batch(
+        self, contexts: list[ModelContext], punt_indices: list[int]
+    ) -> np.ndarray:
+        """Batch punt yards prediction for all punt plays in an iteration.
+
+        Args:
+            contexts: All ModelContext objects for this iteration
+            punt_indices: Indices into contexts that are PUNT plays
+
+        Returns:
+            Array of predicted punt yards, one per punt index
+        """
+        n = len(punt_indices)
+        if n == 0:
+            return np.empty(0)
+
         blocked_prob = 0.0005
-        rng = self._rng
+        blocked = self._rng.random(n) < blocked_prob
 
-        if rng.random() < blocked_prob:
-            yards_gained = -35
-        else:
-            x = build_features_for_model("punt", context).reshape(1, -1)
-            yards_gained = max(0, round(float(self._punt_yards.predict(x)[0])))
+        # Build features for non-blocked punts
+        feat_list = []
+        for j in punt_indices:
+            feat_list.append(build_features_for_model("punt", contexts[j]))
+        feat_batch = np.stack(feat_list)
 
-        return Outcome(
-            yards_gained=yards_gained,
-            turnover_type=TurnoverType.NONE,
-            touchdown=False,
-            time_elapsed=20,
-        )
+        dmat = tl2cgen.DMatrix(feat_batch.astype(np.float32))
+        raw = self._punt_yards.predict(dmat)
+        preds = np.maximum(0, np.round(raw[:, 0, 0])).astype(np.int32)
+
+        # Override blocked punts
+        preds[blocked] = -35
+        return preds
 
     def _predict_fg(self, context: ModelContext) -> Outcome:
         """Predict field goal outcome."""

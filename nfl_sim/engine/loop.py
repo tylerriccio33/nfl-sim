@@ -95,7 +95,6 @@ def _run_batched_game_loop(game_contexts: list[GameContext]) -> list[GameTrace]:
         token_indices: list[int] = outcome_model.sample_tokens_batch(probs)
 
         # ── 4. Parse tokens → Intent + Outcome (per-sim, cheap) ──
-        # PUNT/FG need sub-model routing so these stay per-sim.
         intents: list[Intent] = []
         outcomes: list[Outcome] = []
         for j in range(alive_n):
@@ -104,6 +103,13 @@ def _run_batched_game_loop(game_contexts: list[GameContext]) -> list[GameTrace]:
             outcome.touchdown = False  # TODO: What
             intents.append(intent)
             outcomes.append(outcome)
+
+        # ── 4b. Batch punt prediction ──
+        punt_indices = [j for j in range(alive_n) if intents[j] == Intent.PUNT]
+        if punt_indices:
+            punt_yards = outcome_model.predict_punt_batch(contexts, punt_indices)
+            for k, j in enumerate(punt_indices):
+                outcomes[j].yards_gained = int(punt_yards[k])
 
         # ── 5. Apply spatial outcomes (no clock changes yet) ──
         new_states: list[_GameState] = []

@@ -175,7 +175,7 @@ features = [
 outcomes = ["token"]
 
 [models.punt]
-artifact = "training/artifacts/punt/yards.joblib"
+artifact = "training/artifacts/punt/yards.dylib"
 features = ["yardline_100"]
 outcomes = ["kick_distance"]
 
