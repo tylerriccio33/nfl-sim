@@ -8,7 +8,7 @@ from rich.table import Table
 from nfl_sim import sim_games
 from nfl_sim.model.features import GameContext
 
-NSIMS = [1, 50, 100]
+NSIMS = [50, 100, 1000]
 TRIALS = 3
 
 

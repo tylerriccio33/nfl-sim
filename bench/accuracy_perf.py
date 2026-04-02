@@ -16,7 +16,7 @@ from nfl_sim.engine.loop import _traces_to_dataframe
 from nfl_sim.model.features import ctx_from_game_id
 
 NGAMES = None  # use all games in the dataset
-NSIMS = 100  # run `make converge` to explore
+NSIMS = 1_000  # run `make converge` to explore
 CHUNK_SIZE = 1_000  # process games in chunks to limit memory
 
 SCHEDULES_DATA = Path("data/schedules.parquet")

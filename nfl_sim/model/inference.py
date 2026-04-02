@@ -75,8 +75,7 @@ class OutcomeModel:
 
     def predict_probs_batch(self, features_batch: np.ndarray) -> np.ndarray:
         """Batch XGB predict: (N, 9) → (N, num_tokens) probabilities."""
-        dmat = xgb.DMatrix(features_batch.astype(np.float32))
-        return self._xgb.predict(dmat)
+        return self._xgb.inplace_predict(features_batch.astype(np.float32), validate_features=False)
 
     def sample_tokens_batch(self, probs_batch: np.ndarray) -> list[int]:
         """Vectorized token sampling: (N, num_tokens) → list of token indices.
@@ -136,6 +135,7 @@ class OutcomeModel:
 
         Returns:
             Array of predicted punt yards, one per punt index
+
         """
         n = len(punt_indices)
         if n == 0:
@@ -145,10 +145,7 @@ class OutcomeModel:
         blocked = self._rng.random(n) < blocked_prob
 
         # Build features for non-blocked punts
-        feat_list = []
-        for j in punt_indices:
-            feat_list.append(build_features_for_model("punt", contexts[j]))
-        feat_batch = np.stack(feat_list)
+        feat_batch = np.stack([build_features_for_model("punt", contexts[j]) for j in punt_indices])
 
         dmat = tl2cgen.DMatrix(feat_batch.astype(np.float32))
         raw = self._punt_yards.predict(dmat)
