@@ -64,16 +64,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cinderx"
-version = "2026.3.10.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ae/e1/ccd388ef46eefdfb98854e38bd1433bc616cd3c4dd94d22ab68e6553c853/cinderx-2026.3.10.0.tar.gz", hash = "sha256:10d337f0ffb8982f8c5bda1df7cd23fdf98580bfe4137820916e0ed5f9f09f21", size = 1589400, upload-time = "2026-03-11T00:02:43.268Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/1d/1322a9401858578daa088201852c12e45ed2aa4645b849829de1285a4849/cinderx-2026.3.10.0-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a1c5aa06e3a5a1d33dcdef79d06362820506a80b3d52d2513d5bd28f721bf319", size = 29267596, upload-time = "2026-03-11T00:02:33.049Z" },
-    { url = "https://files.pythonhosted.org/packages/10/fd/4aa9016a2acef07d886f92ad81c68354df33bf78e6ae16bce461649782d3/cinderx-2026.3.10.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:1d4cf6b78044c0bf2c3bd0d4aa83623dcdfd93bfc0b85f314a3ec3ad4096d410", size = 29736020, upload-time = "2026-03-11T00:02:38.074Z" },
-]
-
-[[package]]
 name = "click"
 version = "8.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -388,7 +378,6 @@ name = "nfl-sim"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "cinderx" },
     { name = "fire" },
     { name = "flask" },
     { name = "jinja2" },
@@ -424,7 +413,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cinderx", specifier = ">=0.0.1" },
     { name = "fire", specifier = ">=0.7.1" },
     { name = "flask", specifier = ">=3.0.0" },
     { name = "jinja2", specifier = ">=3.1.6" },

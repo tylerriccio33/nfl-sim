@@ -138,9 +138,6 @@ def _run_batched_game_loop(game_contexts: list[GameContext]) -> list[GameTrace]:
 
     return traces
 
-# import cinderx.jit
-
-# cinderx.jit.auto()
 
 def sim_games(
     games: dict[str, GameContext],
