@@ -7,10 +7,10 @@ import polars.selectors as cs
 import pytest
 from flask.testing import FlaskClient
 
-from nfl_sim import GameContext, place_sim_results_at_db, sim_games, understand
+from nfl_sim import place_sim_results_at_db, sim_games, understand
 from nfl_sim.engine.loop import GameResult, GameTrace, _run_batched_game_loop, _traces_to_dataframe
 from nfl_sim.engine.state import _SC, Outcome, _GameState
-from nfl_sim.model.features import DerivedContext, ModelContext, ctx_from_game_id
+from nfl_sim.model.store import FeatureStore, PlayContext
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
 
@@ -95,37 +95,30 @@ def build_results(override_const) -> None:
 # =============================================================================
 
 
-def _make_test_context(game_id: str, home: str, away: str) -> GameContext:
-    """Auto-generate a GameContext with dummy feature values.
-
-    Uses GameContext.feature_names to build kwargs dynamically so new features
-    are picked up automatically without updating every test fixture.
-    """
-    feat_kwargs: dict[str, tuple[float, float]] = dict.fromkeys(
-        GameContext.feature_names, (1.0, 1.0)
-    )
-    return GameContext(game_id=game_id, home=home, away=away, **feat_kwargs)
+@pytest.fixture(scope="session")
+def store() -> FeatureStore:
+    """Pre-materialized feature store."""
+    return FeatureStore()
 
 
 @pytest.fixture(scope="session")
-def ctx() -> dict[str, GameContext]:
-    """Multiple game contexts for testing."""
-    games = [
-        _make_test_context("2025_02_KC_BUF", "KC", "BUF"),
-        _make_test_context("2025_03_BUF_MIA", "BUF", "MIA"),
-    ]
-    return {g.game_id: g for g in games}
+def ctx(store: FeatureStore) -> list[str]:
+    """Two game IDs from the feature store for testing."""
+    ids = store.game_ids()
+    assert len(ids) >= 2, "Feature store needs at least 2 games for tests"
+    return ids[:2]
 
 
 @pytest.fixture(scope="session")
-def game_result(ctx: dict[str, GameContext]) -> GameResult:
+def game_result(ctx: list[str], store: FeatureStore) -> GameResult:
     """A single game result for tests that just need *a* completed game."""
-    first = next(iter(ctx.values()))
-    trace = _run_batched_game_loop([first])[0]
+    gid = ctx[0]
+    home, away = store.meta(gid)
+    trace = _run_batched_game_loop([(gid, home, away)], store)[0]
     final = trace[-1].state_after
     return GameResult(
-        home=first.home,
-        away=first.away,
+        home=home,
+        away=away,
         home_score=final[_SC][0],
         away_score=final[_SC][1],
         trace=trace,
@@ -133,15 +126,15 @@ def game_result(ctx: dict[str, GameContext]) -> GameResult:
 
 
 @pytest.fixture(scope="session")
-def sims(ctx: dict[str, GameContext]) -> dict[str, list[GameTrace]]:
+def sims(ctx: list[str], store: FeatureStore) -> dict[str, list[GameTrace]]:
     # Use minimal simulations for fast test execution
-    return sim_games(ctx, n=1)
+    return sim_games(ctx, store, n=1)
 
 
 @pytest.fixture(scope="session")
-def sims_multiple(ctx: dict[str, GameContext]) -> dict[str, list[GameTrace]]:
+def sims_multiple(ctx: list[str], store: FeatureStore) -> dict[str, list[GameTrace]]:
     """Multiple simulations (n=5) for integration tests that need trace variety."""
-    return sim_games(ctx, n=5)
+    return sim_games(ctx, store, n=5)
 
 
 # =============================================================================
@@ -220,7 +213,7 @@ def _stats_to_avg_std(stats: pl.DataFrame) -> dict[str, tuple[float, float]]:
 
 @pytest.fixture(scope="session")
 def build_comparison_data(
-    raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame
+    raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame, store: FeatureStore
 ) -> tuple[dict[str, tuple[float, float]], dict[str, tuple[float, float]]]:
     ## Real data: reshape into sim schema and aggregate
     real_pbp = _real_pbp_to_sim_schema(raw_pbp)
@@ -228,18 +221,16 @@ def build_comparison_data(
     real_stats_combined = _stats_to_avg_std(real_stats)
 
     ## Run simulations (reduced from 100 to 20 games for speed):
-    # Exclude week 1 games since ctx_from_game_id filters them (no prior EPA data).
+    # Exclude week 1 games since store filters them (no prior EPA data).
     schedule_filtered = raw_schedules.filter(pl.col("week") > 1).sample(n=20)
     latest_games: list[str] = schedule_filtered.select("game_id").unique().to_series().to_list()
 
-    ## Engineer data for Sims:
-    ctx: dict[str, GameContext] = ctx_from_game_id(
-        pbp=raw_pbp, schedule_data=schedule_filtered, game_ids=latest_games
-    )
-    assert len(ctx) >= 20
+    # Only simulate games that exist in the store
+    game_ids = [gid for gid in latest_games if gid in store._meta]
+    assert len(game_ids) >= 10
 
     ## Sim Data:
-    traces = sim_games(ctx, n=25)
+    traces = sim_games(game_ids, store, n=25)
     sim_pbp: pl.DataFrame = _traces_to_dataframe(traces)
     sim_stats = understand(sim_pbp)
     sim_stats_combined = _stats_to_avg_std(sim_stats)
@@ -248,7 +239,7 @@ def build_comparison_data(
 
 
 # =============================================================================
-# ModelContext Fixtures
+# PlayContext Fixtures
 # =============================================================================
 
 
@@ -271,26 +262,27 @@ def game_state() -> _GameState:
 
 
 @pytest.fixture
-def model_context(game_state: _GameState) -> ModelContext:
-    """ModelContext with game state and game-level features."""
-    game_context = _make_test_context("test_game_001", "KC", "BUF")
-    derived = DerivedContext([])
-    return ModelContext(
+def play_context(game_state: _GameState, store: FeatureStore) -> PlayContext:
+    """PlayContext with game state for testing (uses a real game from the store)."""
+    gid = store.game_ids()[0]
+    home, away = store.meta(gid)
+    return PlayContext(
         state=game_state,
-        derived=derived,
-        game_context=game_context,
-        outcome=None,
+        trace=[],
+        game_id=gid,
+        home=home,
+        away=away,
     )
 
 
 @pytest.fixture
-def model_context_with_outcome(model_context: ModelContext) -> ModelContext:
-    """ModelContext with outcome for outcome-dependent feature tests."""
-    model_context.outcome = Outcome(
+def play_context_with_outcome(play_context: PlayContext) -> PlayContext:
+    """PlayContext with outcome for outcome-dependent feature tests."""
+    play_context.outcome = Outcome(
         yards_gained=15,
         turnover_type=None,  # type: ignore[arg-type]
         touchdown=False,
         time_elapsed=0,
         complete_pass=True,
     )
-    return model_context
+    return play_context

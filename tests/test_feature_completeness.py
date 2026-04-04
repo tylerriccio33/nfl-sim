@@ -1,33 +1,42 @@
-"""Test that all features declared in pipeline.toml can be retrieved from ModelContext."""
+"""Test that all features declared in pipeline.toml can be resolved from FeatureStore + PlayContext."""
 
 import pytest
 
+from nfl_sim.engine.state import Outcome
 from nfl_sim.model.config import MODELS, get_model_features
+from nfl_sim.model.store import FeatureStore, PlayContext, resolve_feature
 
 
 class TestFeatureCompleteness:
-    """Verify all declared features can be extracted from ModelContext.
+    """Verify all declared features can be resolved via the store dispatch system.
 
     Fails fast with clear error messages showing which features are missing.
     """
 
     @pytest.mark.parametrize("model_name", MODELS.keys())
-    def test_model_features_exist(self, model_name: str, request: pytest.FixtureRequest) -> None:
-        """All declared model features must exist in context.
+    def test_model_features_resolve(
+        self, model_name: str, store: FeatureStore, play_context: PlayContext
+    ) -> None:
+        """All declared model features must resolve without error.
 
         Time model requires outcome for outcome-dependent feature conditioning,
-        other models only need base ModelContext.
+        other models only need base PlayContext.
         """
-        # Time model needs outcome, others only need base context
-        fixture_name = "model_context_with_outcome" if model_name == "time" else "model_context"
-        context = request.getfixturevalue(fixture_name)
+        if model_name == "time":
+            play_context.outcome = Outcome(
+                yards_gained=15,
+                turnover_type=None,  # type: ignore[arg-type]
+                touchdown=False,
+                time_elapsed=0,
+                complete_pass=True,
+            )
 
         features = get_model_features(model_name)
         missing = []
         for feat in features:
             try:
-                context.get_features("HOME", feat)
-            except AttributeError:
+                resolve_feature(store, play_context, feat)
+            except KeyError, AttributeError, AssertionError:
                 missing.append(feat)
         assert not missing, f"{model_name} model missing features: {missing}"
 

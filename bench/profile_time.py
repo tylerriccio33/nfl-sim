@@ -16,8 +16,8 @@ from nfl_sim.engine.loop import (
     _traces_to_dataframe,
     sim_games,
 )
-from nfl_sim.model.features import GameContext, build_features_for_model
 from nfl_sim.model.inference import OutcomeModel
+from nfl_sim.model.store import FeatureStore
 
 FUNCTIONS = (
     ## High-level API:
@@ -30,7 +30,6 @@ FUNCTIONS = (
     OutcomeModel._token_to_outcome,
     ## DataFrame conversion:
     _traces_to_dataframe,
-    build_features_for_model,
 )
 
 logger.remove()
@@ -42,25 +41,20 @@ def main() -> None:
     # Create profiler and add functions to profile
     profiler = LineProfiler()
 
-    # Build a simple context for profiling
-    context = GameContext(
-        game_id="KC_NYJ",
-        home="KC",
-        away="NYJ",
-        spread_line=(-3.0, 3.0),  # (home perspective, away perspective = -home)
-        season_epa=(1, -1),  # (home epa, away epa)
-    )
+    store = FeatureStore()
+    game_id = store.game_ids()[0]
+    home, away = store.meta(game_id)
 
     # Need to warm up; loads all the modules and models
-    sim_games({context.game_id: context}, n=1, max_workers=1)
+    sim_games([game_id], store, n=1, max_workers=1)
 
     for fn in FUNCTIONS:
         profiler.add_function(fn)
 
     # Profile N simulations
     n_sims = 100
-    print(f"Profiling {context.home} vs {context.away} ({n_sims} simulations)...")
-    res = profiler.runcall(sim_games, {context.game_id: context}, n=n_sims, max_workers=1)
+    print(f"Profiling {home} vs {away} ({n_sims} simulations)...")
+    res = profiler.runcall(sim_games, [game_id], store, n=n_sims, max_workers=1)
     profiler.runcall(_traces_to_dataframe, res)
 
     # Save results to file

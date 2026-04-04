@@ -19,7 +19,7 @@ from rich.console import Console
 
 from nfl_sim import sim_games
 from nfl_sim.engine.loop import _traces_to_dataframe
-from nfl_sim.model.features import ctx_from_game_id
+from nfl_sim.model.store import FeatureStore
 
 START_AT = 100
 MAX_SIMS = 3_000
@@ -32,7 +32,6 @@ Q_99 = 3  # ~99% confidence
 
 ## Data locations:
 SCHEDULES_DATA = Path("data/schedules.parquet")
-PBP_DATA = Path("data/pbp.parquet")
 
 
 def fetch_single_game() -> tuple[pl.DataFrame, str]:
@@ -96,21 +95,27 @@ def run_convergence_benchmark() -> pl.DataFrame:
     """
     console = Console()
 
-    # Get a single game and build context via the standard pipeline
-    with console.status("[bold blue]Selecting game for convergence test..."):
-        schedule_row, game_id = fetch_single_game()
-        pbp = pl.read_parquet(PBP_DATA)
-        contexts = ctx_from_game_id(pbp, schedule_row, [game_id])
-        context = contexts[game_id]
+    store = FeatureStore()
 
-    console.print(f"[bold green]Testing convergence for: {context.away} @ {context.home}")
+    # Get a single game - pick from store's available games, filtered to
+    # a completed game from the schedule for reproducibility.
+    with console.status("[bold blue]Selecting game for convergence test..."):
+        _schedule_row, game_id = fetch_single_game()
+
+        # Ensure the game exists in the store; fall back to first available
+        available = set(store.game_ids())
+        if game_id not in available:
+            game_id = store.game_ids()[0]
+
+    home, away = store.meta(game_id)
+    console.print(f"[bold green]Testing convergence for: {away} @ {home}")
     console.print(f"[bold green]Sample sizes from {SIM_COUNTS[0]} to {SIM_COUNTS[-1]}")
     console.print()
 
     results: list[dict[str, float]] = []
 
     for n_sims in SIM_COUNTS:
-        traces = sim_games({game_id: context}, n=n_sims)
+        traces = sim_games([game_id], store, n=n_sims)
         margins = _extract_margins(traces, game_id)
         m = len(margins)
 

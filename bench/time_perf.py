@@ -6,30 +6,18 @@ from rich.console import Console
 from rich.table import Table
 
 from nfl_sim import sim_games
-from nfl_sim.model.features import GameContext
+from nfl_sim.model.store import FeatureStore
 
 NSIMS = [50, 100, 1000]
 TRIALS = 3
 
 
-def _build_context() -> GameContext:
-    return GameContext(
-        game_id="KC_NYJ",
-        home="KC",
-        away="NYJ",
-        spread_line=(-3.0, 3.0),
-        season_epa=(1, -1),
-    )
-
-
-def run_benchmark(n_sims_per_game: int) -> dict[str, float]:
+def run_benchmark(game_id: str, store: FeatureStore, n_sims_per_game: int) -> dict[str, float]:
     """Run N simulations for a matchup and return timing stats."""
-    context = _build_context()
-
     times = []
     for _ in range(TRIALS):
         start = time.perf_counter()
-        sim_games({"KC_NYJ": context}, n=n_sims_per_game, max_workers=1)
+        sim_games([game_id], store, n=n_sims_per_game, max_workers=1)
         elapsed = time.perf_counter() - start
         times.append(elapsed)
 
@@ -112,12 +100,13 @@ def report_results(all_stats: list[dict[str, float]]) -> None:
 
 def main() -> None:
     """Run timing benchmark across multiple N values and analyze scaling."""
-    context = _build_context()
+    store = FeatureStore()
+    game_id = store.game_ids()[0]
 
     # Warm up (load models)
-    sim_games({"KC_NYJ": context}, n=1, max_workers=1)
+    sim_games([game_id], store, n=1, max_workers=1)
 
-    all_stats = [run_benchmark(n) for n in NSIMS]
+    all_stats = [run_benchmark(game_id, store, n) for n in NSIMS]
     report_results(all_stats)
 
 

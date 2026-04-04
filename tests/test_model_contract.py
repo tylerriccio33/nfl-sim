@@ -9,23 +9,21 @@ import pytest
 
 from nfl_sim.engine.state import _CLK, Intent, Outcome, TurnoverType, _GameState
 from nfl_sim.model.config import TOKEN_NAMES, get_model_features
-from nfl_sim.model.features import (
-    DerivedContext,
-    GameContext,
-    ModelContext,
-    build_features_for_model,
-    ctx_from_game_id,
-)
 from nfl_sim.model.inference import aftermath_model, outcome_model
+from nfl_sim.model.store import _DISPATCH, FeatureStore, PlayContext, build_features
+
+# ── Module-level store ──────────────────────────────────────────────────
+
+_store = FeatureStore()
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _predict_single(ctx: ModelContext) -> tuple[Intent, Outcome]:
+def _predict_single(ctx: PlayContext) -> tuple[Intent, Outcome]:
     """Run the outcome model for a single play using the batch APIs."""
     if not outcome_model._loaded:
         outcome_model._load()
-    features = build_features_for_model("xgb", ctx)
+    features = build_features("xgb", _store, ctx)
     probs = outcome_model.predict_probs_batch(features.reshape(1, -1))
     idx = outcome_model.sample_tokens_batch(probs)[0]
     token = TOKEN_NAMES[idx]
@@ -34,13 +32,15 @@ def _predict_single(ctx: ModelContext) -> tuple[Intent, Outcome]:
     return intent, outcome
 
 
-def _predict_time_single(ctx: ModelContext, intent: Intent, outcome: Outcome) -> Outcome:
+def _predict_time_single(ctx: PlayContext, intent: Intent, outcome: Outcome) -> Outcome:
     """Run the aftermath model for a single play using the batch API."""
     if not aftermath_model._loaded:
         aftermath_model._load()
     if intent in (Intent.RUN, Intent.PASS):
-        ctx_with_outcome = ModelContext(ctx.state, ctx.derived, ctx.game_context, outcome)
-        time_features = build_features_for_model("time", ctx_with_outcome)
+        ctx_with_outcome = PlayContext(
+            ctx.state, ctx.trace, ctx.game_id, ctx.home, ctx.away, outcome
+        )
+        time_features = build_features("time", _store, ctx_with_outcome)
         preds = aftermath_model.predict_time_batch(time_features.reshape(1, -1))
         pred_time = int(min(preds[0], ctx.state[_CLK]))
     elif intent == Intent.FIELD_GOAL:
@@ -70,24 +70,17 @@ def _make_state(
     return (quarter, clock, offense, defense, down, distance, yardline_100, score)  # ty: ignore
 
 
-def _make_context(
-    game_id: str = "2024_01_KC_BUF",
-    home: str = "KC",
-    away: str = "BUF",
-    spread: float = -3.0,
-    **state_kw,
-) -> ModelContext:
+def _make_context(**state_kw) -> PlayContext:
+    """Build a PlayContext using a real game from the store."""
+    gid = _store.game_ids()[0]
+    home, away = _store.meta(gid)
     state = _make_state(**state_kw)
-    return ModelContext(
+    return PlayContext(
         state=state,
-        derived=DerivedContext([]),
-        game_context=GameContext(
-            game_id=game_id,
-            home=home,
-            away=away,
-            spread_line=(spread, -spread),  # (home perspective, away perspective = -home)
-            season_epa=(-1, 1),  # (home epa, away epa)
-        ),
+        trace=[],
+        game_id=gid,
+        home=home,
+        away=away,
     )
 
 
@@ -96,9 +89,9 @@ def _make_context(
 
 
 def test_features_only_from_pre_play_state() -> None:
-    """build_features_for_model uses only the pre-play state tuple, not outcomes."""
+    """build_features uses only the pre-play state tuple, not outcomes."""
     ctx = _make_context()
-    feats = build_features_for_model("xgb", ctx)
+    feats = build_features("xgb", _store, ctx)
 
     # The feature vector length must match the canonical list exactly
     assert len(feats) == len(get_model_features("xgb"))
@@ -106,35 +99,21 @@ def test_features_only_from_pre_play_state() -> None:
 
 
 # ── 4. Identifier leakage ──────────────────────────────────────────────
-# Changing IDs (game_id, team names) must not affect the model prediction,
-# because IDs are not in the feature vector.
+# Online features are keyed by (game_id, team) so game_id matters.
+# But home/away label strings themselves must not leak into features —
+# only the offense_team mapping (HOME/AWAY -> team abbrev) is used for lookup.
 
 
-def test_identifier_leakage_game_id() -> None:
-    """Changing game_id must not affect feature or intent predictions.
+def test_same_game_same_state_same_features() -> None:
+    """Same game_id + same state must produce identical features."""
+    gid = _store.game_ids()[0]
+    home, away = _store.meta(gid)
+    state = _make_state()
+    ctx_a = PlayContext(state, [], gid, home, away)
+    ctx_b = PlayContext(state, [], gid, home, away)
 
-    Note: Outcomes (yards, turnover) are stochastic due to CVAE sampling,
-    so only intent (which is deterministic) is tested here.
-    """
-    ctx_a = _make_context(game_id="2024_01_KC_BUF")
-    ctx_b = _make_context(game_id="9999_99_FOO_BAR")
-
-    feats_a = build_features_for_model("xgb", ctx_a)
-    feats_b = build_features_for_model("xgb", ctx_b)
-
-    np.testing.assert_array_equal(feats_a, feats_b)
-
-
-def test_identifier_leakage_team_names() -> None:
-    """Changing home/away team names must not affect predictions.
-
-    Team names appear in GameContext but should never leak into features.
-    """
-    ctx_a = _make_context(home="KC", away="BUF")
-    ctx_b = _make_context(home="ZZZZZ", away="YYYYY")
-
-    feats_a = build_features_for_model("xgb", ctx_a)
-    feats_b = build_features_for_model("xgb", ctx_b)
+    feats_a = build_features("xgb", _store, ctx_a)
+    feats_b = build_features("xgb", _store, ctx_b)
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
@@ -160,7 +139,6 @@ def test_neutral_state_produces_sane_output() -> None:
         distance=10,
         yardline_100=50,
         score=(0, 0),
-        spread=0.0,
     )
     intent, out = _predict_single(ctx)
     out = _predict_time_single(ctx, intent, out)
@@ -182,16 +160,12 @@ def test_neutral_state_produces_sane_output() -> None:
         {"yardline_100": 1, "distance": 1, "down": 1},
         {"clock": 1, "quarter": 4},
         {"clock": 900, "quarter": 1, "score": (50, 0)},
-        {"spread": 25.0},
-        {"spread": -25.0},
     ],
     ids=[
         "deep_own_territory",
         "goal_line",
         "end_of_game",
         "blowout",
-        "huge_spread",
-        "huge_neg_spread",
     ],
 )
 def test_edge_inputs_no_nan(kw: dict) -> None:
@@ -210,7 +184,7 @@ def test_edge_inputs_no_nan(kw: dict) -> None:
 def test_features_shape_and_dtype() -> None:
     """Feature vector must have the correct shape and dtype."""
     ctx = _make_context()
-    feats = build_features_for_model("xgb", ctx)
+    feats = build_features("xgb", _store, ctx)
     feature_names = get_model_features("xgb")
 
     assert feats.shape == (len(feature_names),)
@@ -220,87 +194,89 @@ def test_features_shape_and_dtype() -> None:
 def test_feature_order_matches_canonical() -> None:
     """Feature values should land in the canonical feature order.
 
-    We construct a known state and verify each feature position.
+    We construct a known state and verify state/odt features have expected values.
+    Online features (spread_line, season_epa) come from the store so we just
+    check they are finite.
     """
-    ctx = _make_context(
-        quarter=3,
-        clock=600,
-        down=2,
-        ydstogo=5,
-        yardline_100=30,
-        score=(14, 7),
-        spread=-2.5,
-        offense="HOME",
-        defense="AWAY",
+    # Use a real game_id so the store can resolve online features
+    game_ids = _store.game_ids()
+    gid = game_ids[0]
+    home, away = _store.meta(gid)
+
+    ctx = PlayContext(
+        state=_make_state(
+            quarter=3,
+            clock=600,
+            down=2,
+            ydstogo=5,
+            yardline_100=30,
+            score=(14, 7),
+            offense="HOME",
+            defense="AWAY",
+        ),
+        trace=[],
+        game_id=gid,
+        home=home,
+        away=away,
     )
-    feats = build_features_for_model("xgb", ctx)
+    feats = build_features("xgb", _store, ctx)
     feature_names = get_model_features("xgb")
 
-    expected = {
+    # State and ODT features are deterministic from the constructed state
+    expected_subset = {
         "down": 2.0,
         "ydstogo": 5.0,
         "yardline_100": 30.0,
-        "score_diff": 0.0,  # DerivedContext, empty trace
+        "score_diff": 7.0,  # ODT: home(14) - away(7), offense is HOME
         "qtr": 3.0,
         "game_seconds_remaining": 600.0,
-        "goal_to_go": 0.0,  # DerivedContext: distance(5) < yardline_100(30)
-        "spread_line": -2.5,  # GameContext, set in _make_context
-        "season_epa": -1.0,  # GameContext, season_epa_home (offense is HOME)
+        "goal_to_go": 0.0,  # ODT: distance(5) < yardline_100(30)
     }
     for i, name in enumerate(feature_names):
-        assert feats[i] == pytest.approx(expected[name]), (
-            f"Feature {name!r} at index {i}: expected {expected[name]}, got {feats[i]}"
-        )
+        if name in expected_subset:
+            assert feats[i] == pytest.approx(expected_subset[name]), (
+                f"Feature {name!r} at index {i}: expected {expected_subset[name]}, got {feats[i]}"
+            )
+        else:
+            # Online features — just check finite
+            assert np.isfinite(feats[i]), f"Feature {name!r} at index {i} is not finite: {feats[i]}"
 
 
 # ── Feature name / function alignment ────────────────────────────────────
 
 
 def test_gen_feature_names_covers_build_features() -> None:
-    """Feature names must match build_features_for_model output."""
+    """Feature names must match build_features output."""
     ctx = _make_context()
-    feats = build_features_for_model("xgb", ctx)
+    feats = build_features("xgb", _store, ctx)
     names = get_model_features("xgb")
 
     assert len(names) == len(feats), (
-        f"get_model_features() has {len(names)} names but build_features_for_model() produced {len(feats)} values"
+        f"get_model_features() has {len(names)} names but build_features() produced {len(feats)} values"
     )
     assert len(names) == len(set(names)), f"Duplicate feature names: {names}"
 
 
-# ── Context building (ctx_from_game_id + GameFeatures) ──────────────────
+# ── Context building (FeatureStore) ─────────────────────────────────────
 
 
-def test_game_features_fields_match__gen_feature_names() -> None:
-    """GameContext.feature_names must appear at the tail of get_model_features().
-
-    This is the contract that keeps build_features_for_model, from_row, and
-    training/prepare.py in sync.
-    """
-    feature_names = get_model_features("xgb")
-    tail = feature_names[-len(GameContext.feature_names) :]
-
-    assert tail == GameContext.feature_names, (
-        f"get_model_features() tail {tail} does not match GameContext.feature_names {GameContext.feature_names}"
-    )
+def test_feature_store_loads(store: FeatureStore) -> None:
+    """FeatureStore should load and have game metadata."""
+    assert len(store.game_ids()) > 0
 
 
-def test_feature_engineering_e2e(
-    raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame, latest_rand_game_id
-) -> None:
-    ctx_from_game_id(raw_pbp, raw_schedules, game_ids=[latest_rand_game_id])
+def test_online_features_not_play_level(raw_pbp: pl.DataFrame) -> None:
+    """Online feature names must not collide with play-level pbp columns.
 
-
-def test_game_context_features_not_play_level(raw_pbp: pl.DataFrame) -> None:
-    """GameContext feature names must not collide with play-level pbp columns.
-
-    If a GameContext feature shares a name with a play-level column in pbp,
+    If an online feature shares a name with a play-level column in pbp,
     the training pipeline might silently pick up the play-level version
     instead of the engineered game-level one — exactly the leakage bug
     we had with 'epa'.
 
     A column is play-level if it varies within at least one game.
     """
+    online_feats = [name for name, (src, _) in _DISPATCH.items() if src == "online"]
+
     # Only check numeric columns (features are numeric)
     numeric_cols = raw_pbp.select(pl.selectors.numeric()).columns
 
@@ -318,9 +294,9 @@ def test_game_context_features_not_play_level(raw_pbp: pl.DataFrame) -> None:
         if (n_unique_per_game > 1).any():
             play_level_cols.add(col)
 
-    overlap = set(GameContext.feature_names) & play_level_cols
+    overlap = set(online_feats) & play_level_cols
     assert not overlap, (
-        f"GameContext feature names overlap with play-level pbp columns: {overlap}. "
+        f"Online feature names overlap with play-level pbp columns: {overlap}. "
         f"This will cause feature leakage — the model will silently use play-level "
         f"values instead of the engineered game-level ones."
     )

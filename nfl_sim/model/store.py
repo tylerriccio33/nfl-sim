@@ -26,10 +26,8 @@ if TYPE_CHECKING:
 
 _FEATURES: dict[str, dict] = CONFIG["features"]
 
-# (source_type, state_index_or_None)
 _DISPATCH: dict[str, tuple[str, int | None]] = {
-    name: (cfg["source"], cfg.get("index"))
-    for name, cfg in _FEATURES.items()
+    name: (cfg["source"], cfg.get("index")) for name, cfg in _FEATURES.items()
 }
 
 # Validate all model features are declared
@@ -41,6 +39,7 @@ for _model_name, _model_cfg in CONFIG["models"].items():
 
 
 # ── ODT resolvers ────────────────────────────────────────────────────
+
 
 def _score_diff(state: _GameState, _trace: GameTrace) -> float:
     """Score differential from the offense's perspective."""
@@ -60,6 +59,7 @@ _ODT_RESOLVERS: dict[str, object] = {
 
 
 # ── FeatureStore ─────────────────────────────────────────────────────
+
 
 class FeatureStore:
     """Pre-materialized online features + game metadata.
@@ -93,6 +93,7 @@ class FeatureStore:
                 self._meta[gid] = (row["home_team"], row["away_team"])
 
     def lookup(self, game_id: str, team: str, feat: str) -> float:
+        """Get a pre-computed online feature value."""
         return self._online[(game_id, team)][feat]
 
     def meta(self, game_id: str) -> tuple[str, str]:
@@ -100,10 +101,12 @@ class FeatureStore:
         return self._meta[game_id]
 
     def game_ids(self) -> list[str]:
+        """All game IDs in the store."""
         return list(self._meta.keys())
 
 
 # ── PlayContext ──────────────────────────────────────────────────────
+
 
 class PlayContext:
     """Lightweight per-play context for the game loop.
@@ -137,6 +140,7 @@ class PlayContext:
 
 
 # ── Feature resolution ───────────────────────────────────────────────
+
 
 def resolve_feature(store: FeatureStore, ctx: PlayContext, feat: str) -> float:
     """Resolve a single feature from the appropriate source."""

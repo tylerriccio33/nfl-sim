@@ -9,6 +9,10 @@ Both are lazy-loaded on first call.  This lets the module be imported freely
 (e.g. during training or in tests) without requiring trained artifacts on disk.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 import tl2cgen
 import xgboost as xgb
@@ -19,7 +23,9 @@ from nfl_sim.engine.state import (
     TurnoverType,
 )
 from nfl_sim.model.config import ARTIFACT_PATHS, TOKENS
-from nfl_sim.model.store import PlayContext
+
+if TYPE_CHECKING:
+    from nfl_sim.model.store import PlayContext
 
 # Map turnover string from TOML → TurnoverType enum
 _TURNOVER_MAP = {

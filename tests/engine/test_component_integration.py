@@ -8,7 +8,10 @@ These tests verify the full simulation pipeline:
 - Multiple simulation aggregation
 """
 
+from __future__ import annotations
+
 import pickle
+from typing import TYPE_CHECKING
 
 import polars as pl
 import pytest
@@ -20,6 +23,9 @@ from nfl_sim.engine.loop import (
     _traces_to_dataframe,
 )
 from nfl_sim.engine.state import _CLK, _DIST, _DN, _OFF, _Q, _SC, _YL, Intent
+
+if TYPE_CHECKING:
+    from nfl_sim.model.store import FeatureStore
 
 # =============================================================================
 # Single Game Simulation Tests
@@ -104,27 +110,28 @@ class TestTraceValidity:
 class TestSimGames:
     """Tests for sim_games function (running multiple sims)."""
 
-    def test_sim_games_single_game(self, sims_multiple) -> None:
+    def test_sim_games_single_game(self, ctx, sims_multiple) -> None:
         """Simulate a single game multiple times."""
         assert len(sims_multiple) == 2
-        assert "2025_02_KC_BUF" in sims_multiple
-        assert len(sims_multiple["2025_02_KC_BUF"]) == 5
+        first_gid = ctx[0]
+        assert first_gid in sims_multiple
+        assert len(sims_multiple[first_gid]) == 5
 
-    def test_returns_correct_number_of_traces(self, sims_multiple) -> None:
+    def test_returns_correct_number_of_traces(self, ctx, sims_multiple) -> None:
         """Should return exactly n traces per game."""
-        assert len(sims_multiple["2025_02_KC_BUF"]) == 5
+        assert len(sims_multiple[ctx[0]]) == 5
 
-    def test_each_trace_is_valid(self, sims_multiple) -> None:
+    def test_each_trace_is_valid(self, ctx, sims_multiple) -> None:
         """Each trace should be a valid GameTrace."""
-        for trace in sims_multiple["2025_02_KC_BUF"]:
+        for trace in sims_multiple[ctx[0]]:
             assert isinstance(trace, list)
             assert len(trace) > 0  # At least some plays
 
-    def test_results_vary_with_multiple_simulations(self, sims_multiple) -> None:
+    def test_results_vary_with_multiple_simulations(self, ctx, sims_multiple) -> None:
         """Multiple simulations should produce varying results."""
         # Extract final scores from each trace
         scores = []
-        for trace in sims_multiple["2025_02_KC_BUF"]:
+        for trace in sims_multiple[ctx[0]]:
             final_state = trace[-1].state_after
             scores.append(final_state[_SC])
         unique_scores = set(scores)
@@ -132,9 +139,9 @@ class TestSimGames:
         # Should have some variety in outcomes (due to CVAE sampling)
         assert len(unique_scores) > 1
 
-    def test_n_equals_one(self, sims) -> None:
+    def test_n_equals_one(self, ctx, sims) -> None:
         """Should handle n=1 correctly."""
-        assert len(sims["2025_02_KC_BUF"]) == 1
+        assert len(sims[ctx[0]]) == 1
 
 
 # =============================================================================
@@ -174,11 +181,11 @@ class TestTracesToDataframe:
         for col in required_cols:
             assert col in df.columns, f"Missing column: {col}"
 
-    def test_game_id_is_correct(self, sims_multiple) -> None:
+    def test_game_id_is_correct(self, ctx, sims_multiple) -> None:
         """Game ID should match the input."""
         df = _traces_to_dataframe(sims_multiple)
 
-        assert set(df["game_id"].unique().to_list()) == {"2025_02_KC_BUF", "2025_03_BUF_MIA"}
+        assert set(df["game_id"].unique().to_list()) == set(ctx)
 
     def test_sim_id_is_sequential(self, sims_multiple) -> None:
         """Sim IDs should be 0, 1, 2, ..., n-1."""
@@ -247,11 +254,13 @@ def test_zero_zero_start(game_result) -> None:
 # =============================================================================
 
 
-def test_no_hidden_global_state(ctx) -> None:
+def test_no_hidden_global_state(ctx, store: FeatureStore) -> None:
     """Running the same game twice should not leak state between runs."""
-    first = next(iter(ctx.values()))
-    trace_a = _run_batched_game_loop([first])[0]
-    trace_b = _run_batched_game_loop([first])[0]
+    gid = ctx[0]
+    home, away = store.meta(gid)
+    meta = [(gid, home, away)]
+    trace_a = _run_batched_game_loop(meta, store)[0]
+    trace_b = _run_batched_game_loop(meta, store)[0]
 
     # Both should complete without error and have valid traces
     assert len(trace_a) > 0
@@ -260,15 +269,17 @@ def test_no_hidden_global_state(ctx) -> None:
     assert trace_a[0].state_before == trace_b[0].state_before
 
 
-def test_stored_result_not_mutated(ctx) -> None:
+def test_stored_result_not_mutated(ctx, store: FeatureStore) -> None:
     """Storing a result and running another sim should not mutate the stored one."""
-    first = next(iter(ctx.values()))
-    trace_a = _run_batched_game_loop([first])[0]
+    gid = ctx[0]
+    home, away = store.meta(gid)
+    meta = [(gid, home, away)]
+    trace_a = _run_batched_game_loop(meta, store)[0]
     final_a = trace_a[-1].state_after[_SC]
     trace_len_a = len(trace_a)
 
     # Run another simulation — should not mutate trace_a
-    _run_batched_game_loop([first])
+    _run_batched_game_loop(meta, store)
 
     assert trace_a[-1].state_after[_SC] == final_a
     assert len(trace_a) == trace_len_a

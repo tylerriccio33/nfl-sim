@@ -26,6 +26,7 @@ def materialize(
     schedule_path: str = "data/schedules.parquet",
     out_path: str = "data/features.parquet",
 ) -> None:
+    """Compute and write online features to parquet."""
     pbp = pl.read_parquet(pbp_path)
     sched = pl.read_parquet(schedule_path)
     game_ids = sched["game_id"].unique().to_list()

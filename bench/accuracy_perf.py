@@ -13,14 +13,13 @@ from rich.console import Console
 
 from nfl_sim import sim_games
 from nfl_sim.engine.loop import _traces_to_dataframe
-from nfl_sim.model.features import ctx_from_game_id
+from nfl_sim.model.store import FeatureStore
 
 NGAMES = None  # use all games in the dataset
 NSIMS = 1_000  # run `make converge` to explore
 CHUNK_SIZE = 1_000  # process games in chunks to limit memory
 
 SCHEDULES_DATA = Path("data/schedules.parquet")
-PBP_DATA = Path("data/pbp.parquet")
 
 
 def fetch_completed_games(n_games: int | None = NGAMES, min_season: int = 2020) -> pl.DataFrame:
@@ -66,19 +65,22 @@ def run_accuracy_benchmark(n_games: int | None = 100, n_sims_per_game: int = NSI
         f"[bold green]Simulating {total_games} games ({n_sims_per_game} sims each, chunks of {CHUNK_SIZE})..."
     )
 
-    pbp = pl.read_parquet(PBP_DATA)
+    store = FeatureStore()
     game_ids = schedule["game_id"].to_list()
+
+    # Only simulate games that exist in the store
+    available_ids = set(store.game_ids())
 
     # Process in chunks to limit peak memory usage.
     # Each chunk simulates a subset of games, converts traces to aggregated
     # sim results, then discards the raw traces before the next chunk.
     chunk_dfs: list[pl.DataFrame] = []
     for i in range(0, total_games, CHUNK_SIZE):
-        chunk_ids = game_ids[i : i + CHUNK_SIZE]
-        chunk_schedule = schedule.filter(pl.col("game_id").is_in(chunk_ids))
+        chunk_ids = [gid for gid in game_ids[i : i + CHUNK_SIZE] if gid in available_ids]
+        if not chunk_ids:
+            continue
 
-        contexts = ctx_from_game_id(pbp, chunk_schedule, chunk_ids)
-        traces = sim_games(games=contexts, n=n_sims_per_game)
+        traces = sim_games(game_ids=chunk_ids, store=store, n=n_sims_per_game)
 
         chunk_df: pl.DataFrame = (
             _traces_to_dataframe(traces)

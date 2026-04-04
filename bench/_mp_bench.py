@@ -6,17 +6,16 @@ import time
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from nfl_sim import sim_games
-from nfl_sim.model.features import GameContext
+from nfl_sim.model.store import FeatureStore
 
 
 def main():
-    ctx = GameContext(
-        game_id="KC_NYJ", home="KC", away="NYJ", spread_line=(-3.0, 3.0), season_epa=(1, -1)
-    )
-    games = {"KC_NYJ": ctx}
+    store = FeatureStore()
+    game_id = store.game_ids()[0]
+    game_ids = [game_id]
 
     # Warmup
-    sim_games(games, n=1, max_workers=1)
+    sim_games(game_ids, store, n=1, max_workers=1)
 
     cpu_count = os.cpu_count() or 4
 
@@ -31,7 +30,7 @@ def main():
 
     for n, workers, chunk in configs:
         t0 = time.perf_counter()
-        sim_games(games, n=n, max_workers=workers, chunk_size=chunk)
+        sim_games(game_ids, store, n=n, max_workers=workers, chunk_size=chunk)
         elapsed = time.perf_counter() - t0
         sps = n / elapsed
         n_chunks = (n + chunk - 1) // chunk
