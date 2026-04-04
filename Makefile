@@ -69,6 +69,9 @@ train-time: ## Train time model
 train-punt: ## Train punt yards model (blocked is sampled at 0.05%)
 	@uv run training/train_punt.py
 
+features: ## Materialize online features to data/features.parquet
+	@uv run python scripts/materialize_features.py
+
 refresh-data: ## Refresh all data files
 	@uv run python data/refresh_data.py
 

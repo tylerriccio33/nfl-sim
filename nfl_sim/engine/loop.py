@@ -24,13 +24,8 @@ from nfl_sim.engine.state import (
     _GameState,
 )
 from nfl_sim.model.config import TOKEN_NAMES
-from nfl_sim.model.features import (
-    DerivedContext,
-    GameContext,
-    ModelContext,
-    build_features_for_model,
-)
 from nfl_sim.model.inference import aftermath_model, outcome_model
+from nfl_sim.model.store import FeatureStore, PlayContext, build_features
 
 
 @dataclass(frozen=True)
@@ -55,10 +50,13 @@ def _create_initial_state() -> _GameState:
     return (1, 900, "HOME", "AWAY", 1, 10, 75, (0, 0))
 
 
-def _run_batched_game_loop(game_contexts: list[GameContext]) -> list[GameTrace]:
+def _run_batched_game_loop(
+    game_metas: list[tuple[str, str, str]],
+    store: FeatureStore,
+) -> list[GameTrace]:
     """Run sims in lockstep, batching inference across all games.
 
-    Each element in game_contexts is one simulation (possibly different games).
+    Each element in game_metas is (game_id, home, away) for one simulation.
     The loop batches inference across ALL alive sims regardless of which game
     they belong to.
     """
@@ -68,7 +66,7 @@ def _run_batched_game_loop(game_contexts: list[GameContext]) -> list[GameTrace]:
     if not aftermath_model._loaded:
         aftermath_model._load()
 
-    n = len(game_contexts)
+    n = len(game_metas)
     initial = _create_initial_state()
     states: list[_GameState] = [initial] * n
     traces: list[GameTrace] = [[] for _ in range(n)]
@@ -78,13 +76,13 @@ def _run_batched_game_loop(game_contexts: list[GameContext]) -> list[GameTrace]:
         alive_n: int = len(alive)
 
         # ── 1. Build contexts + XGB features for all alive sims ──
-        contexts: list[ModelContext] = []
+        contexts: list[PlayContext] = []
         features_list: list[np.ndarray] = []
         for i in alive:
-            derived = DerivedContext(traces[i])
-            ctx = ModelContext(states[i], derived, game_contexts[i])
+            gid, home, away = game_metas[i]
+            ctx = PlayContext(states[i], traces[i], gid, home, away)
             contexts.append(ctx)
-            features_list.append(build_features_for_model("xgb", ctx))
+            features_list.append(build_features("xgb", store, ctx))
 
         features_batch = np.stack(features_list)  # (alive_n, 9)
 
@@ -107,7 +105,10 @@ def _run_batched_game_loop(game_contexts: list[GameContext]) -> list[GameTrace]:
         # ── 4b. Batch punt prediction ──
         punt_indices = [j for j in range(alive_n) if intents[j] == Intent.PUNT]
         if punt_indices:
-            punt_yards = outcome_model.predict_punt_batch(contexts, punt_indices)
+            punt_feat_batch = np.stack(
+                [build_features("punt", store, contexts[j]) for j in punt_indices]
+            )
+            punt_yards = outcome_model.predict_punt_batch(punt_feat_batch)
             for k, j in enumerate(punt_indices):
                 outcomes[j].yards_gained = int(punt_yards[k])
 
@@ -119,13 +120,16 @@ def _run_batched_game_loop(game_contexts: list[GameContext]) -> list[GameTrace]:
         # ── 6. Batch time prediction for ALL plays ──
         time_features: list[np.ndarray] = []
         for j in range(alive_n):
-            ctx_with_outcome = ModelContext(
+            gid, home, away = game_metas[alive[j]]
+            ctx_with_outcome = PlayContext(
                 new_states[j],
-                contexts[j].derived,
-                contexts[j].game_context,
+                traces[alive[j]],
+                gid,
+                home,
+                away,
                 outcomes[j],
             )
-            time_features.append(build_features_for_model("time", ctx_with_outcome))
+            time_features.append(build_features("time", store, ctx_with_outcome))
 
         time_batch = np.stack(time_features)
         time_preds = aftermath_model.predict_time_batch(time_batch)
@@ -146,7 +150,8 @@ def _run_batched_game_loop(game_contexts: list[GameContext]) -> list[GameTrace]:
 
 
 def sim_games(
-    games: dict[str, GameContext],
+    game_ids: list[str],
+    store: FeatureStore,
     *,
     n: int = 1,
     max_workers: int | None = None,
@@ -159,28 +164,31 @@ def sim_games(
     batched loop regardless of which game each sim belongs to.
 
     Args:
-        games: Dict mapping game_id to GameContext
-        n: Number of simulations per game
+        game_ids: List of game IDs to simulate.
+        store: FeatureStore with online features and game metadata.
+        n: Number of simulations per game.
         max_workers: Process count. Defaults to min(num_chunks, cpu_count).
             Set to 1 to force sequential execution.
-        chunk_size: Number of sims per work unit (default 100).
+        chunk_size: Number of sims per work unit.
 
     Returns:
-        Dict mapping game_id to list of GameTrace
+        Dict mapping game_id to list of GameTrace.
 
     """
-    # ── 1. Flatten: repeat each game context n times ──
+    # ── 1. Flatten: repeat each game's meta n times ──
     flat_ids: list[str] = []
-    flat_contexts: list[GameContext] = []
-    for gid, ctx in games.items():
+    flat_metas: list[tuple[str, str, str]] = []
+    for gid in game_ids:
+        home, away = store.meta(gid)
+        meta = (gid, home, away)
         for _ in range(n):
             flat_ids.append(gid)
-            flat_contexts.append(ctx)
+            flat_metas.append(meta)
 
-    total = len(flat_contexts)
+    total = len(flat_metas)
 
     # ── 2. Chunk ──
-    chunks = [flat_contexts[i : i + chunk_size] for i in range(0, total, chunk_size)]
+    chunks = [flat_metas[i : i + chunk_size] for i in range(0, total, chunk_size)]
     chunk_ids = [flat_ids[i : i + chunk_size] for i in range(0, total, chunk_size)]
 
     workers = max_workers or min(len(chunks), os.cpu_count() or 1)
@@ -191,14 +199,14 @@ def sim_games(
 
     if workers <= 1 or len(chunks) <= 1:
         for ids, chunk in zip(chunk_ids, chunks):
-            all_traces.extend(_run_batched_game_loop(chunk))
+            all_traces.extend(_run_batched_game_loop(chunk, store))
             all_ids.extend(ids)
     else:
         with Progress() as progress:
             task = progress.add_task("Simulating games", total=len(chunks))
             with ProcessPoolExecutor(max_workers=workers) as pool:
                 futures = {
-                    pool.submit(_run_batched_game_loop, chunk): ids
+                    pool.submit(_run_batched_game_loop, chunk, store): ids
                     for ids, chunk in zip(chunk_ids, chunks)
                 }
                 for future in as_completed(futures):
@@ -209,7 +217,7 @@ def sim_games(
                     progress.advance(task)
 
     # ── 4. Regroup by game_id ──
-    results: dict[str, list[GameTrace]] = {gid: [] for gid in games}
+    results: dict[str, list[GameTrace]] = {gid: [] for gid in game_ids}
     for gid, trace in zip(all_ids, all_traces):
         results[gid].append(trace)
     return results

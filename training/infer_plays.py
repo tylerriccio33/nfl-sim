@@ -12,12 +12,10 @@ import numpy as np
 import polars as pl
 from pysuite import run
 
-from nfl_sim.model.config import TOKEN_NAMES
-from nfl_sim.model.features import build_features_for_model
+from nfl_sim.model.config import TOKEN_NAMES, get_model_features
 from nfl_sim.model.inference import OutcomeModel
 from training.prepare import prepare
 from training.train_xgb import _tokenize_row
-from training.utils import build_contexts, make_model_context
 
 N_SAMPLES = 1000
 
@@ -38,33 +36,25 @@ def main() -> None:
     indices = rng.choice(len(df), size=n, replace=False)
     df = df[indices.tolist()]
 
-    # Build game contexts for feature extraction
-    contexts = build_contexts(df)
-
     # Load the model
     model = OutcomeModel()
+    if not model._loaded:
+        model._load()
+
+    # Extract features directly from the prepared DataFrame
+    # (prepare() already has all features as columns with correct values)
+    xgb_features = get_model_features("xgb")
 
     rows = []
-
     for row in df.iter_rows(named=True):
-        game_id = row["game_id"]
-        if game_id not in contexts:
-            continue
-
-        ctx = make_model_context(row, contexts)
-
-        # Predict token using the model's internal method
-        if not model._loaded:
-            model._load()
-
-        features = build_features_for_model("xgb", ctx)
+        features = np.array([row[f] for f in xgb_features], dtype=np.float32)
         probs = model.predict_probs_batch(features.reshape(1, -1))
         idx = model.sample_tokens_batch(probs)[0]
         pred_token = TOKEN_NAMES[idx]
 
         rows.append(
             {
-                "game_id": game_id,
+                "game_id": row["game_id"],
                 "play_type": row["play_type"],
                 "down": row["down"],
                 "ydstogo": row["ydstogo"],

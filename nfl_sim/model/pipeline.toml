@@ -195,6 +195,54 @@ max_depth = 6
 learning_rate = 0.1
 random_state = 42
 
+# ── Feature Registry ──────────────────────────────────────────────────
+# source: "online" = pre-materialized parquet, "state" = _GameState index,
+#         "odt" = on-demand transform from live state/trace, "outcome" = Outcome field
+
+[features.down]
+source = "state"
+index = 4
+
+[features.ydstogo]
+source = "state"
+index = 5
+
+[features.yardline_100]
+source = "state"
+index = 6
+
+[features.qtr]
+source = "state"
+index = 0
+
+[features.game_seconds_remaining]
+source = "state"
+index = 1
+
+[features.spread_line]
+source = "online"
+
+[features.season_epa]
+source = "online"
+
+[features.score_diff]
+source = "odt"
+
+[features.goal_to_go]
+source = "odt"
+
+[features.yards_gained]
+source = "outcome"
+
+[features.complete_pass]
+source = "outcome"
+
+[features.pass_attempt]
+source = "outcome"
+
+[features.rush_attempt]
+source = "outcome"
+
 # ── Outcome ──────────────────────────────────────────────────────────
 
 [outcome.yards_gained]

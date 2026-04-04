@@ -19,7 +19,7 @@ from nfl_sim.engine.state import (
     TurnoverType,
 )
 from nfl_sim.model.config import ARTIFACT_PATHS, TOKENS
-from nfl_sim.model.features import ModelContext, build_features_for_model
+from nfl_sim.model.store import PlayContext
 
 # Map turnover string from TOML → TurnoverType enum
 _TURNOVER_MAP = {
@@ -88,7 +88,7 @@ class OutcomeModel:
         # For each row, find the first column where cumprob >= u
         return np.argmax(cumprobs >= u[:, None], axis=1).tolist()
 
-    def _token_to_outcome(self, token: str, context: ModelContext) -> tuple[Intent, Outcome]:
+    def _token_to_outcome(self, token: str, context: PlayContext) -> tuple[Intent, Outcome]:
         """Parse a token into Intent + Outcome using TOML config.
 
         PUNT outcomes get a placeholder here — yards are filled in later by
@@ -124,28 +124,22 @@ class OutcomeModel:
             rush_attempt=cfg["rush_attempt"],
         )
 
-    def predict_punt_batch(
-        self, contexts: list[ModelContext], punt_indices: list[int]
-    ) -> np.ndarray:
-        """Batch punt yards prediction for all punt plays in an iteration.
+    def predict_punt_batch(self, feat_batch: np.ndarray) -> np.ndarray:
+        """Batch punt yards prediction.
 
         Args:
-            contexts: All ModelContext objects for this iteration
-            punt_indices: Indices into contexts that are PUNT plays
+            feat_batch: (N, F) feature matrix for punt plays, built by caller.
 
         Returns:
-            Array of predicted punt yards, one per punt index
+            Array of predicted punt yards, one per row.
 
         """
-        n = len(punt_indices)
+        n = feat_batch.shape[0]
         if n == 0:
             return np.empty(0)
 
         blocked_prob = 0.0005
         blocked = self._rng.random(n) < blocked_prob
-
-        # Build features for non-blocked punts
-        feat_batch = np.stack([build_features_for_model("punt", contexts[j]) for j in punt_indices])
 
         dmat = tl2cgen.DMatrix(feat_batch.astype(np.float32))
         raw = self._punt_yards.predict(dmat)
@@ -155,7 +149,7 @@ class OutcomeModel:
         preds[blocked] = -35
         return preds
 
-    def _predict_fg(self, context: ModelContext) -> Outcome:
+    def _predict_fg(self, context: PlayContext) -> Outcome:
         """Predict field goal outcome."""
         blocked_prob = 0.0005
         yardline_100 = context.state[6]  # _YL index

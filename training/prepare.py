@@ -1,18 +1,16 @@
 """Prepare training data from play-by-play parquet.
 
-Loads data/pbp.parquet, filters to real plays, and builds all feature columns
-using the unified feature building API. This ensures training and inference
-feature extraction never diverge.
+Loads data/pbp.parquet, filters to real plays, and joins pre-materialized
+features from data/features.parquet. This ensures training and inference
+feature extraction never diverge — both read from the same store.
 
 Steps:
   1. Filter to real plays in regulation (quarters 1-4)
   2. Compute time_elapsed and turnover_type
-  3. Derive offense/defense and score_diff
-  4. Build GameContext for each game (spread, epa)
-  5. For each play, extract features using build_features_for_model()
-  6. Add feature columns to DataFrame
-  7. Extract outcome arrays (intent, yards_gained, etc.)
-  8. Return DataFrame with features + outcome arrays
+  3. Derive offense/defense
+  4. Join online features from data/features.parquet (keyed by game_id + posteam)
+  5. Add derived columns (score_diff, goal_to_go, intent)
+  6. Return DataFrame with features + outcome columns
 """
 
 from pathlib import Path
@@ -24,10 +22,9 @@ from nfl_sim.model.config import (
     PLAY_TYPE_MAP,
     TRAINING_CONFIG,
 )
-from nfl_sim.model.features import engineer_game_features
 
 DATA_PATH = Path(TRAINING_CONFIG["pbp_path"])
-SCHEDULE_PATH = Path(TRAINING_CONFIG["schedule_path"])
+FEATURES_PATH = Path("data/features.parquet")
 
 # Map play_type → intent value
 intent_name_mapping = pl.col("play_type").map_elements(
@@ -41,9 +38,8 @@ intent_value_mapping = intent_name_mapping.map_elements(
 def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
     """Load and prepare training data from pbp parquet.
 
-    Loads play-by-play data, applies transformations (time_elapsed, turnover_type,
-    offense/defense), builds GameContext for all games, and extracts features
-    using the unified feature building API.
+    Joins pre-materialized online features from data/features.parquet
+    so training uses the exact same feature values as inference.
 
     Returns:
         DataFrame containing all features, outcome columns, and original pbp data.
@@ -103,45 +99,23 @@ def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
     )
     assert isinstance(df, pl.DataFrame)
 
-    latest_games = df["game_id"].unique().to_list()
-
-    # Engineer game-level features and join back to play-level data
-    game_feats = engineer_game_features(
-        pbp=df, schedule_data=pl.read_parquet(SCHEDULE_PATH), game_ids=latest_games
+    # Join online features from the materialized feature store.
+    # The store is keyed by (game_id, team) with team-relative values already computed.
+    online_feats = pl.read_parquet(FEATURES_PATH).select(
+        "game_id", "team", "spread_line", "season_epa"
     )
-
     df = df.join(
-        game_feats,
-        on="game_id",
-        how="inner",  # drops games with no features (e.g. week 1)
+        online_feats,
+        left_on=["game_id", "posteam"],
+        right_on=["game_id", "team"],
+        how="inner",  # drops games not in feature store (e.g. week 1, no prior EPA)
     )
-
-    # For each _home/_away column pair, pick the correct perspective based on
-    # posteam_type and negate the opponent's value where needed (e.g. spread).
-    home_suffixed = [c for c in game_feats.columns if c.endswith("_home")]
-    perspective_exprs = [
-        pl.when(pl.col("posteam_type") == "home")
-        .then(pl.col(f"{feat}_home"))
-        .otherwise(pl.col(f"{feat}_away"))
-        .alias(feat)
-        for feat in (c.removesuffix("_home") for c in home_suffixed)
-    ]
-    drop_cols = [c for c in game_feats.columns if c.endswith(("_home", "_away"))]
-
-    df = df.with_columns(
-        *perspective_exprs,
-        # Negate spread for away team perspective
-        spread_line=pl.when(pl.col("posteam_type") == "home")
-        .then(pl.col("spread_line"))
-        .otherwise(-pl.col("spread_line")),
-        goal_to_go=(pl.col("ydstogo") >= pl.col("yardline_100")),
-    ).drop(drop_cols)
 
     # Add derived columns
     df = df.with_columns(
         intent=intent_value_mapping,
         score_diff=pl.col("total_home_score") - pl.col("total_away_score"),
+        goal_to_go=(pl.col("ydstogo") >= pl.col("yardline_100")),
     )
 
-    # TODO: I want this to be a lazyframe
     return df
