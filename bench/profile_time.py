@@ -10,27 +10,13 @@ from pathlib import Path
 from line_profiler import LineProfiler
 from loguru import logger
 
-from nfl_sim.engine.logic import apply_outcome
-from nfl_sim.engine.loop import (
-    _run_batched_game_loop,
-    _traces_to_dataframe,
-    sim_games,
-)
-from nfl_sim.model.inference import OutcomeModel
+from nfl_sim.engine.loop import sim_games
 from nfl_sim.model.store import FeatureStore
 
-FUNCTIONS = (
-    ## High-level API:
-    sim_games,
-    _run_batched_game_loop,
-    ## State transitions:
-    apply_outcome,
-    ## Models:
-    OutcomeModel.predict_probs_batch,
-    OutcomeModel._token_to_outcome,
-    ## DataFrame conversion:
-    _traces_to_dataframe,
-)
+# Hot loop now lives in Rust (sim_rs). Python-side profiling only covers
+# the thin FFI shim — detailed per-play profiling needs the Rust-side
+# equivalent (flamegraph / perf / samply).
+FUNCTIONS = (sim_games,)
 
 logger.remove()
 logger.add(sys.stderr, level="WARNING")
@@ -54,8 +40,7 @@ def main() -> None:
     # Profile N simulations
     n_sims = 100
     print(f"Profiling {home} vs {away} ({n_sims} simulations)...")
-    res = profiler.runcall(sim_games, [game_id], store, n=n_sims, max_workers=1)
-    profiler.runcall(_traces_to_dataframe, res)
+    profiler.runcall(sim_games, [game_id], store, n=n_sims, max_workers=1)
 
     # Save results to file
     output_path = Path(__file__).parent / "profile_results.txt"

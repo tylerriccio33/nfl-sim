@@ -18,7 +18,6 @@ import polars as pl
 from rich.console import Console
 
 from nfl_sim import sim_games
-from nfl_sim.engine.loop import _traces_to_dataframe
 from nfl_sim.model.store import FeatureStore
 
 START_AT = 100
@@ -55,17 +54,15 @@ def fetch_single_game() -> tuple[pl.DataFrame, str]:
     return row, game_id
 
 
-def _extract_margins(traces: dict, game_id: str) -> list[float]:
-    """Pull per-simulation margin (home - away) from raw traces.
+def _extract_margins(sim_pbp: pl.DataFrame, game_id: str) -> list[float]:
+    """Pull per-simulation margin (home - away) from the sim PBP frame.
 
     Each simulation produces one final score. We grab every (game_id, sim_id)
     pair's final home_score - away_score as the margin for that trial.
     """
-    df = _traces_to_dataframe(traces)
-
     # Last play per simulation has the final score
     margins = (
-        df.filter(pl.col("game_id") == game_id)
+        sim_pbp.filter(pl.col("game_id") == game_id)
         .group_by("sim_id")
         .agg(
             pl.col("home_score").last(),
@@ -115,8 +112,8 @@ def run_convergence_benchmark() -> pl.DataFrame:
     results: list[dict[str, float]] = []
 
     for n_sims in SIM_COUNTS:
-        traces = sim_games([game_id], store, n=n_sims)
-        margins = _extract_margins(traces, game_id)
+        sim_pbp = sim_games([game_id], store, n=n_sims)
+        margins = _extract_margins(sim_pbp, game_id)
         m = len(margins)
 
         # Mean estimate

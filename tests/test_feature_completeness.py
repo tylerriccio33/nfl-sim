@@ -3,7 +3,7 @@
 import pytest
 
 from nfl_sim.engine.state import Outcome
-from nfl_sim.model.config import MODELS, get_model_features
+from nfl_sim.model.config import MODEL_FEATURES, MODELS
 from nfl_sim.model.store import FeatureStore, PlayContext, resolve_feature
 
 
@@ -31,7 +31,7 @@ class TestFeatureCompleteness:
                 complete_pass=True,
             )
 
-        features = get_model_features(model_name)
+        features = MODEL_FEATURES[model_name]
         missing = []
         for feat in features:
             try:

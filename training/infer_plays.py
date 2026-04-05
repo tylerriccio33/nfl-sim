@@ -12,7 +12,7 @@ import numpy as np
 import polars as pl
 from pysuite import run
 
-from nfl_sim.model.config import TOKEN_NAMES, get_model_features
+from nfl_sim.model.config import MODEL_FEATURES, TOKEN_NAMES
 from nfl_sim.model.inference import OutcomeModel
 from training.prepare import prepare
 from training.train_xgb import _tokenize_row
@@ -43,7 +43,7 @@ def main() -> None:
 
     # Extract features directly from the prepared DataFrame
     # (prepare() already has all features as columns with correct values)
-    xgb_features = get_model_features("xgb")
+    xgb_features = MODEL_FEATURES["xgb"]
 
     rows = []
     for row in df.iter_rows(named=True):

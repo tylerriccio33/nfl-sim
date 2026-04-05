@@ -7,12 +7,11 @@ Main entry points:
 
     store = FeatureStore()
 
-    # Simulate multiple games from a week
-    results = sim_games(store.game_ids(), store, n=100)
+    # Simulate multiple games from a week — returns a flat PBP DataFrame
+    sim_pbp = sim_games(store.game_ids(), store, n=100)
 
     # Analyze results
-    df = _traces_to_dataframe(results)
-    stats = understand(df)
+    stats = understand(sim_pbp)
 """
 
 import polars as pl
@@ -25,7 +24,7 @@ from nfl_sim.const import (
     GAME_SUMMARY,
     SCHEDULES_DATA,
 )
-from nfl_sim.engine.loop import _traces_to_dataframe, sim_games
+from nfl_sim.engine.loop import sim_games
 from nfl_sim.model.store import FeatureStore
 from nfl_sim.utils import get_latest_season_week
 
@@ -50,9 +49,8 @@ def place_sim_results_at_db() -> None:
     # Only simulate games that exist in the store
     game_ids = [gid for gid in latest_games if gid in store._meta]
 
-    ## Sim Data:
-    traces = sim_games(game_ids, store, n=25)
-    sim_pbp: pl.DataFrame = _traces_to_dataframe(traces).with_columns(EVENT_EXPR)
+    ## Sim Data (Rust path: sim_games returns a flat PBP frame directly):
+    sim_pbp: pl.DataFrame = sim_games(game_ids, store, n=25).with_columns(EVENT_EXPR)
     sim_pbp.write_parquet(DATABASE())
 
     ## Understand Data (unified GameAggs with home_*/away_* stats):

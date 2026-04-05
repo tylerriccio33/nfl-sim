@@ -8,7 +8,7 @@ import polars as pl
 import pytest
 
 from nfl_sim.engine.state import _CLK, Intent, Outcome, TurnoverType, _GameState
-from nfl_sim.model.config import TOKEN_NAMES, get_model_features
+from nfl_sim.model.config import MODEL_FEATURES, TOKEN_NAMES
 from nfl_sim.model.inference import aftermath_model, outcome_model
 from nfl_sim.model.store import _DISPATCH, FeatureStore, PlayContext, build_features
 
@@ -94,7 +94,7 @@ def test_features_only_from_pre_play_state() -> None:
     feats = build_features("xgb", _store, ctx)
 
     # The feature vector length must match the canonical list exactly
-    assert len(feats) == len(get_model_features("xgb"))
+    assert len(feats) == len(MODEL_FEATURES["xgb"])
     assert feats.dtype == np.float32
 
 
@@ -185,7 +185,7 @@ def test_features_shape_and_dtype() -> None:
     """Feature vector must have the correct shape and dtype."""
     ctx = _make_context()
     feats = build_features("xgb", _store, ctx)
-    feature_names = get_model_features("xgb")
+    feature_names = MODEL_FEATURES["xgb"]
 
     assert feats.shape == (len(feature_names),)
     assert feats.dtype == np.float32
@@ -220,7 +220,7 @@ def test_feature_order_matches_canonical() -> None:
         away=away,
     )
     feats = build_features("xgb", _store, ctx)
-    feature_names = get_model_features("xgb")
+    feature_names = MODEL_FEATURES["xgb"]
 
     # State and ODT features are deterministic from the constructed state
     expected_subset = {
@@ -249,7 +249,7 @@ def test_gen_feature_names_covers_build_features() -> None:
     """Feature names must match build_features output."""
     ctx = _make_context()
     feats = build_features("xgb", _store, ctx)
-    names = get_model_features("xgb")
+    names = MODEL_FEATURES["xgb"]
 
     assert len(names) == len(feats), (
         f"get_model_features() has {len(names)} names but build_features() produced {len(feats)} values"

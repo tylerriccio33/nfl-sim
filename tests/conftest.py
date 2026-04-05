@@ -1,5 +1,7 @@
 """Shared fixtures for NFL sim tests."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import polars as pl
@@ -8,8 +10,7 @@ import pytest
 from flask.testing import FlaskClient
 
 from nfl_sim import place_sim_results_at_db, sim_games, understand
-from nfl_sim.engine.loop import GameResult, GameTrace, _run_batched_game_loop, _traces_to_dataframe
-from nfl_sim.engine.state import _SC, Outcome, _GameState
+from nfl_sim.engine.state import Outcome, _GameState
 from nfl_sim.model.store import FeatureStore, PlayContext
 from nfl_sim.utils import get_latest_season_week
 from nfl_sim.web import create_app
@@ -110,30 +111,12 @@ def ctx(store: FeatureStore) -> list[str]:
 
 
 @pytest.fixture(scope="session")
-def game_result(ctx: list[str], store: FeatureStore) -> GameResult:
-    """A single game result for tests that just need *a* completed game."""
-    gid = ctx[0]
-    home, away = store.meta(gid)
-    trace = _run_batched_game_loop([(gid, home, away)], store)[0]
-    final = trace[-1].state_after
-    return GameResult(
-        home=home,
-        away=away,
-        home_score=final[_SC][0],
-        away_score=final[_SC][1],
-        trace=trace,
-    )
-
-
-@pytest.fixture(scope="session")
-def sims(ctx: list[str], store: FeatureStore) -> dict[str, list[GameTrace]]:
-    # Use minimal simulations for fast test execution
+def sims(ctx: list[str], store: FeatureStore) -> pl.DataFrame:
     return sim_games(ctx, store, n=1)
 
 
 @pytest.fixture(scope="session")
-def sims_multiple(ctx: list[str], store: FeatureStore) -> dict[str, list[GameTrace]]:
-    """Multiple simulations (n=5) for integration tests that need trace variety."""
+def sims_multiple(ctx: list[str], store: FeatureStore) -> pl.DataFrame:
     return sim_games(ctx, store, n=5)
 
 
@@ -230,8 +213,7 @@ def build_comparison_data(
     assert len(game_ids) >= 10
 
     ## Sim Data:
-    traces = sim_games(game_ids, store, n=25)
-    sim_pbp: pl.DataFrame = _traces_to_dataframe(traces)
+    sim_pbp: pl.DataFrame = sim_games(game_ids, store, n=25)
     sim_stats = understand(sim_pbp)
     sim_stats_combined = _stats_to_avg_std(sim_stats)
 

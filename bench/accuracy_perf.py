@@ -12,7 +12,6 @@ from pysuite import run
 from rich.console import Console
 
 from nfl_sim import sim_games
-from nfl_sim.engine.loop import _traces_to_dataframe
 from nfl_sim.model.store import FeatureStore
 
 NGAMES = None  # use all games in the dataset
@@ -80,17 +79,16 @@ def run_accuracy_benchmark(n_games: int | None = 100, n_sims_per_game: int = NSI
         if not chunk_ids:
             continue
 
-        traces = sim_games(game_ids=chunk_ids, store=store, n=n_sims_per_game)
+        sim_pbp = sim_games(game_ids=chunk_ids, store=store, n=n_sims_per_game)
 
         chunk_df: pl.DataFrame = (
-            _traces_to_dataframe(traces)
-            .lazy()
+            sim_pbp.lazy()
             .select("game_id", sim_result=pl.col("home_score") - pl.col("away_score"))
             .unique()
             .group_by("game_id")
             .agg(pl.col("sim_result").mean())
             .collect()
-        )  # ty: ignore[invalid-assignment]
+        )
         chunk_dfs.append(chunk_df)
 
         console.print(f"  [{min(i + CHUNK_SIZE, total_games)}/{total_games}] games done")

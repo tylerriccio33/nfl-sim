@@ -11,7 +11,6 @@ Configuration is loaded once at import time.
 
 from __future__ import annotations
 
-import functools
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -69,15 +68,5 @@ XGB_CONFIG: dict[str, Any] = CONFIG["xgb"]
 TRAINING_CONFIG: dict[str, Any] = CONFIG["training"]
 
 
-@functools.cache
-def get_model_features(model_name: str) -> list[str]:
-    """Get the feature names for a specific model from TOML.
-
-    Args:
-        model_name: Model name ("xgb", "punt", "time")
-
-    Returns:
-        List of feature names as declared in pipeline.toml
-
-    """
-    return MODELS[model_name]["features"]
+# Feature lists per model, frozen at import time (no function-call overhead).
+MODEL_FEATURES: dict[str, list[str]] = {name: list(cfg["features"]) for name, cfg in MODELS.items()}
