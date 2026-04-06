@@ -29,7 +29,10 @@ class PuntYardsTrainer(Trainer):
     def fit(self, x: np.ndarray, y: np.ndarray) -> None:
         """Fit the XGBoost regressor."""
         self.model = xgb.XGBRegressor(
-            n_estimators=100, max_depth=8, min_child_weight=10, random_state=42,
+            n_estimators=100,
+            max_depth=8,
+            min_child_weight=10,
+            random_state=42,
         )
         self.model.fit(x, y)
 

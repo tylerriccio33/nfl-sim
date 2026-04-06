@@ -40,9 +40,7 @@ def _drive_starts(trace: pl.DataFrame) -> pl.DataFrame:
     """Rows where possession changed (first play of each drive)."""
     return trace.with_columns(
         pl.col("posteam").shift(1).alias("prev_posteam"),
-    ).filter(
-        pl.col("prev_posteam").is_null() | pl.col("prev_posteam").ne(pl.col("posteam"))
-    )
+    ).filter(pl.col("prev_posteam").is_null() | pl.col("prev_posteam").ne(pl.col("posteam")))
 
 
 def _drives(trace: pl.DataFrame) -> list[pl.DataFrame]:
@@ -67,8 +65,7 @@ def check_clock_non_negative(trace: pl.DataFrame) -> None:
 def check_clock_never_increases(trace: pl.DataFrame) -> None:
     """Game clock never increases within same quarter."""
     df = _with_next(trace).filter(
-        pl.col("quarter_next").eq(pl.col("quarter"))
-        & (pl.col("clock_next") > pl.col("clock"))
+        pl.col("quarter_next").eq(pl.col("quarter")) & (pl.col("clock_next") > pl.col("clock"))
     )
     assert len(df) == 0, f"Clock increased within quarter:\n{df}"
 
@@ -92,7 +89,8 @@ def check_single_possession(trace: pl.DataFrame) -> None:
 def check_field_position_bounds(trace: pl.DataFrame) -> None:
     """Field position always ∈ [0, 100]."""
     yl = trace["yardline_100"]
-    assert (yl >= 0).all() and (yl <= 100).all(), "Yardline out of bounds"
+    assert (yl >= 0).all(), "Yardline out of bounds"
+    assert (yl <= 100).all(), "Yardline out of bounds"
 
 
 def check_down_valid(trace: pl.DataFrame) -> None:
@@ -103,7 +101,8 @@ def check_down_valid(trace: pl.DataFrame) -> None:
 def check_distance_valid(trace: pl.DataFrame) -> None:
     """Distance-to-go > 0 and ≤ 100."""
     d = trace["distance"]
-    assert (d > 0).all() and (d <= 100).all(), "Invalid distance"
+    assert (d > 0).all(), "Invalid distance"
+    assert (d <= 100).all(), "Invalid distance"
 
 
 def check_possession_exists(trace: pl.DataFrame) -> None:
@@ -115,9 +114,7 @@ def check_possession_exists(trace: pl.DataFrame) -> None:
 def check_score_changes_only_on_scoring(trace: pl.DataFrame) -> None:
     """Score changes only on TDs, FGs, or turnover-return-TDs."""
     df = _with_next(trace)
-    delta = (df["home_score"] - df["home_score_prev"]) + (
-        df["away_score"] - df["away_score_prev"]
-    )
+    delta = (df["home_score"] - df["home_score_prev"]) + (df["away_score"] - df["away_score_prev"])
     score_changed = delta != 0
     scoring_event = (
         pl.col("touchdown")
@@ -157,9 +154,7 @@ def check_drive_starts_first_down(trace: pl.DataFrame) -> None:
 def check_drive_starts_with_10_or_goal(trace: pl.DataFrame) -> None:
     """Every drive starts with distance-to-go = 10 (unless goal-to-go)."""
     starts = _drive_starts(trace)
-    expected = starts.select(
-        pl.min_horizontal(pl.lit(10), pl.col("yardline_100"))
-    ).to_series()
+    expected = starts.select(pl.min_horizontal(pl.lit(10), pl.col("yardline_100"))).to_series()
     bad = starts.filter(pl.col("distance") != expected)
     assert len(bad) == 0, f"Drive started with wrong distance:\n{bad}"
 
@@ -240,9 +235,7 @@ def check_first_down_resets_distance(trace: pl.DataFrame) -> None:
     )
     if len(df) == 0:
         return
-    expected = df.select(
-        pl.min_horizontal(pl.lit(10), pl.col("yardline_100_next"))
-    ).to_series()
+    expected = df.select(pl.min_horizontal(pl.lit(10), pl.col("yardline_100_next"))).to_series()
     bad = df.filter(pl.col("distance_next") != expected)
     assert len(bad) == 0, f"First down distance wrong:\n{bad}"
 
@@ -280,9 +273,7 @@ DOWN_DISTANCE_RULES: tuple[RuleChecker, ...] = (
 
 
 def _score_delta(df: pl.DataFrame) -> pl.Series:
-    return (df["home_score"] - df["home_score_prev"]) + (
-        df["away_score"] - df["away_score_prev"]
-    )
+    return (df["home_score"] - df["home_score_prev"]) + (df["away_score"] - df["away_score_prev"])
 
 
 def check_touchdown_gives_7(trace: pl.DataFrame) -> None:
@@ -316,7 +307,8 @@ SCORING_RULES: tuple[RuleChecker, ...] = (
 def check_yardline_100_bounds(trace: pl.DataFrame) -> None:
     """Yardline always in [0, 100]."""
     yl = trace["yardline_100"]
-    assert (yl >= 0).all() and (yl <= 100).all(), "Yardline out of bounds"
+    assert (yl >= 0).all(), "Yardline out of bounds"
+    assert (yl <= 100).all(), "Yardline out of bounds"
 
 
 FIELD_POSITION_RULES: tuple[RuleChecker, ...] = (check_yardline_100_bounds,)
@@ -329,8 +321,7 @@ FIELD_POSITION_RULES: tuple[RuleChecker, ...] = (check_yardline_100_bounds,)
 def check_possession_flip_has_reason(trace: pl.DataFrame) -> None:
     """Possession only flips on punt, turnover, score, or 4th down failure."""
     df = _with_next(trace).filter(
-        pl.col("posteam_next").is_not_null()
-        & pl.col("posteam_next").ne(pl.col("posteam"))
+        pl.col("posteam_next").is_not_null() & pl.col("posteam_next").ne(pl.col("posteam"))
     )
     has_reason = (
         pl.col("intent").eq("punt")
@@ -366,9 +357,7 @@ RULES: tuple[RuleChecker, ...] = (
 @pytest.mark.parametrize("checker", RULES)
 def test_rules(checker: RuleChecker, sims: pl.DataFrame) -> None:
     """Run each rule checker against every individual trace in the sims output."""
-    for (gid, sid), trace in sims.sort("play_id").group_by(
-        ["game_id", "sim_id"], maintain_order=True
-    ):
+    for (_, _), trace in sims.sort("play_id").group_by(["game_id", "sim_id"], maintain_order=True):
         checker(trace)
 
 

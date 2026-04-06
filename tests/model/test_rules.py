@@ -55,9 +55,7 @@ def check_special_teams_dont_dominate(trace: pl.DataFrame) -> None:
 
 def check_run_pass_dominate_inside_10(trace: pl.DataFrame) -> None:
     """On downs 1-3 inside the 10, run/pass should dominate (>95%)."""
-    relevant = trace.filter(
-        pl.col("down").is_in([1, 2, 3]) & (pl.col("yardline_100") <= 10)
-    )
+    relevant = trace.filter(pl.col("down").is_in([1, 2, 3]) & (pl.col("yardline_100") <= 10))
     if len(relevant) < 5:
         return
     normal = relevant.filter(pl.col("intent").is_in(["run", "pass"]))
@@ -77,9 +75,7 @@ MODEL_RULES: tuple[RuleChecker, ...] = (
 
 @pytest.mark.parametrize("checker", MODEL_RULES)
 def test_model_rules(checker: RuleChecker, sims: pl.DataFrame) -> None:
-    for (gid, sid), trace in sims.sort("play_id").group_by(
-        ["game_id", "sim_id"], maintain_order=True
-    ):
+    for (_, _), trace in sims.sort("play_id").group_by(["game_id", "sim_id"], maintain_order=True):
         checker(trace)
 
 

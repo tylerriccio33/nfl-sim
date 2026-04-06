@@ -88,7 +88,7 @@ def run_accuracy_benchmark(n_games: int | None = 100, n_sims_per_game: int = NSI
             .group_by("game_id")
             .agg(pl.col("sim_result").mean())
             .collect()
-        )
+        )  # ty:ignore[invalid-assignment]
         chunk_dfs.append(chunk_df)
 
         console.print(f"  [{min(i + CHUNK_SIZE, total_games)}/{total_games}] games done")

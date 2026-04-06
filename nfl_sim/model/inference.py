@@ -75,7 +75,9 @@ class OutcomeModel:
 
         # Punt yards model (XGBoost .ubj)
         self._punt_yards = xgb.Booster()
-        self._punt_yards.load_model(str(ARTIFACT_PATHS.punt_yards_dir / ARTIFACT_PATHS.punt_yards_raw))
+        self._punt_yards.load_model(
+            str(ARTIFACT_PATHS.punt_yards_dir / ARTIFACT_PATHS.punt_yards_raw)
+        )
 
         self._loaded = True
 
@@ -147,7 +149,9 @@ class OutcomeModel:
         blocked_prob = 0.0005
         blocked = self._rng.random(n) < blocked_prob
 
-        raw = self._punt_yards.inplace_predict(feat_batch.astype(np.float32), validate_features=False)
+        raw = self._punt_yards.inplace_predict(
+            feat_batch.astype(np.float32), validate_features=False
+        )
         preds = np.maximum(0, np.round(raw)).astype(np.int32)
 
         # Override blocked punts
@@ -196,7 +200,9 @@ class AfterPlayModel:
         Returns raw float predictions. Caller is responsible for clamping
         to remaining clock and rounding.
         """
-        raw = self._time_model.inplace_predict(features_batch.astype(np.float32), validate_features=False)
+        raw = self._time_model.inplace_predict(
+            features_batch.astype(np.float32), validate_features=False
+        )
         preds = np.where(np.isfinite(raw), np.maximum(1.0, np.round(raw)), 20.0)
         return preds
 
