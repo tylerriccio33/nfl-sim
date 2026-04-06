@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-import tl2cgen
 import xgboost as xgb
 
 from nfl_sim.engine.state import (
@@ -59,7 +58,7 @@ class OutcomeModel:
     )
 
     _loaded: bool
-    _punt_yards: tl2cgen.Predictor
+    _punt_yards: xgb.Booster
     _rng: np.random.Generator
     _xgb: xgb.Booster
 
@@ -74,8 +73,9 @@ class OutcomeModel:
         self._xgb = xgb.Booster()
         self._xgb.load_model(str(ARTIFACT_PATHS.xgb_dir / ARTIFACT_PATHS.xgb_raw))
 
-        # Punt yards model (tl2cgen-compiled RF for batched inference)
-        self._punt_yards = tl2cgen.Predictor(str(ARTIFACT_PATHS.punt_yards_path), nthread=-1)
+        # Punt yards model (XGBoost .ubj)
+        self._punt_yards = xgb.Booster()
+        self._punt_yards.load_model(str(ARTIFACT_PATHS.punt_yards_dir / ARTIFACT_PATHS.punt_yards_raw))
 
         self._loaded = True
 
@@ -147,9 +147,8 @@ class OutcomeModel:
         blocked_prob = 0.0005
         blocked = self._rng.random(n) < blocked_prob
 
-        dmat = tl2cgen.DMatrix(feat_batch.astype(np.float32))
-        raw = self._punt_yards.predict(dmat)
-        preds = np.maximum(0, np.round(raw[:, 0, 0])).astype(np.int32)
+        raw = self._punt_yards.inplace_predict(feat_batch.astype(np.float32), validate_features=False)
+        preds = np.maximum(0, np.round(raw)).astype(np.int32)
 
         # Override blocked punts
         preds[blocked] = -35
@@ -181,13 +180,14 @@ class AfterPlayModel:
     __slots__ = ("_loaded", "_time_model")
 
     _loaded: bool
-    _time_model: tl2cgen.Predictor
+    _time_model: xgb.Booster
 
     def __init__(self) -> None:
         self._loaded = False
 
     def _load(self) -> None:
-        self._time_model = tl2cgen.Predictor(str(ARTIFACT_PATHS.time_path), nthread=-1)
+        self._time_model = xgb.Booster()
+        self._time_model.load_model(str(ARTIFACT_PATHS.time_dir / ARTIFACT_PATHS.time_raw))
         self._loaded = True
 
     def predict_time_batch(self, features_batch: np.ndarray) -> np.ndarray:
@@ -196,11 +196,8 @@ class AfterPlayModel:
         Returns raw float predictions. Caller is responsible for clamping
         to remaining clock and rounding.
         """
-        dmat = tl2cgen.DMatrix(features_batch.astype(np.float32))
-        raw = self._time_model.predict(dmat)
-        # tl2cgen regression returns (N, 1, 1) → extract to (N,)
-        preds = raw[:, 0, 0].astype(np.float64)
-        preds = np.where(np.isfinite(preds), np.maximum(1.0, np.round(preds)), 20.0)
+        raw = self._time_model.inplace_predict(features_batch.astype(np.float32), validate_features=False)
+        preds = np.where(np.isfinite(raw), np.maximum(1.0, np.round(raw)), 20.0)
         return preds
 
 

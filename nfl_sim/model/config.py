@@ -51,10 +51,12 @@ class ArtifactPaths:
     xgb_raw: str = MODELS["xgb"]["raw"]
 
     # Time model
-    time_path: Path = field(default_factory=lambda: Path(MODELS["time"]["artifact"]))
+    time_dir: Path = field(default_factory=lambda: Path(MODELS["time"]["artifact"]))
+    time_raw: str = MODELS["time"]["raw"]
 
     # ST models
-    punt_yards_path: Path = field(default_factory=lambda: Path(MODELS["punt"]["artifact"]))
+    punt_yards_dir: Path = field(default_factory=lambda: Path(MODELS["punt"]["artifact"]))
+    punt_yards_raw: str = MODELS["punt"]["raw"]
 
 
 ARTIFACT_PATHS = ArtifactPaths()

@@ -114,8 +114,11 @@ def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
     # Add derived columns
     df = df.with_columns(
         intent=intent_value_mapping,
-        score_diff=pl.col("total_home_score") - pl.col("total_away_score"),
+        score_diff=pl.when(pl.col("posteam_type") == "home")
+        .then(pl.col("total_home_score") - pl.col("total_away_score"))
+        .otherwise(pl.col("total_away_score") - pl.col("total_home_score")),
         goal_to_go=(pl.col("ydstogo") >= pl.col("yardline_100")),
+        clock=pl.col("game_seconds_remaining") - (4 - pl.col("qtr")) * 900,
     )
 
     return df

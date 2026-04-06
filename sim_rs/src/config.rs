@@ -114,6 +114,20 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
         xgb_m.raw.clone().unwrap_or_else(|| "model.ubj".into())
     );
 
+    let punt_m = cfg.models.get("punt").unwrap();
+    let punt_path = format!(
+        "{}/{}",
+        punt_m.artifact,
+        punt_m.raw.clone().unwrap_or_else(|| "model.ubj".into())
+    );
+
+    let time_m = cfg.models.get("time").unwrap();
+    let time_path = format!(
+        "{}/{}",
+        time_m.artifact,
+        time_m.raw.clone().unwrap_or_else(|| "model.ubj".into())
+    );
+
     Ok(PipelineConfig {
         tokens,
         token_names,
@@ -122,8 +136,8 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
         time_features,
         feature_sources,
         xgb_model_path: xgb_path,
-        punt_model_path: cfg.models.get("punt").unwrap().artifact.clone(),
-        time_model_path: cfg.models.get("time").unwrap().artifact.clone(),
+        punt_model_path: punt_path,
+        time_model_path: time_path,
     })
 }
 

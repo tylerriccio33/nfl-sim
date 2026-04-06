@@ -2,7 +2,7 @@
 
 Usage: uv run training/train_punt.py (or `make train-punt`)
 
-Trains a decision tree to predict punt yards. Blocked outcomes are sampled
+Trains an XGBoost regressor to predict punt yards. Blocked outcomes are sampled
 at a fixed 0.05% probability during inference (no training needed).
 
 Uses features built by prepare() - all feature engineering happens there.
@@ -12,26 +12,24 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
-import tl2cgen
-import treelite.sklearn
+import xgboost as xgb
 from pysuite import run
-from sklearn.ensemble import RandomForestRegressor
 
 from training.prepare import prepare
 from training.utils import Trainer, train_model
 
 
 class PuntYardsTrainer(Trainer):
-    """Trainer for punt yards prediction using RandomForest, compiled via tl2cgen."""
+    """Trainer for punt yards prediction using XGBoost, saved as .ubj."""
 
     def __init__(self) -> None:
         """Initialize trainer."""
-        self.model: RandomForestRegressor | None = None
+        self.model: xgb.XGBRegressor | None = None
 
     def fit(self, x: np.ndarray, y: np.ndarray) -> None:
-        """Fit the random forest model."""
-        self.model = RandomForestRegressor(
-            n_estimators=100, max_depth=8, min_samples_leaf=10, random_state=42, n_jobs=-1
+        """Fit the XGBoost regressor."""
+        self.model = xgb.XGBRegressor(
+            n_estimators=100, max_depth=8, min_child_weight=10, random_state=42,
         )
         self.model.fit(x, y)
 
@@ -41,17 +39,10 @@ class PuntYardsTrainer(Trainer):
         return self.model.predict(x)
 
     def save(self, path: Path) -> None:
-        """AOT-compile model to native shared library via tl2cgen."""
+        """Save model as .ubj (native XGBoost binary)."""
         assert self.model is not None, "Model not trained yet"
         path.parent.mkdir(parents=True, exist_ok=True)
-
-        treelite_model = treelite.sklearn.import_model(self.model)
-        tl2cgen.export_lib(
-            treelite_model,
-            toolchain="clang",
-            libpath=str(path),
-            verbose=True,
-        )
+        self.model.save_model(str(path))
 
 
 def main() -> None:
@@ -59,13 +50,9 @@ def main() -> None:
     print("Preparing training data...")
     df = prepare().filter(pl.col("play_type") == "punt")
 
-    # Create trainer with hyperparameters
     trainer = PuntYardsTrainer()
-
-    # Train using unified framework
     result = train_model("punt", df, trainer)
 
-    # Report evaluation metrics
     run(
         xeval=result.df.select(result.feature_names, "desc"),
         yeval=result.df[result.real],

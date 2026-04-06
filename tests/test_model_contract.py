@@ -229,7 +229,7 @@ def test_feature_order_matches_canonical() -> None:
         "yardline_100": 30.0,
         "score_diff": 7.0,  # ODT: home(14) - away(7), offense is HOME
         "qtr": 3.0,
-        "game_seconds_remaining": 600.0,
+        "clock": 600.0,
         "goal_to_go": 0.0,  # ODT: distance(5) < yardline_100(30)
     }
     for i, name in enumerate(feature_names):

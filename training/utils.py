@@ -120,7 +120,9 @@ def train_model(model_name: str, df: pl.DataFrame, trainer: Trainer) -> Training
     config = MODELS[model_name]
     feature_names = config["features"]
     outcome_name = config["outcomes"][0]  # Currently assumes single outcome
-    artifact_path = Path(config["artifact"])
+    artifact_dir = Path(config["artifact"])
+    raw_file = config.get("raw")
+    artifact_path = artifact_dir / raw_file if raw_file else artifact_dir
 
     # Extract features and target(s)
     x = df.select(feature_names).to_numpy()
