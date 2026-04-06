@@ -7,13 +7,11 @@ import pytest
 
 from nfl_sim import understand
 from nfl_sim.analysis.EXPR import _PLAY_SCHEMA, SIM_LEVEL_EXPRS, _resolve_schema
-from nfl_sim.engine.loop import _traces_to_dataframe
 
 
 def test_full_pipeline_completes(ctx, sims_multiple) -> None:
     """Full pipeline should complete without error."""
-    df = _traces_to_dataframe(sims_multiple)
-    game_stats = understand(df)
+    game_stats = understand(sims_multiple)
 
     # 2 games (from ctx fixture)
     assert len(game_stats) == 2

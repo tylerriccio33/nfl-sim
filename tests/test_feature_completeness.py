@@ -36,7 +36,7 @@ class TestFeatureCompleteness:
         for feat in features:
             try:
                 resolve_feature(store, play_context, feat)
-            except KeyError, AttributeError, AssertionError:
+            except (KeyError, AttributeError, AssertionError):
                 missing.append(feat)
         assert not missing, f"{model_name} model missing features: {missing}"
 
