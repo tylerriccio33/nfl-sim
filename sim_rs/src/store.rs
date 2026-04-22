@@ -15,16 +15,12 @@ pub struct OnlineStore {
     pub n_feats: usize,
     /// feature name -> column in `matrix`
     pub feat_col: FxHashMap<String, usize>,
-    /// game_id -> (home_team, away_team)
-    pub meta: FxHashMap<String, (String, String)>,
 }
 
 impl OnlineStore {
     pub fn new(
         game_ids: &[String],
         teams: &[String],
-        home_teams: &[String],
-        away_teams: &[String],
         feat_names: &[String],
         values: &[f32], // row-major (n_keys, n_feats)
     ) -> Self {
@@ -33,11 +29,8 @@ impl OnlineStore {
         assert_eq!(values.len(), n_keys * n_feats);
 
         let mut key_index = FxHashMap::default();
-        let mut meta = FxHashMap::default();
         for i in 0..n_keys {
             key_index.insert((game_ids[i].clone(), teams[i].clone()), i);
-            meta.entry(game_ids[i].clone())
-                .or_insert_with(|| (home_teams[i].clone(), away_teams[i].clone()));
         }
 
         let mut feat_col = FxHashMap::default();
@@ -50,14 +43,14 @@ impl OnlineStore {
             matrix: values.to_vec(),
             n_feats,
             feat_col,
-            meta,
         }
     }
 
     #[inline]
     pub fn row_idx(&self, gid: &str, team: &str) -> usize {
         // TODO: avoid the String clone on hot path — intern game_id/team to u32.
-        *self.key_index
+        *self
+            .key_index
             .get(&(gid.to_string(), team.to_string()))
             .expect("online key missing")
     }

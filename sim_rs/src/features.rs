@@ -17,7 +17,11 @@ fn odt_score_diff(s: &GameState) -> f32 {
 }
 
 fn odt_goal_to_go(s: &GameState) -> f32 {
-    if s.distance >= s.yardline_100 { 1.0 } else { 0.0 }
+    if s.distance >= s.yardline_100 {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 fn resolve_odt(name: &str) -> OdtFn {
@@ -84,9 +88,9 @@ fn resolve_outcome_field(name: &str) -> OutcomeField {
 
 pub struct FeaturePlan {
     pub n_feats: usize,
-    pub state_cols: Vec<usize>,      // output columns
-    pub state_src: Vec<usize>,       // parallel: index into GameState
-    pub online_cols: Vec<usize>,     // output columns
+    pub state_cols: Vec<usize>,        // output columns
+    pub state_src: Vec<usize>,         // parallel: index into GameState
+    pub online_cols: Vec<usize>,       // output columns
     pub online_store_cols: Vec<usize>, // parallel: cols in OnlineStore.matrix
     pub odt_items: Vec<(usize, OdtFn)>,
     pub outcome_items: Vec<(usize, OutcomeField)>,

@@ -11,15 +11,15 @@ use crate::store::OnlineStore;
 
 /// Columnar trace output, ready to ship back as numpy/polars.
 pub struct TraceColumns {
-    pub game_id: Vec<u32>,       // index into game_metas
-    pub sim_id: Vec<u32>,        // flattened sim index per game_id
-    pub play_id: Vec<u32>,       // play index within this sim
+    pub game_id: Vec<u32>, // index into game_metas
+    pub sim_id: Vec<u32>,  // flattened sim index per game_id
+    pub play_id: Vec<u32>, // play index within this sim
     pub quarter: Vec<u8>,
     pub clock: Vec<i16>,
     pub down: Vec<u8>,
     pub distance: Vec<u8>,
     pub yardline_100: Vec<u8>,
-    pub posteam: Vec<u8>,        // 0=HOME, 1=AWAY
+    pub posteam: Vec<u8>, // 0=HOME, 1=AWAY
     pub intent: Vec<u8>,
     pub yards_gained: Vec<i16>,
     pub touchdown: Vec<u8>,
@@ -90,7 +90,15 @@ pub fn run_batched(
 
         // ── 1. XGB features ──
         let slice = &mut feat_xgb[..a * xgb_plan.n_feats];
-        build_features_batch(xgb_plan, store, &states_a, &gids_a, &offense_team_a, None, slice);
+        build_features_batch(
+            xgb_plan,
+            store,
+            &states_a,
+            &gids_a,
+            &offense_team_a,
+            None,
+            slice,
+        );
 
         // ── 2. predict probs, 3. sample tokens ──
         let probs_vec = models.predict_probs(slice, a, xgb_plan.n_feats);
@@ -100,8 +108,8 @@ pub fn run_batched(
         // ── 4. tokens → Intent + Outcome ──
         let mut intents = Vec::with_capacity(a);
         let mut outcomes = Vec::with_capacity(a);
-        for j in 0..a {
-            let (intent, outcome) = models.token_to_outcome(tokens_buf[j]);
+        for &tok in &tokens_buf[..a] {
+            let (intent, outcome) = models.token_to_outcome(tok);
             intents.push(intent);
             outcomes.push(outcome);
         }
@@ -116,13 +124,26 @@ pub fn run_batched(
         }
 
         // ── 4b. batched punt yards ──
-        let punt_idx: Vec<usize> = (0..a).filter(|&j| matches!(intents[j], Intent::Punt)).collect();
+        let punt_idx: Vec<usize> = (0..a)
+            .filter(|&j| matches!(intents[j], Intent::Punt))
+            .collect();
         if !punt_idx.is_empty() {
             let p_states: Vec<GameState> = punt_idx.iter().map(|&j| states_a[j]).collect();
             let p_gids: Vec<String> = punt_idx.iter().map(|&j| gids_a[j].clone()).collect();
-            let p_off: Vec<String> = punt_idx.iter().map(|&j| offense_team_a[j].clone()).collect();
+            let p_off: Vec<String> = punt_idx
+                .iter()
+                .map(|&j| offense_team_a[j].clone())
+                .collect();
             let mut p_feat = vec![0f32; punt_idx.len() * punt_plan.n_feats];
-            build_features_batch(punt_plan, store, &p_states, &p_gids, &p_off, None, &mut p_feat);
+            build_features_batch(
+                punt_plan,
+                store,
+                &p_states,
+                &p_gids,
+                &p_off,
+                None,
+                &mut p_feat,
+            );
             let yards = models.predict_punt(&p_feat, punt_idx.len());
             for (k, &j) in punt_idx.iter().enumerate() {
                 outcomes[j].yards_gained = yards[k];
@@ -147,7 +168,13 @@ pub fn run_batched(
             .collect();
         let mut t_feat = vec![0f32; a * time_plan.n_feats];
         build_features_batch(
-            time_plan, store, &new_states, &ns_gids, &ns_off, Some(&outcomes), &mut t_feat,
+            time_plan,
+            store,
+            &new_states,
+            &ns_gids,
+            &ns_off,
+            Some(&outcomes),
+            &mut t_feat,
         );
         let time_preds = models.predict_time(&t_feat, a);
         for j in 0..a {

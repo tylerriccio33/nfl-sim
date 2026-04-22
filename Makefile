@@ -6,16 +6,23 @@ clean: ## Cleans all artifacts including models
 	@rm -rf .venv
 	@rm -rf training/artifacts && mkdir -p training/artifacts
 
-
 lint: ## Run ruff and typer
 	@uv run ruff check --fix
 	@uv run ruff format
 	@uv run ty check
+	@cargo fmt --manifest-path sim_rs/Cargo.toml
+	@cargo clippy --manifest-path sim_rs/Cargo.toml --all-targets -- -D warnings
+
+prek: ## Run prek pre-commit hooks on all files
+	@uvx prek run --all-files
+
+prek-install: ## Install prek git hook
+	@uvx prek install
 
 generate-outcome: ## Generate Outcome dataclass from pipeline.toml
 	@uv run --no-sync python scripts/generate_outcome.py
 
-types: ## Generate type stubs for aggregation types
+agg-types: ## Generate type stubs for aggregation types
 	@uv run --no-sync python scripts/gen_agg_stubs.py
 
 test: ## Run tests
@@ -31,9 +38,6 @@ cov-api: ## Run web API integration tests with coverage
 	@uv run --no-sync pytest tests/web/test_web_integration.py \
 		--cov nfl_sim \
 		--cov-report term-missing
-
-vulture: ## Detect dead code
-	@uvx vulture nfl_sim
 
 load-dictionaries: ## Download data dictionaries
 	@curl -L -o dictionary/pbp.csv https://raw.githubusercontent.com/nflverse/nflreadr/refs/heads/main/data-raw/dictionary_pbp.csv
@@ -58,11 +62,6 @@ infer-plays: ## Run XGB predictions on 1k random plays for inspection
 train-xgb: ## Train XGB token model
 	@uv run training/train_xgb.py
 
-train-all: ## Run all model training scripts
-	@uv run training/train_xgb.py
-	@uv run training/train_time.py
-	@uv run training/train_punt.py
-
 export-onnx: ## Export trained models to ONNX format (for Rust inference)
 	@uv run training/export_onnx.py
 
@@ -72,7 +71,7 @@ train-time: ## Train time model
 train-punt: ## Train punt yards model (blocked is sampled at 0.05%)
 	@uv run training/train_punt.py
 
-features: ## Materialize online features to data/features.parquet
+online-features: ## Materialize online features to data/features.parquet
 	@uv run python scripts/materialize_features.py
 
 refresh-data: ## Refresh all data files

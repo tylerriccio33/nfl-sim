@@ -39,7 +39,7 @@ pub enum TurnoverType {
 #[derive(Clone, Copy, Debug)]
 pub struct GameState {
     pub quarter: u8,
-    pub clock: i16,          // seconds remaining in quarter
+    pub clock: i16, // seconds remaining in quarter
     pub offense: Team,
     pub down: u8,
     pub distance: u8,

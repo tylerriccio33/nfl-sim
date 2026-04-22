@@ -16,5 +16,5 @@ rand = "0.8"
 rand_xoshiro = "0.6"
 rustc-hash = "2"
 anyhow = "1"
-ort = { version = "2.0.0-rc.12", features = ["load-dynamic"] }
-ndarray = "0.15"
+ort = { version = "2.0.0-rc.12", features = ["load-dynamic", "ndarray"] }
+ndarray = "0.17"

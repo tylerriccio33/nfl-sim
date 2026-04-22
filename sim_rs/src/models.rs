@@ -5,6 +5,7 @@
 //! loads them at runtime using the `ort` crate (ONNX Runtime for Rust).
 
 use ort::session::{builder::GraphOptimizationLevel, Session};
+use ort::value::Value;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
@@ -29,21 +30,25 @@ impl Models {
         tokens: Vec<TokenCfg>,
         seed: u64,
     ) -> anyhow::Result<Self> {
-        // Load sessions from ONNX files using ort Session API
-        let xgb_session = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(1)?
-            .commit_from_file(xgb_path)?;
+        // ort 2.0.0-rc.12: `SessionBuilder` is neither `Send` nor `Sync` (it
+        // holds `Arc<OperatorDomain>` which contains raw pointers), so its
+        // error type can't auto-convert into `anyhow::Error` via `?`. Stringify
+        // builder errors instead. `Session::run` errors are fine — they carry
+        // `RunOptions`, which is thread-safe.
+        let build = |path: &str| -> anyhow::Result<Session> {
+            Session::builder()
+                .map_err(|e| anyhow::anyhow!("ort builder: {e}"))?
+                .with_optimization_level(GraphOptimizationLevel::Level3)
+                .map_err(|e| anyhow::anyhow!("ort opt level: {e}"))?
+                .with_intra_threads(1)
+                .map_err(|e| anyhow::anyhow!("ort threads: {e}"))?
+                .commit_from_file(path)
+                .map_err(|e| anyhow::anyhow!("ort commit {path}: {e}"))
+        };
 
-        let punt_session = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(1)?
-            .commit_from_file(punt_path)?;
-
-        let time_session = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(1)?
-            .commit_from_file(time_path)?;
+        let xgb_session = build(xgb_path)?;
+        let punt_session = build(punt_path)?;
+        let time_session = build(time_path)?;
 
         let n_tokens = tokens.len();
         Ok(Models {
@@ -57,12 +62,14 @@ impl Models {
     }
 
     /// XGB softprob prediction: (n, 9) features → (n * k) probabilities, row-major.
-    pub fn predict_probs(&self, feats: &[f32], n: usize, n_feats: usize) -> Vec<f32> {
+    pub fn predict_probs(&mut self, feats: &[f32], n: usize, n_feats: usize) -> Vec<f32> {
         let input = ndarray::Array2::from_shape_vec((n, n_feats), feats.to_vec())
             .expect("Invalid feature shape");
 
-        let outputs = self.xgb_session
-            .run(ort::inputs![input].expect("Failed to create ONNX inputs"))
+        let val = Value::from_array(input).expect("Failed to build ONNX value");
+        let outputs = self
+            .xgb_session
+            .run(ort::inputs![val])
             .expect("XGB inference failed");
 
         // Extract the output array (typically named "output" or "probabilities")
@@ -70,12 +77,12 @@ impl Models {
             .try_extract_array::<f32>()
             .expect("Failed to extract XGB output");
 
-        output.into_iter().collect()
+        output.iter().copied().collect()
     }
 
     pub fn sample_tokens(&mut self, probs: &[f32], n: usize, out: &mut [u16]) {
         let k = self.n_tokens;
-        for row in 0..n {
+        for (row, slot) in out.iter_mut().enumerate().take(n) {
             let u: f32 = self.rng.gen();
             let base = row * k;
             let mut acc = 0f32;
@@ -87,7 +94,7 @@ impl Models {
                     break;
                 }
             }
-            out[row] = picked;
+            *slot = picked;
         }
     }
 
@@ -137,32 +144,33 @@ impl Models {
     }
 
     /// Punt yards: (n, 1) features → vec of predicted yards.
-    pub fn predict_punt(&self, feats: &[f32], n: usize) -> Vec<i16> {
+    pub fn predict_punt(&mut self, feats: &[f32], n: usize) -> Vec<i16> {
         let input = ndarray::Array2::from_shape_vec((n, 1), feats.to_vec())
             .expect("Invalid punt feature shape");
 
-        let outputs = self.punt_session
-            .run(ort::inputs![input].expect("Failed to create ONNX inputs"))
+        let val = Value::from_array(input).expect("Failed to build ONNX value");
+        let outputs = self
+            .punt_session
+            .run(ort::inputs![val])
             .expect("Punt inference failed");
 
         let output = outputs[0]
             .try_extract_array::<f32>()
             .expect("Failed to extract punt output");
 
-        output
-            .iter()
-            .map(|&v| v.round().max(0.0) as i16)
-            .collect()
+        output.iter().map(|&v| v.round().max(0.0) as i16).collect()
     }
 
     /// Time elapsed: (n, 4) features → vec of predicted seconds.
-    pub fn predict_time(&self, feats: &[f32], n: usize) -> Vec<i16> {
+    pub fn predict_time(&mut self, feats: &[f32], n: usize) -> Vec<i16> {
         let n_feats = 4; // yards_gained, complete_pass, pass_attempt, rush_attempt
         let input = ndarray::Array2::from_shape_vec((n, n_feats), feats.to_vec())
             .expect("Invalid time feature shape");
 
-        let outputs = self.time_session
-            .run(ort::inputs![input].expect("Failed to create ONNX inputs"))
+        let val = Value::from_array(input).expect("Failed to build ONNX value");
+        let outputs = self
+            .time_session
+            .run(ort::inputs![val])
             .expect("Time inference failed");
 
         let output = outputs[0]

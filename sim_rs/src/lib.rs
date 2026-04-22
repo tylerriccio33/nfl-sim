@@ -1,5 +1,11 @@
 //! pyo3 entry: exposes SimEngine.run_batched() as the single FFI call.
 
+// `#[pymethods]` in pyo3 0.22 expands return types through `.into()`, which
+// clippy flags as `useless_conversion` when the inner and outer error types
+// are both `PyErr`. The offending span lives inside the macro output, so the
+// lint can't be suppressed at the function or impl level — silence it here.
+#![allow(clippy::useless_conversion)]
+
 mod config;
 mod features;
 mod logic;
@@ -8,7 +14,7 @@ mod models;
 mod state;
 mod store;
 
-use numpy::{IntoPyArray, PyArray1};
+use numpy::IntoPyArray;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -37,7 +43,7 @@ impl SimEngine {
     #[new]
     #[pyo3(signature = (
         pipeline_toml_path,
-        game_ids, teams, home_teams, away_teams,
+        game_ids, teams,
         online_feat_names, online_values,
         seed = 42,
     ))]
@@ -45,8 +51,6 @@ impl SimEngine {
         pipeline_toml_path: &str,
         game_ids: Vec<String>,
         teams: Vec<String>,
-        home_teams: Vec<String>,
-        away_teams: Vec<String>,
         online_feat_names: Vec<String>,
         online_values: Vec<f32>, // row-major (n_keys, n_online_feats)
         seed: u64,
@@ -54,10 +58,7 @@ impl SimEngine {
         let cfg = load_config(std::path::Path::new(pipeline_toml_path))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        let store = OnlineStore::new(
-            &game_ids, &teams, &home_teams, &away_teams,
-            &online_feat_names, &online_values,
-        );
+        let store = OnlineStore::new(&game_ids, &teams, &online_feat_names, &online_values);
 
         let xgb_plan = FeaturePlan::build(&cfg.xgb_features, &cfg.feature_sources, &store);
         let punt_plan = FeaturePlan::build(&cfg.punt_features, &cfg.feature_sources, &store);
@@ -72,7 +73,14 @@ impl SimEngine {
         )
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        Ok(SimEngine { cfg, store, models, xgb_plan, punt_plan, time_plan })
+        Ok(SimEngine {
+            cfg,
+            store,
+            models,
+            xgb_plan,
+            punt_plan,
+            time_plan,
+        })
     }
 
     /// Run the batched loop for all (game_id, home, away) triples. Returns
@@ -89,14 +97,18 @@ impl SimEngine {
         assert_eq!(game_ids.len(), away_teams.len());
         let metas: Vec<(String, String, String)> = game_ids
             .into_iter()
-            .zip(home_teams.into_iter())
-            .zip(away_teams.into_iter())
+            .zip(home_teams)
+            .zip(away_teams)
             .map(|((g, h), a)| (g, h, a))
             .collect();
 
         let trace = loop_::run_batched(
-            &metas, &self.store, &mut self.models,
-            &self.xgb_plan, &self.punt_plan, &self.time_plan,
+            &metas,
+            &self.store,
+            &mut self.models,
+            &self.xgb_plan,
+            &self.punt_plan,
+            &self.time_plan,
         );
 
         let d = PyDict::new_bound(py);
@@ -128,4 +140,6 @@ fn sim_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
 // Silence the "unused field" warning for cfg (kept on the struct for future
 // introspection — e.g. exposing token_names back to Python).
 #[allow(dead_code)]
-fn _touch(e: &SimEngine) -> usize { e.cfg.token_names.len() }
+fn _touch(e: &SimEngine) -> usize {
+    e.cfg.token_names.len()
+}

@@ -8,8 +8,6 @@ class SimEngine:
         pipeline_toml_path: str,
         game_ids: list[str],
         teams: list[str],
-        home_teams: list[str],
-        away_teams: list[str],
         online_feat_names: list[str],
         online_values: list[float],
         seed: int = ...,

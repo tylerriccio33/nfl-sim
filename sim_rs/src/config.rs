@@ -9,7 +9,6 @@ use crate::state::{Intent, TurnoverType};
 
 #[derive(Debug, Deserialize)]
 pub struct RawConfig {
-    pub tokens: BTreeMap<String, RawToken>,
     pub models: BTreeMap<String, RawModel>,
     pub features: BTreeMap<String, RawFeature>,
 }
@@ -40,7 +39,6 @@ pub struct RawFeature {
 /// Parsed token ready for the hot path.
 #[derive(Clone, Debug)]
 pub struct TokenCfg {
-    pub name: String,
     pub intent: Intent,
     pub yards_lo: i16,
     pub yards_hi: i16,
@@ -51,7 +49,7 @@ pub struct TokenCfg {
 }
 
 pub struct PipelineConfig {
-    pub tokens: Vec<TokenCfg>,     // preserved insertion order (see note below)
+    pub tokens: Vec<TokenCfg>, // preserved insertion order (see note below)
     pub token_names: Vec<String>,
     pub xgb_features: Vec<String>,
     pub punt_features: Vec<String>,
@@ -82,7 +80,6 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
         let intent = parse_intent(&raw.intent)?;
         let turnover = parse_turnover(&raw.turnover)?;
         tokens.push(TokenCfg {
-            name: name.clone(),
             intent,
             yards_lo: raw.yards[0],
             yards_hi: raw.yards[1],
@@ -108,8 +105,8 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
     // Resolve artifact directory: env var or relative path.
     // Rust consumes the ONNX export (not the XGBoost-native artifact that
     // `raw` points at in the TOML), so the filename is hardcoded here.
-    let artifact_base = std::env::var("NFLSIM_ARTIFACT_DIR")
-        .unwrap_or_else(|_| "training/artifacts".to_string());
+    let artifact_base =
+        std::env::var("NFLSIM_ARTIFACT_DIR").unwrap_or_else(|_| "training/artifacts".to_string());
 
     let model_dir = |name: &str| {
         cfg.models
@@ -117,7 +114,7 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
             .unwrap()
             .artifact
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or(name)
             .to_string()
     };

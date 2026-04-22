@@ -43,15 +43,11 @@ def _make_engine(store: FeatureStore) -> sim_rs.SimEngine:
 
     game_ids = [k[0] for k in keys]
     teams = [k[1] for k in keys]
-    home_teams = [store._meta[g][0] for g in game_ids]
-    away_teams = [store._meta[g][1] for g in game_ids]
 
     return sim_rs.SimEngine(
         _PIPELINE_TOML,
         game_ids,
         teams,
-        home_teams,
-        away_teams,
         online_feats,
         values.reshape(-1).tolist(),
         seed=42,
