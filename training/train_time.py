@@ -24,11 +24,11 @@ class TimeTrainer(Trainer):
 
     def __init__(self) -> None:
         """Initialize trainer."""
-        self.model: xgb.XGBRegressor | None = None
+        self.model: xgb.XGBRegressor | None = None  # ty:ignore[possibly-missing-attribute]
 
     def fit(self, x: np.ndarray, y: np.ndarray) -> None:
         """Fit the XGBoost regressor."""
-        self.model = xgb.XGBRegressor(
+        self.model = xgb.XGBRegressor(  # ty:ignore[possibly-missing-attribute]
             n_estimators=100,
             max_depth=10,
             random_state=42,

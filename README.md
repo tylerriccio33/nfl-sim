@@ -8,100 +8,85 @@ Two core packages with a strict one-directional dependency: `model/ → engine/`
 
 ```
 nfl_sim/
-├── engine/              # Simulation loop + game rules (pure, no ML)
-│   ├── state.py         # Types: _GameState, Intent, Outcome, PlayEvent, GameTrace
-│   ├── logic.py         # Game rules: apply_outcome(), is_terminal()
-│   ├── loop.py          # Sim orchestration: sim_games(), _run_batched_game_loop()
-│   └── _GENERATED_outcome.py
-├── model/               # Everything ML
-│   ├── config.py        # TOML loader: tokens, artifact paths, feature lists
-│   ├── features.py      # GameContext, ModelContext, feature engineering
-│   ├── inference.py     # XGB/punt/FG/time model loading + prediction
-│   └── pipeline.toml    # Central config (tokens, hyperparams, model declarations)
-├── analysis/            # Post-sim aggregation and understanding
-├── web/                 # Flask UI
-├── const.py             # Env-based file paths
+├── engine/                      # Simulation loop + game rules (pure, no ML)
+│   ├── state.py                 # Types: _GameState, Intent, PlayEvent, GameTrace
+│   ├── logic.py                 # Game rules: apply_outcome(), is_terminal()
+│   ├── loop.py                  # Sim orchestration: sim_games()
+│   └── _GENERATED_outcome.py    # Outcome dataclass generated from pipeline.toml
+│                                # via `make generate-outcome`
+├── model/                       # Everything ML
+│   ├── config.py                # TOML loader: tokens, artifact paths, feature lists
+│   ├── store.py                 # Unified feature store (online/state/odt/outcome)
+│   ├── inference.py             # OutcomeModel (XGB tokens) + AfterPlayModel (time)
+│   └── pipeline.toml            # Central config (tokens, features, artifact paths)
+├── analysis/                    # Post-sim aggregation
+├── web/                         # Flask UI
+├── const.py                     # Env-based file paths
 └── utils.py
+
+sim_rs/                          # Rust mirror of the sim loop (pyo3)
+training/                        # XGB / time / punt training + ONNX export
 ```
 
-**`engine/`** knows about game state, rules, and types. It has no ML imports (no numpy in `state.py` or `logic.py`). The sim loop in `loop.py` imports from `model/` to call inference, but `state.py` and `logic.py` are completely pure.
+**`engine/`** knows about game state, rules, and types. It has no ML imports. The sim loop imports from `model/` to call inference, but `state.py` and `logic.py` are completely pure.
 
-**`model/`** owns features, inference, and configuration. Everything token/TOML/XGB lives here. `pipeline.toml` is colocated with the code that reads it.
+**`model/`** owns features, inference, and configuration. `pipeline.toml` is colocated with the code that reads it.
 
-**The key section of game logic:**
-- Trace: All plays up to this point
-- State: The state of the game right now
-- Game Features: Details about the teams and game.
-- Intent: The type of play the team will run.
-- Outcome: The outcome of said play.
-```{python}
-derived = DerivedContext(trace)
-features = ModelContext(state, derived, game_features)
-intent, outcome = model(features)
-new_state = apply_outcome(state, intent, outcome)
-```
+### Game loop, at a glance
 
-![alt text](docs/image.png)
-
-**Model Logic:**
-1. Features (`ModelContext`):
-    1. Game-level features: spread, EPA (prior-week), etc.
-    2. State of the current game: time, score, yardline, down, distance, etc.
-2. XGBoost token model predicts a probability distribution over ~16 play tokens.
-3. A token is sampled from the distribution and parsed into `Intent` + `Outcome`.
-4. Dedicated models handle punt yards and time elapsed prediction.
+Each play step:
+- **Trace** — all plays up to this point.
+- **State** — the state of the game right now (`_GameState` tuple).
+- **Features** — resolved by `model/store.py` from four sources driven by `[features.*]` in `pipeline.toml`:
+  - **online** — pre-materialized per `(game_id, team)` parquet (spread, prior-week EPA, …).
+  - **state** — read directly off the `_GameState` tuple (down, distance, yardline, clock, score, …).
+  - **odt** — computed on-demand from live state/trace.
+  - **outcome** — fields off the just-produced `Outcome` (post-play only, used by the time model).
+- **Intent / Outcome** — produced by `OutcomeModel`.
+- `apply_outcome(state, intent, outcome)` returns the new state.
+- `AfterPlayModel` then predicts time elapsed, conditioned on state + outcome.
 
 ### The Main Model: XGBoost Token Classifier
 
-A single XGBoost multiclass classifier replaces the old 3-model stack (RF intent + GBM leaf proximity). Each play is mapped to a **token** that encodes play type + outcome bucket. The model predicts the token distribution, and a token is sampled stochastically.
+A single XGBoost multiclass classifier. Each play is mapped to a **token** encoding play type + outcome bucket. The model predicts the token distribution, and a token is sampled stochastically.
 
-**Token vocabulary (~16 tokens):**
-```
-RUN_NEG, RUN_0_5, RUN_5_10, RUN_10_20, RUN_20P
-CP_0_5, CP_5_10, CP_10_20, CP_20P
-IC, SACK
-RUN_FUM, PASS_FUM, PASS_INT
-PUNT, FG
-```
-
-Each token is defined in `model/pipeline.toml` with: `intent`, `yards = [lo, hi]`, `turnover`, `complete_pass`, `pass_attempt`, `rush_attempt`.
-
-**How it works:**
-
-```
-                  ┌──────────┐
-features (9) ──→  │ XGBoost  │──→ P(token) ──→ sample ──→ token ──→ Intent + Outcome
-                  │ softprob │                              │
-                  └──────────┘                              ▼
-                                                    ┌──────────────┐
-                                                    │ TOML config  │
-                                                    │ yards=[lo,hi]│
-                                                    │ turnover     │ → Outcome
-                                                    │ intent       │ → Intent
-                                                    └──────────────┘
-```
+Tokens are declared in `nfl_sim/model/pipeline.toml` under `[tokens.*]`. Each token specifies `intent`, `yards = [lo, hi]`, `turnover`, `complete_pass`, `pass_attempt`, `rush_attempt` — that config is what turns a sampled token into a concrete `(Intent, Outcome)`.
 
 **Training** (`make train-xgb`):
-1. Each historical play is tokenized based on `(play_type, yards_gained, complete_pass, sack, turnover_type)`.
-2. XGBoost multiclass softprob classifier trained on 9 game-state features.
-3. Model compiled with treelite for fast inference (~10 µs per prediction).
+1. Each historical play is tokenized from `(play_type, yards_gained, complete_pass, sack, turnover_type)`.
+2. XGBoost multiclass softprob classifier trained on the feature set declared in `pipeline.toml`.
 
 **Inference:**
-1. Build feature vector from game state + game context.
-2. XGB predict_proba → sample token from distribution.
-3. Parse token config → `(Intent, Outcome)`. For PUNT/FG, route to dedicated models.
+1. `model/store.py` resolves the feature vector from online + state + odt sources.
+2. XGB `predict_proba` → sample a token from the distribution.
+3. Parse the token's TOML config → `(Intent, Outcome)`. PUNT yards route to a dedicated model.
 
-All token definitions and hyperparameters live in `model/pipeline.toml`.
+### Dedicated models
+
+- **Punt yards** (`training/train_punt.py`, `make train-punt`) — predicts yards on PUNT intents.
+- **Time elapsed** (`training/train_time.py`, `make train-time`) — `AfterPlayModel`, conditioned on state + the outcome that just happened.
+
+## Rust Engine (`sim_rs/`)
+
+A Rust mirror of the sim loop, exposed to Python via pyo3 as `SimEngine.run_batched()`. Same layout as the Python `engine/` + `model/` split:
+
+```
+sim_rs/src/
+├── lib.rs          # pyo3 entry: SimEngine.run_batched()
+├── config.rs       # pipeline.toml loader (same TOML the Python side reads)
+├── state.rs        # _GameState mirror
+├── logic.rs        # apply_outcome / is_terminal
+├── loop_.rs        # batched game loop
+├── store.rs        # OnlineStore (Python passes online features in flat)
+├── features.rs     # FeaturePlan — precompiled per-model feature pull
+└── models.rs       # ONNX-backed XGB / punt / time models
+```
+
+Python owns feature-store I/O (reads the online parquet, passes arrays to the constructor). Rust owns the hot loop and inference. Models are consumed as ONNX — produced by `make export-onnx` (`training/export_onnx.py`).
 
 ## Code Style and Conventions
 
-#### For Fixing the tl2cgen problem:
-mkdir -p ~/.local/share/uv/python/cpython-3.14.3-macos-aarch64-none/lib
-
-ln -s /opt/homebrew/opt/libomp/lib/libomp.dylib \
-~/.local/share/uv/python/cpython-3.14.3-macos-aarch64-none/lib/libomp.dylib
-
-## The Perfect Documentation/Model
+### The Perfect Documentation/Model
 
 This is an example of one of the most perfectly documented piece of inline code I grabbed from online. Seek to emulate this for extremely dense sections or at the developer's request.
 
