@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
-from rich.progress import Progress
 
 import sim_rs  # compiled via maturin from sim_rs/
 
@@ -111,22 +108,9 @@ def sim_games(
         flat_metas.extend(meta for _ in range(n))
 
     chunks = [flat_metas[i : i + chunk_size] for i in range(0, len(flat_metas), chunk_size)]
-    workers = max_workers or min(len(chunks), os.cpu_count() or 1)
 
     engine = _make_engine(store)
 
-    frames: list[pl.DataFrame] = []
-    if workers <= 1 or len(chunks) <= 1:
-        frames.extend(_chunk_to_df(engine, chunk) for chunk in chunks)
-    else:
-        # NOTE: SimEngine isn't pickleable; for multi-proc we'd need to
-        # (a) build the engine per-worker, or (b) switch to rayon inside Rust.
-        # Keeping sequential for now — iterate in a follow-up.
-        with Progress() as progress:
-            task = progress.add_task("Simulating games", total=len(chunks))
-            for chunk in chunks:
-                frames.append(_chunk_to_df(engine, chunk))
-                progress.advance(task)
-        _ = ProcessPoolExecutor, as_completed  # silence unused imports for now
+    frames: list[pl.DataFrame] = [_chunk_to_df(engine, chunk) for chunk in chunks]
 
     return pl.concat(frames)

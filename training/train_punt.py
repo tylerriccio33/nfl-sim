@@ -20,7 +20,7 @@ from training.utils import Trainer, train_model
 
 
 class PuntYardsTrainer(Trainer):
-    """Trainer for punt yards prediction using XGBoost, saved as .ubj."""
+    """Trainer for punt yards prediction using XGBoost, saved as .json."""
 
     def __init__(self) -> None:
         """Initialize trainer."""
@@ -42,7 +42,7 @@ class PuntYardsTrainer(Trainer):
         return self.model.predict(x)
 
     def save(self, path: Path) -> None:
-        """Save model as .ubj (native XGBoost binary)."""
+        """Save model as .json (for xgboost-rust)."""
         assert self.model is not None, "Model not trained yet"
         path.parent.mkdir(parents=True, exist_ok=True)
         self.model.save_model(str(path))

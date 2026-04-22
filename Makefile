@@ -63,6 +63,9 @@ train-all: ## Run all model training scripts
 	@uv run training/train_time.py
 	@uv run training/train_punt.py
 
+export-onnx: ## Export trained models to ONNX format (for Rust inference)
+	@uv run training/export_onnx.py
+
 train-time: ## Train time model
 	@uv run training/train_time.py
 

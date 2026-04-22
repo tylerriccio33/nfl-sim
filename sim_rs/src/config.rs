@@ -27,8 +27,6 @@ pub struct RawToken {
 #[derive(Debug, Deserialize)]
 pub struct RawModel {
     pub artifact: String,
-    #[serde(default)]
-    pub raw: Option<String>,
     pub features: Vec<String>,
 }
 
@@ -107,26 +105,26 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
         feature_sources.insert(name.clone(), (f.source.clone(), f.index));
     }
 
-    let xgb_m = cfg.models.get("xgb").unwrap();
-    let xgb_path = format!(
-        "{}/{}",
-        xgb_m.artifact,
-        xgb_m.raw.clone().unwrap_or_else(|| "model.ubj".into())
-    );
+    // Resolve artifact directory: env var or relative path.
+    // Rust consumes the ONNX export (not the XGBoost-native artifact that
+    // `raw` points at in the TOML), so the filename is hardcoded here.
+    let artifact_base = std::env::var("NFLSIM_ARTIFACT_DIR")
+        .unwrap_or_else(|_| "training/artifacts".to_string());
 
-    let punt_m = cfg.models.get("punt").unwrap();
-    let punt_path = format!(
-        "{}/{}",
-        punt_m.artifact,
-        punt_m.raw.clone().unwrap_or_else(|| "model.ubj".into())
-    );
+    let model_dir = |name: &str| {
+        cfg.models
+            .get(name)
+            .unwrap()
+            .artifact
+            .split('/')
+            .last()
+            .unwrap_or(name)
+            .to_string()
+    };
 
-    let time_m = cfg.models.get("time").unwrap();
-    let time_path = format!(
-        "{}/{}",
-        time_m.artifact,
-        time_m.raw.clone().unwrap_or_else(|| "model.ubj".into())
-    );
+    let xgb_path = format!("{}/{}/model.onnx", artifact_base, model_dir("xgb"));
+    let punt_path = format!("{}/{}/model.onnx", artifact_base, model_dir("punt"));
+    let time_path = format!("{}/{}/model.onnx", artifact_base, model_dir("time"));
 
     Ok(PipelineConfig {
         tokens,

@@ -73,7 +73,7 @@ class OutcomeModel:
         self._xgb = xgb.Booster()
         self._xgb.load_model(str(ARTIFACT_PATHS.xgb_dir / ARTIFACT_PATHS.xgb_raw))
 
-        # Punt yards model (XGBoost .ubj)
+        # Punt yards model (XGBoost .json)
         self._punt_yards = xgb.Booster()
         self._punt_yards.load_model(
             str(ARTIFACT_PATHS.punt_yards_dir / ARTIFACT_PATHS.punt_yards_raw)

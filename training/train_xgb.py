@@ -141,13 +141,14 @@ def main() -> None:
             acc = float((eval_pred[mask] == idx).mean())
             print(f"  {name:15s} {acc:.3f}  (n={int(mask.sum())})")
 
-    # Save model (.ubj for backup, .tl for fast treelite inference)
+    # Save XGBoost-native artifact (Python inference loads this directly).
+    # Rust consumes the ONNX export produced by training/export_onnx.py.
     artifact_dir = Path(cfg["artifact"])
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    ubj_path = artifact_dir / cfg["raw"]
-    model.save_model(str(ubj_path))
-    print(f"\nSaved: {ubj_path}")
+    raw_path = artifact_dir / cfg["raw"]
+    model.save_model(str(raw_path))
+    print(f"\nSaved: {raw_path}")
 
     # pysuite evaluation (token-level classification)
     idx_to_token = dict(enumerate(TOKEN_NAMES))

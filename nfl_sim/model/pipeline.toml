@@ -159,8 +159,7 @@ rush_attempt = false
 
 [models.xgb]
 artifact = "training/artifacts/xgb"
-compiled = "model.dylib"
-raw = "model.ubj"
+raw = "model.json"
 features = [
     "down",
     "ydstogo",
@@ -176,13 +175,13 @@ outcomes = ["token"]
 
 [models.punt]
 artifact = "training/artifacts/punt"
-raw = "model.ubj"
+raw = "model.json"
 features = ["yardline_100"]
 outcomes = ["kick_distance"]
 
 [models.time]
 artifact = "training/artifacts/time"
-raw = "model.ubj"
+raw = "model.json"
 features = ["yards_gained", "complete_pass", "pass_attempt", "rush_attempt"]
 outcomes = ["time_elapsed"]
 

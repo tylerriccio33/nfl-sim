@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
@@ -269,23 +269,6 @@ def build_features(model_name: str, store: FeatureStore, ctx: PlayContext) -> np
         traces=[ctx.trace],
         outcomes=outcomes,
     )[0]
-
-
-type GameID = str  # Game Key
-type Team = str  # Team Key (NYJ, KC, ...)
-type RequestParams = dict[str, Any]  # Request parameters for the feature store
-
-
-def get_feat_vector_outcome(
-    store: FeatureStore,
-    games: dict[tuple[GameID, Team], RequestParams],
-) -> list[np.ndarray]:
-    """Build outcome feature vectors for a batch of (game, team) requests."""
-    nvec = []
-    for key, params in games.items():
-        vec = store.get_outcome_vector(key, params)
-        nvec.append(vec)
-    return nvec
 
 
 def build_features_batch(

@@ -5,7 +5,7 @@ Usage: uv run training/train_time.py (or `make train-time`)
 Trains an XGBoost regressor to predict time_elapsed conditioned on outcome
 fields (yards_gained, complete_pass, pass_attempt, rush_attempt).
 
-Saved as .ubj so both Python and Rust can load via the xgboost C API.
+Saved as .json for xgboost-rust inference in the Rust engine.
 """
 
 from pathlib import Path
@@ -41,7 +41,7 @@ class TimeTrainer(Trainer):
         return self.model.predict(x)
 
     def save(self, path: Path) -> None:
-        """Save model as .ubj (native XGBoost binary)."""
+        """Save model as .json (for xgboost-rust)."""
         assert self.model is not None, "Model not trained yet"
         path.parent.mkdir(parents=True, exist_ok=True)
         self.model.save_model(str(path))
