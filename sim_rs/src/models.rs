@@ -72,8 +72,9 @@ impl Models {
             .run(ort::inputs![val])
             .expect("XGB inference failed");
 
-        // Extract the output array (typically named "output" or "probabilities")
-        let output = outputs[0]
+        // onnxmltools exports XGB classifiers with two outputs: [0]=label (i64),
+        // [1]=probabilities (f32, shape (n, n_classes)). We want probabilities.
+        let output = outputs[1]
             .try_extract_array::<f32>()
             .expect("Failed to extract XGB output");
 

@@ -69,7 +69,7 @@ def main() -> None:
         xeval=res.select(*result.feature_names, "desc"),
         yeval=res[result.real],
         ypred=res["pred"],
-        show=True,
+        show=False,
     )
 
 

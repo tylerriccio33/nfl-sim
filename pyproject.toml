@@ -18,6 +18,7 @@ dependencies = [
     "treelite>=4.6.1",
     "treelite-runtime>=3.9.1",
     "xgboost>=3.2.0",
+    "sim_rs",
 ]
 
 [build-system]
@@ -31,6 +32,7 @@ module-root = ""
 
 [tool.uv.sources]
 pysuite = { git = "https://github.com/tylerriccio33/pysuite" }
+sim_rs = { path = "sim_rs", editable = true }
 
 [project.scripts]
 nfl-sim = "nfl_sim.__main__:main"

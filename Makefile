@@ -5,6 +5,7 @@ server: ## Run the Web Server (live debugging with latest week data)
 clean: ## Cleans all artifacts including models
 	@rm -rf .venv
 	@rm -rf training/artifacts && mkdir -p training/artifacts
+	@rm -rf sim_rs/target
 
 lint: ## Run ruff and typer
 	@uv run ruff check --fix
@@ -17,7 +18,7 @@ prek: ## Run prek pre-commit hooks on all files
 	@uvx prek run --all-files
 
 prek-install: ## Install prek git hook
-	@uvx prek install
+	@uvx prek install --overwrite
 
 generate-outcome: ## Generate Outcome dataclass from pipeline.toml
 	@uv run --no-sync python scripts/generate_outcome.py
@@ -59,6 +60,8 @@ bench-converge: ## Run convergence benchmark
 infer-plays: ## Run XGB predictions on 1k random plays for inspection
 	@uv run training/infer_plays.py
 
+train: train-xgb train-time train-punt export-onnx ## Train all models and export to ONNX
+
 train-xgb: ## Train XGB token model
 	@uv run training/train_xgb.py
 
@@ -76,6 +79,9 @@ online-features: ## Materialize online features to data/features.parquet
 
 refresh-data: ## Refresh all data files
 	@uv run python data/refresh_data.py
+
+build: ## Build the rust library
+	@uv run maturin develop --release --manifest-path sim_rs/Cargo.toml
 
 .PHONY: help
 help:  ## Display this help screen

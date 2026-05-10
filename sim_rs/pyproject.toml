@@ -1,13 +1,13 @@
 [build-system]
-requires = ["maturin>=1.4"]
+requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
 name = "sim_rs"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 
 [tool.maturin]
 bindings = "pyo3"
-module-name = "sim_rs"
 features = ["pyo3/extension-module"]
+release = true

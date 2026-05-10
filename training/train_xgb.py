@@ -160,7 +160,7 @@ def main() -> None:
         xeval=eval_df.select(*feature_names, "desc"),
         yeval=eval_df["real_token"],
         ypred=eval_df["pred_token"],
-        show=True,
+        show=False,
     )
 
 

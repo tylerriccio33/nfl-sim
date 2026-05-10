@@ -82,6 +82,9 @@ def _chunk_to_df(engine: sim_rs.SimEngine, chunk_metas: list[tuple[str, str, str
     )
 
 
+type _GameMetadata = tuple[str, str, str]
+
+
 def sim_games(
     game_ids: list[str],
     store: FeatureStore,
@@ -97,13 +100,15 @@ def sim_games(
     expected traces should migrate to consuming the frame.
     """
     # Flatten: repeat each game n times.
-    flat_metas: list[tuple[str, str, str]] = []
+    flat_metas: list[_GameMetadata] = []
     for gid in game_ids:
         home, away = store.meta(gid)
-        meta = (gid, home, away)
+        meta: _GameMetadata = (gid, home, away)
         flat_metas.extend(meta for _ in range(n))
 
-    chunks = [flat_metas[i : i + chunk_size] for i in range(0, len(flat_metas), chunk_size)]
+    chunks: list[list[_GameMetadata]] = [
+        flat_metas[i : i + chunk_size] for i in range(0, len(flat_metas), chunk_size)
+    ]
 
     engine = _make_engine(store)
 

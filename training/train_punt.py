@@ -60,7 +60,7 @@ def main() -> None:
         xeval=result.df.select(result.feature_names, "desc"),
         yeval=result.df[result.real],
         ypred=result.df["pred"],
-        show=True,
+        show=False,
     )
 
 
