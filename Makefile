@@ -1,13 +1,13 @@
 
 server: ## Run the Web Server (live debugging with latest week data)
-	@NFL_SIM_LIVE=1 uv run --no-sync tests/web/test_live_server.py
+	@NFL_SIM_LIVE=1 uv run tests/web/test_live_server.py
 
 clean: ## Cleans all artifacts including models
 	@rm -rf .venv
 	@rm -rf training/artifacts && mkdir -p training/artifacts
 	@rm -rf sim_rs/target
 
-lint: ## Run ruff and typer
+lint: build ## Run ruff and typer
 	@uv run ruff check --fix
 	@uv run ruff format
 	@uv run ty check
@@ -21,10 +21,10 @@ prek-install: ## Install prek git hook
 	@uvx prek install --overwrite
 
 generate-outcome: ## Generate Outcome dataclass from pipeline.toml
-	@uv run --no-sync python scripts/generate_outcome.py
+	@uv run python scripts/generate_outcome.py
 
 agg-types: ## Generate type stubs for aggregation types
-	@uv run --no-sync python scripts/gen_agg_stubs.py
+	@uv run python scripts/gen_agg_stubs.py
 
 test: ## Run tests
 	@uv run pytest \

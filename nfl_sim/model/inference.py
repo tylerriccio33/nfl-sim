@@ -21,7 +21,7 @@ from nfl_sim.engine.state import (
     Outcome,
     TurnoverType,
 )
-from nfl_sim.model.config import ARTIFACT_PATHS, TOKENS
+from nfl_sim.model.config import ARTIFACT_PATHS, INTENT_NAMES, TOKENS, TOKENS_BY_INTENT
 
 if TYPE_CHECKING:
     from nfl_sim.model.store import PlayContext
@@ -36,31 +36,42 @@ _TURNOVER_MAP = {
 # Map intent string from TOML → Intent enum
 _INTENT_MAP = {
     "RUN": Intent.RUN,
-    "PASS": Intent.PASS,
+    "DROPBACK": Intent.DROPBACK,
     "FIELD_GOAL": Intent.FIELD_GOAL,
     "PUNT": Intent.PUNT,
 }
 
+# Intents that get their own token outcome model (stage 2). FIELD_GOAL and PUNT
+# stay on the existing hardcoded / regressor paths.
+_TOKEN_OUTCOME_INTENTS: tuple[str, ...] = ("RUN", "DROPBACK")
+
 
 class OutcomeModel:
-    """Lazy-loading callable that predicts play tokens via XGBoost.
+    """Two-stage outcome predictor.
 
-    The XGB model outputs a probability distribution over ~16 tokens.
-    A token is sampled from this distribution and parsed into Intent + Outcome
-    using the TOML token definitions.
+    Stage 1 — ``_intent_booster``: predicts the play intent
+        (RUN / DROPBACK / FIELD_GOAL / PUNT).
+    Stage 2 — ``_outcome_boosters[intent]``: given the sampled intent,
+        a dedicated XGB classifier predicts the outcome token from that
+        intent's token subset. FIELD_GOAL uses ``_predict_fg``; PUNT uses
+        ``predict_punt_batch`` for yards.
     """
 
     __slots__ = (
+        "_intent_booster",
         "_loaded",
+        "_outcome_boosters",
+        "_outcome_tokens",
         "_punt_yards",
         "_rng",
-        "_xgb",
     )
 
+    _intent_booster: xgb.Booster
     _loaded: bool
+    _outcome_boosters: dict[str, xgb.Booster]
+    _outcome_tokens: dict[str, list[str]]
     _punt_yards: xgb.Booster
     _rng: np.random.Generator
-    _xgb: xgb.Booster
 
     def __init__(self) -> None:
         self._loaded = False
@@ -69,9 +80,23 @@ class OutcomeModel:
         """Load every artifact into attributes, or fail loudly."""
         self._rng = np.random.default_rng()
 
-        # XGB token model (native Booster for fast vectorized inference)
-        self._xgb = xgb.Booster()
-        self._xgb.load_model(str(ARTIFACT_PATHS.xgb_dir / ARTIFACT_PATHS.xgb_raw))
+        # Stage 1: intent classifier
+        self._intent_booster = xgb.Booster()
+        self._intent_booster.load_model(str(ARTIFACT_PATHS.intent_dir / ARTIFACT_PATHS.intent_raw))
+
+        # Stage 2: one outcome booster per intent that has a token model.
+        # The TOML's TOKENS_BY_INTENT defines the local class-index → token
+        # mapping; trainer must save tokens in the same order.
+        self._outcome_boosters = {}
+        self._outcome_tokens = {}
+        for intent_name, artifact_dir, raw in (
+            ("RUN", ARTIFACT_PATHS.xgb_run_dir, ARTIFACT_PATHS.xgb_run_raw),
+            ("DROPBACK", ARTIFACT_PATHS.xgb_dropback_dir, ARTIFACT_PATHS.xgb_dropback_raw),
+        ):
+            booster = xgb.Booster()
+            booster.load_model(str(artifact_dir / raw))
+            self._outcome_boosters[intent_name] = booster
+            self._outcome_tokens[intent_name] = TOKENS_BY_INTENT[intent_name]
 
         # Punt yards model (XGBoost .json)
         self._punt_yards = xgb.Booster()
@@ -81,19 +106,37 @@ class OutcomeModel:
 
         self._loaded = True
 
-    def predict_probs_batch(self, features_batch: np.ndarray) -> np.ndarray:
-        """Batch XGB predict: (N, 9) → (N, num_tokens) probabilities."""
-        return self._xgb.inplace_predict(features_batch.astype(np.float32), validate_features=False)
+    def predict_intent_probs_batch(self, features_batch: np.ndarray) -> np.ndarray:
+        """Stage 1: (N, F) → (N, len(INTENT_NAMES)) intent probabilities."""
+        return self._intent_booster.inplace_predict(
+            features_batch.astype(np.float32), validate_features=False
+        )
 
-    def sample_tokens_batch(self, probs_batch: np.ndarray) -> list[int]:
-        """Vectorized token sampling: (N, num_tokens) → list of token indices.
+    def sample_intents_batch(self, probs_batch: np.ndarray) -> list[str]:
+        """Sample one intent name per row from the intent prob matrix."""
+        idxs = self._sample_from_probs(probs_batch)
+        return [INTENT_NAMES[i] for i in idxs]
+
+    def predict_token_probs_batch(self, intent_name: str, features_batch: np.ndarray) -> np.ndarray:
+        """Stage 2: token probabilities for a single intent's outcome model."""
+        return self._outcome_boosters[intent_name].inplace_predict(
+            features_batch.astype(np.float32), validate_features=False
+        )
+
+    def sample_tokens_batch(self, intent_name: str, probs_batch: np.ndarray) -> list[str]:
+        """Sample token names for one intent group given its prob matrix."""
+        idxs = self._sample_from_probs(probs_batch)
+        tokens = self._outcome_tokens[intent_name]
+        return [tokens[i] for i in idxs]
+
+    def _sample_from_probs(self, probs_batch: np.ndarray) -> list[int]:
+        """Vectorized sampling: (N, K) → list of K-class indices.
 
         Uses cumulative-sum trick to sample from each row's distribution in one
         shot instead of N separate rng.choice calls.
         """
         u = self._rng.random(probs_batch.shape[0])
         cumprobs = np.cumsum(probs_batch, axis=1)
-        # For each row, find the first column where cumprob >= u
         return np.argmax(cumprobs >= u[:, None], axis=1).tolist()
 
     def _token_to_outcome(self, token: str, context: PlayContext) -> tuple[Intent, Outcome]:

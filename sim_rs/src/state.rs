@@ -23,7 +23,7 @@ impl Team {
 #[repr(u8)]
 pub enum Intent {
     Run = 1,
-    Pass = 2,
+    Dropback = 2,
     FieldGoal = 3,
     Punt = 4,
 }

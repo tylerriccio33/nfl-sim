@@ -3,9 +3,9 @@
 value = 1
 route = "RUN"
 
-[intents.PASS]
+[intents.DROPBACK]
 value = 2
-route = "PASS"
+route = "DROPBACK"
 
 [intents.FIELD_GOAL]
 value = 3
@@ -18,7 +18,7 @@ route = "ST"
 # ── PBP play_type → Intent mapping (training data extraction) ────
 [play_type_map]
 run = "RUN"
-pass = "PASS"
+pass = "DROPBACK"
 qb_kneel = "RUN"
 punt = "PUNT"
 field_goal = "FIELD_GOAL"
@@ -68,7 +68,7 @@ pass_attempt = false
 rush_attempt = true
 
 [tokens.CP_0_5]
-intent = "PASS"
+intent = "DROPBACK"
 yards = [0, 5]
 turnover = "NONE"
 complete_pass = true
@@ -76,7 +76,7 @@ pass_attempt = true
 rush_attempt = false
 
 [tokens.CP_5_10]
-intent = "PASS"
+intent = "DROPBACK"
 yards = [5, 10]
 turnover = "NONE"
 complete_pass = true
@@ -84,7 +84,7 @@ pass_attempt = true
 rush_attempt = false
 
 [tokens.CP_10_20]
-intent = "PASS"
+intent = "DROPBACK"
 yards = [10, 20]
 turnover = "NONE"
 complete_pass = true
@@ -92,7 +92,7 @@ pass_attempt = true
 rush_attempt = false
 
 [tokens.CP_20P]
-intent = "PASS"
+intent = "DROPBACK"
 yards = [20, 80]
 turnover = "NONE"
 complete_pass = true
@@ -100,7 +100,7 @@ pass_attempt = true
 rush_attempt = false
 
 [tokens.IC]
-intent = "PASS"
+intent = "DROPBACK"
 yards = [0, 0]
 turnover = "NONE"
 complete_pass = false
@@ -108,7 +108,7 @@ pass_attempt = true
 rush_attempt = false
 
 [tokens.SACK]
-intent = "PASS"
+intent = "DROPBACK"
 yards = [-15, -1]
 turnover = "NONE"
 complete_pass = false
@@ -124,7 +124,7 @@ pass_attempt = false
 rush_attempt = true
 
 [tokens.PASS_FUM]
-intent = "PASS"
+intent = "DROPBACK"
 yards = [-5, 5]
 turnover = "FUMBLE"
 complete_pass = false
@@ -132,7 +132,7 @@ pass_attempt = true
 rush_attempt = false
 
 [tokens.PASS_INT]
-intent = "PASS"
+intent = "DROPBACK"
 yards = [-5, 20]
 turnover = "INTERCEPTION"
 complete_pass = false
@@ -157,8 +157,43 @@ rush_attempt = false
 
 # ── Models ───────────────────────────────────────────────────────────
 
-[models.xgb]
-artifact = "training/artifacts/xgb"
+# Stage 1: predict the intent (RUN / DROPBACK / FIELD_GOAL / PUNT)
+[models.intent]
+artifact = "training/artifacts/intent"
+raw = "model.json"
+features = [
+    "down",
+    "ydstogo",
+    "yardline_100",
+    "score_diff",
+    "qtr",
+    "clock",
+    "goal_to_go",
+    "spread_line",
+    "season_epa",
+]
+outcomes = ["intent"]
+
+# Stage 2a: given intent=RUN, predict the outcome token
+[models.xgb_run]
+artifact = "training/artifacts/xgb_run"
+raw = "model.json"
+features = [
+    "down",
+    "ydstogo",
+    "yardline_100",
+    "score_diff",
+    "qtr",
+    "clock",
+    "goal_to_go",
+    "spread_line",
+    "season_epa",
+]
+outcomes = ["token"]
+
+# Stage 2b: given intent=DROPBACK, predict the outcome token
+[models.xgb_dropback]
+artifact = "training/artifacts/xgb_dropback"
 raw = "model.json"
 features = [
     "down",

@@ -1,43 +1,58 @@
 #!/usr/bin/env python3
-"""Train XGBoost token classifier.
+"""Train the two-stage XGBoost outcome models.
 
 Usage: uv run training/train_xgb.py (or `make train-xgb`)
 
-Each play is mapped to a token (e.g. RUN_0_5, CP_10_20, SACK, PUNT, FG)
-that encodes play type + outcome bucket. The XGB model predicts the token
-distribution, which is sampled at inference to produce Intent + Outcome.
+Stage 1 — intent classifier (RUN / DROPBACK / FIELD_GOAL / PUNT).
+Stage 2 — one token classifier per intent that has tokens we care about
+          (RUN, DROPBACK). FIELD_GOAL and PUNT outcomes are handled by
+          dedicated paths (hardcoded FG math, punt yards regressor) so they
+          don't need their own token model here.
+
+Each token classifier is trained only on plays whose intent matches, over
+the local token subset for that intent. The local token order is persisted
+to `tokens.json` next to the model so inference (Python and Rust) can map
+predicted class index → token name without consulting global state.
 """
 
+import json
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 import xgboost as xgb
-from pysuite import run
 
-from nfl_sim.model.config import MODELS, TOKEN_NAMES, XGB_CONFIG
+from nfl_sim.model.config import (
+    INTENT_NAMES,
+    INTENT_VALUES,
+    MODELS,
+    TOKENS,
+    TOKENS_BY_INTENT,
+    XGB_CONFIG,
+)
 from training.prepare import prepare
+
+# Which intents get their own stage-2 token model. The remaining intents
+# (FIELD_GOAL, PUNT) are handled by dedicated outcome paths at inference.
+_TOKEN_MODEL_INTENTS: tuple[tuple[str, str], ...] = (
+    ("RUN", "xgb_run"),
+    ("DROPBACK", "xgb_dropback"),
+)
 
 
 def _tokenize_row(row: dict) -> str | None:
-    """Map a single play row to its token name.
-
-    Uses play_type, yards_gained, complete_pass, sack, and turnover_type
-    to find the matching token bucket.
-    """
+    """Map a single play row to its token name."""
     play_type = row["play_type"]
     yards = row["yards_gained"]
-    turnover = int(row["turnover_type"])  # 0=none, 1=int, 2=fum
+    turnover = int(row["turnover_type"])
     sack = int(row["sack"])
     complete = int(row["complete_pass"])
 
-    # Special teams first
     if play_type == "punt":
         return "PUNT"
     if play_type == "field_goal":
         return "FG"
 
-    # Turnovers
     if turnover == 2:  # fumble
         if play_type == "pass":
             return "PASS_FUM"
@@ -45,15 +60,10 @@ def _tokenize_row(row: dict) -> str | None:
     if turnover == 1:  # interception
         return "PASS_INT"
 
-    # Sack
     if play_type == "pass" and sack == 1:
         return "SACK"
-
-    # Incomplete pass
     if play_type == "pass" and complete == 0:
         return "IC"
-
-    # Complete pass — bucket by yards
     if play_type == "pass" and complete == 1:
         if yards >= 20:
             return "CP_20P"
@@ -63,7 +73,6 @@ def _tokenize_row(row: dict) -> str | None:
             return "CP_5_10"
         return "CP_0_5"
 
-    # Run plays (including qb_kneel)
     if yards >= 20:
         return "RUN_20P"
     if yards >= 10:
@@ -75,49 +84,25 @@ def _tokenize_row(row: dict) -> str | None:
     return "RUN_NEG"
 
 
-def main() -> None:
-    """Train XGB token model."""
-    print("Preparing training data...")
-    df = prepare()
-
-    # Tokenize each play
-    tokens = [_tokenize_row(row) for row in df.iter_rows(named=True)]
-    df = df.with_columns(pl.Series("token", tokens))
-    df = df.drop_nulls(subset=["token"])
-
-    # Encode tokens as integer class labels
-    token_to_idx = {name: i for i, name in enumerate(TOKEN_NAMES)}
-    labels = np.array([token_to_idx[t] for t in df["token"].to_list()], dtype=np.int32)
-
-    # Print token distribution
-    print("\nToken distribution:")
-    for name in TOKEN_NAMES:
-        count = int((labels == token_to_idx[name]).sum())
-        print(f"  {name:15s} {count:>7d}  ({count / len(labels) * 100:.1f}%)")
-
-    # Extract features
-    cfg = MODELS["xgb"]
-    feature_names = cfg["features"]
-    x = df.select(feature_names).to_numpy().astype(np.float32)
-
-    # 90/10 train/eval split by game
+def _split_by_game(df: pl.DataFrame, eval_frac: float = 0.1) -> np.ndarray:
+    """Build a boolean train-mask such that whole games stay together."""
     game_ids = df["game_id"].to_list()
     unique_games = list(dict.fromkeys(game_ids))
-    game_split = int(len(unique_games) * 0.9)
-    train_games = set(unique_games[:game_split])
-    train_mask = np.array([g in train_games for g in game_ids])
+    split = int(len(unique_games) * (1.0 - eval_frac))
+    train_games = set(unique_games[:split])
+    return np.array([g in train_games for g in game_ids])
 
-    x_train, x_eval = x[train_mask], x[~train_mask]
-    y_train, y_eval = labels[train_mask], labels[~train_mask]
 
-    print("\nTraining XGB token model...")
-    print(f"  Train: {len(x_train)} samples")
-    print(f"  Eval:  {len(x_eval)} samples")
-    print(f"  Classes: {len(TOKEN_NAMES)}")
-
+def _fit_classifier(
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    x_eval: np.ndarray,
+    y_eval: np.ndarray,
+    num_class: int,
+) -> xgb.XGBClassifier:  # ty:ignore[possibly-missing-attribute]
     model = xgb.XGBClassifier(  # ty:ignore[possibly-missing-attribute]
         objective="multi:softprob",
-        num_class=len(TOKEN_NAMES),
+        num_class=num_class,
         n_estimators=XGB_CONFIG["n_estimators"],
         max_depth=XGB_CONFIG["max_depth"],
         learning_rate=XGB_CONFIG["learning_rate"],
@@ -126,42 +111,111 @@ def main() -> None:
         verbosity=1,
     )
     model.fit(x_train, y_train, eval_set=[(x_eval, y_eval)], verbose=True)
+    return model
 
-    # Eval accuracy
+
+def _train_intent(df: pl.DataFrame) -> None:
+    """Stage 1: 4-class intent classifier over INTENT_NAMES."""
+    cfg = MODELS["intent"]
+    feature_names = cfg["features"]
+
+    # Drop rows whose intent isn't in our enumeration (defensive — prepare()
+    # should already produce only mapped intents).
+    intent_to_idx = {name: i for i, name in enumerate(INTENT_NAMES)}
+    value_to_idx = {INTENT_VALUES[n]: intent_to_idx[n] for n in INTENT_NAMES}
+
+    intent_vals = df["intent"].to_list()
+    labels = np.array([value_to_idx[v] for v in intent_vals], dtype=np.int32)
+
+    print("\nIntent distribution:")
+    for name in INTENT_NAMES:
+        count = int((labels == intent_to_idx[name]).sum())
+        print(f"  {name:12s} {count:>7d}  ({count / len(labels) * 100:.1f}%)")
+
+    x = df.select(feature_names).to_numpy().astype(np.float32)
+    train_mask = _split_by_game(df)
+    x_train, x_eval = x[train_mask], x[~train_mask]
+    y_train, y_eval = labels[train_mask], labels[~train_mask]
+
+    print(f"\nTraining intent model — {len(x_train)} train / {len(x_eval)} eval")
+    model = _fit_classifier(x_train, y_train, x_eval, y_eval, num_class=len(INTENT_NAMES))
+
     eval_pred = model.predict(x_eval)
-    accuracy = float((eval_pred == y_eval).mean())
-    print(f"\nEval accuracy: {accuracy:.3f}")
+    print(f"Intent eval accuracy: {float((eval_pred == y_eval).mean()):.3f}")
 
-    # Per-token accuracy
-    print("\nPer-token accuracy:")
-    for name in TOKEN_NAMES:
-        idx = token_to_idx[name]
-        mask = y_eval == idx
-        if mask.sum() > 0:
-            acc = float((eval_pred[mask] == idx).mean())
-            print(f"  {name:15s} {acc:.3f}  (n={int(mask.sum())})")
-
-    # Save XGBoost-native artifact (Python inference loads this directly).
-    # Rust consumes the ONNX export produced by training/export_onnx.py.
     artifact_dir = Path(cfg["artifact"])
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    model.save_model(str(artifact_dir / cfg["raw"]))
 
-    raw_path = artifact_dir / cfg["raw"]
-    model.save_model(str(raw_path))
-    print(f"\nSaved: {raw_path}")
+    # Persist the class-index → intent-name mapping so both Python and Rust
+    # can decode predictions without consulting global state.
+    (artifact_dir / "intents.json").write_text(json.dumps(INTENT_NAMES))
+    print(f"Saved: {artifact_dir / cfg['raw']}")
 
-    # pysuite evaluation (token-level classification)
-    idx_to_token = dict(enumerate(TOKEN_NAMES))
-    eval_df = df.filter(~pl.Series(train_mask)).with_columns(
-        pl.Series("pred_token", [idx_to_token[int(p)] for p in eval_pred]),
-        pl.Series("real_token", [idx_to_token[int(y)] for y in y_eval]),
-    )
-    run(
-        xeval=eval_df.select(*feature_names, "desc"),
-        yeval=eval_df["real_token"],
-        ypred=eval_df["pred_token"],
-        show=False,
-    )
+
+def _train_intent_tokens(df: pl.DataFrame, intent_name: str, model_key: str) -> None:
+    """Stage 2: token classifier over the tokens of a single intent."""
+    cfg = MODELS[model_key]
+    feature_names = cfg["features"]
+
+    tokens_for_intent = TOKENS_BY_INTENT[intent_name]
+    if not tokens_for_intent:
+        msg = f"No tokens declared for intent {intent_name!r}"
+        raise RuntimeError(msg)
+
+    # Keep only plays whose tokenization belongs to this intent.
+    valid = set(tokens_for_intent)
+    sub = df.filter(pl.col("token").is_in(list(valid)))
+
+    tok_to_idx = {name: i for i, name in enumerate(tokens_for_intent)}
+    labels = np.array([tok_to_idx[t] for t in sub["token"].to_list()], dtype=np.int32)
+
+    print(f"\n[{intent_name}] token distribution ({len(labels)} plays):")
+    for name in tokens_for_intent:
+        count = int((labels == tok_to_idx[name]).sum())
+        print(f"  {name:15s} {count:>7d}  ({count / max(len(labels), 1) * 100:.1f}%)")
+
+    x = sub.select(feature_names).to_numpy().astype(np.float32)
+    train_mask = _split_by_game(sub)
+    x_train, x_eval = x[train_mask], x[~train_mask]
+    y_train, y_eval = labels[train_mask], labels[~train_mask]
+
+    print(f"Training {model_key} — {len(x_train)} train / {len(x_eval)} eval")
+    model = _fit_classifier(x_train, y_train, x_eval, y_eval, num_class=len(tokens_for_intent))
+
+    eval_pred = model.predict(x_eval)
+    print(f"{model_key} eval accuracy: {float((eval_pred == y_eval).mean()):.3f}")
+
+    artifact_dir = Path(cfg["artifact"])
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    model.save_model(str(artifact_dir / cfg["raw"]))
+
+    # The local class-index → token-name mapping. Inference (Python and Rust)
+    # must read this; the global TOKENS table is no longer authoritative for
+    # outcome class ordering.
+    (artifact_dir / "tokens.json").write_text(json.dumps(tokens_for_intent))
+    print(f"Saved: {artifact_dir / cfg['raw']}")
+
+
+def main() -> None:
+    """Train intent classifier + per-intent token classifiers."""
+    print("Preparing training data...")
+    df = prepare()
+
+    # Tokenize once; intent stage doesn't need it, but stage-2 trainers do.
+    tokens = [_tokenize_row(row) for row in df.iter_rows(named=True)]
+    df = df.with_columns(pl.Series("token", tokens)).drop_nulls(subset=["token"])
+
+    # Sanity: every token we see must be declared in TOKENS.
+    seen = set(df["token"].unique().to_list())
+    unknown = seen - set(TOKENS.keys())
+    if unknown:
+        msg = f"Tokenizer produced tokens not in pipeline.toml: {sorted(unknown)}"
+        raise RuntimeError(msg)
+
+    _train_intent(df)
+    for intent_name, model_key in _TOKEN_MODEL_INTENTS:
+        _train_intent_tokens(df, intent_name, model_key)
 
 
 if __name__ == "__main__":

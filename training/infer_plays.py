@@ -12,7 +12,7 @@ import numpy as np
 import polars as pl
 from pysuite import run
 
-from nfl_sim.model.config import MODEL_FEATURES, TOKEN_NAMES
+from nfl_sim.model.config import MODEL_FEATURES
 from nfl_sim.model.inference import OutcomeModel
 from training.prepare import prepare
 from training.train_xgb import _tokenize_row
@@ -42,15 +42,25 @@ def main() -> None:
         model._load()
 
     # Extract features directly from the prepared DataFrame
-    # (prepare() already has all features as columns with correct values)
-    xgb_features = MODEL_FEATURES["xgb"]
+    # (prepare() already has all features as columns with correct values).
+    # All three model stages share the same feature list today, so we just
+    # use the intent model's.
+    feat_names = MODEL_FEATURES["intent"]
 
     rows = []
     for row in df.iter_rows(named=True):
-        features = np.array([row[f] for f in xgb_features], dtype=np.float32)
-        probs = model.predict_probs_batch(features.reshape(1, -1))
-        idx = model.sample_tokens_batch(probs)[0]
-        pred_token = TOKEN_NAMES[idx]
+        features = np.array([row[f] for f in feat_names], dtype=np.float32).reshape(1, -1)
+
+        # Stage 1: intent
+        intent_probs = model.predict_intent_probs_batch(features)
+        intent_name = model.sample_intents_batch(intent_probs)[0]
+
+        # Stage 2: outcome token (only for RUN/DROPBACK)
+        if intent_name in ("RUN", "DROPBACK"):
+            tok_probs = model.predict_token_probs_batch(intent_name, features)
+            pred_token = model.sample_tokens_batch(intent_name, tok_probs)[0]
+        else:
+            pred_token = "FG" if intent_name == "FIELD_GOAL" else "PUNT"
 
         rows.append(
             {

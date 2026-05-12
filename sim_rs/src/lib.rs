@@ -20,6 +20,7 @@ use pyo3::types::PyDict;
 
 use crate::config::{load as load_config, PipelineConfig};
 use crate::features::FeaturePlan;
+use crate::loop_::FeaturePlans;
 use crate::models::Models;
 use crate::store::OnlineStore;
 
@@ -28,7 +29,9 @@ pub struct SimEngine {
     cfg: PipelineConfig,
     store: OnlineStore,
     models: Models,
-    xgb_plan: FeaturePlan,
+    intent_plan: FeaturePlan,
+    run_plan: FeaturePlan,
+    dropback_plan: FeaturePlan,
     punt_plan: FeaturePlan,
     time_plan: FeaturePlan,
 }
@@ -36,10 +39,6 @@ pub struct SimEngine {
 #[pymethods]
 impl SimEngine {
     /// Construct once per process.
-    ///
-    /// Online features are passed in flat from Python — Python reads the
-    /// parquet (it already does), and hands us the arrays here. Keeps the
-    /// Python side as the single owner of feature-store I/O.
     #[new]
     #[pyo3(signature = (
         pipeline_toml_path,
@@ -52,7 +51,7 @@ impl SimEngine {
         game_ids: Vec<String>,
         teams: Vec<String>,
         online_feat_names: Vec<String>,
-        online_values: Vec<f32>, // row-major (n_keys, n_online_feats)
+        online_values: Vec<f32>,
         seed: u64,
     ) -> PyResult<Self> {
         let cfg = load_config(std::path::Path::new(pipeline_toml_path))
@@ -60,15 +59,23 @@ impl SimEngine {
 
         let store = OnlineStore::new(&game_ids, &teams, &online_feat_names, &online_values);
 
-        let xgb_plan = FeaturePlan::build(&cfg.xgb_features, &cfg.feature_sources, &store);
+        let intent_plan = FeaturePlan::build(&cfg.intent_features, &cfg.feature_sources, &store);
+        let run_plan = FeaturePlan::build(&cfg.xgb_run_features, &cfg.feature_sources, &store);
+        let dropback_plan =
+            FeaturePlan::build(&cfg.xgb_dropback_features, &cfg.feature_sources, &store);
         let punt_plan = FeaturePlan::build(&cfg.punt_features, &cfg.feature_sources, &store);
         let time_plan = FeaturePlan::build(&cfg.time_features, &cfg.feature_sources, &store);
 
+        let n_intents = cfg.intent_names.len();
         let models = Models::load(
-            &cfg.xgb_model_path,
+            &cfg.intent_model_path,
+            &cfg.xgb_run_model_path,
+            &cfg.xgb_dropback_model_path,
             &cfg.punt_model_path,
             &cfg.time_model_path,
-            cfg.tokens.clone(),
+            cfg.tokens_run.clone(),
+            cfg.tokens_dropback.clone(),
+            n_intents,
             seed,
         )
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -77,15 +84,15 @@ impl SimEngine {
             cfg,
             store,
             models,
-            xgb_plan,
+            intent_plan,
+            run_plan,
+            dropback_plan,
             punt_plan,
             time_plan,
         })
     }
 
-    /// Run the batched loop for all (game_id, home, away) triples. Returns
-    /// a dict of numpy arrays — one per trace column. Caller converts to
-    /// polars.DataFrame.
+    /// Run the batched loop for all (game_id, home, away) triples.
     fn run_batched<'py>(
         &mut self,
         py: Python<'py>,
@@ -102,13 +109,20 @@ impl SimEngine {
             .map(|((g, h), a)| (g, h, a))
             .collect();
 
+        let plans = FeaturePlans {
+            intent: &self.intent_plan,
+            run: &self.run_plan,
+            dropback: &self.dropback_plan,
+            punt: &self.punt_plan,
+            time: &self.time_plan,
+        };
+
         let trace = loop_::run_batched(
             &metas,
             &self.store,
             &mut self.models,
-            &self.xgb_plan,
-            &self.punt_plan,
-            &self.time_plan,
+            &self.cfg.intent_names,
+            plans,
         );
 
         let d = PyDict::new_bound(py);
@@ -135,11 +149,4 @@ impl SimEngine {
 fn sim_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SimEngine>()?;
     Ok(())
-}
-
-// Silence the "unused field" warning for cfg (kept on the struct for future
-// introspection — e.g. exposing token_names back to Python).
-#[allow(dead_code)]
-fn _touch(e: &SimEngine) -> usize {
-    e.cfg.token_names.len()
 }

@@ -91,7 +91,7 @@ class TestDownProgression:
         state = make_state(down=1, distance=10, yardline_100=75)
         outcome = make_outcome(yards_gained=0)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
 
         assert result[_DN] == 2
         assert result[_DIST] == 10
@@ -135,7 +135,7 @@ class TestDownProgression:
         state = make_state(down=2, distance=8, yardline_100=50)
         outcome = make_outcome(yards_gained=-5)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
 
         assert result[_DN] == 3
         assert result[_DIST] == 13
@@ -166,7 +166,7 @@ class TestFirstDown:
         state = make_state(down=3, distance=4, yardline_100=40)
         outcome = make_outcome(yards_gained=15)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
 
         assert result[_DN] == 1
         assert result[_DIST] == 10
@@ -189,7 +189,7 @@ class TestFirstDown:
         state = make_state(down=2, distance=6, yardline_100=12)
         outcome = make_outcome(yards_gained=8)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
 
         assert result[_DN] == 1
         assert result[_DIST] == 4  # Only 4 yards to go
@@ -222,7 +222,7 @@ class TestTurnoverOnDowns:
         state = make_state(down=4, distance=10, yardline_100=65, offense="AWAY", defense="HOME")
         outcome = make_outcome(yards_gained=0)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
 
         assert result[_OFF] == "HOME"
         assert result[_DEF] == "AWAY"
@@ -256,7 +256,7 @@ class TestTurnovers:
         state = make_state(down=2, distance=8, yardline_100=40, offense="AWAY", defense="HOME")
         outcome = make_outcome(yards_gained=0, turnover=True)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
 
         assert result[_OFF] == "HOME"
         assert result[_DEF] == "AWAY"
@@ -286,7 +286,7 @@ class TestTouchdowns:
         state = make_state(yardline_100=10, offense="AWAY", defense="HOME", score=(7, 14))
         outcome = make_outcome(yards_gained=15)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
 
         assert result[_SC] == (7, 21)
 
@@ -295,7 +295,7 @@ class TestTouchdowns:
         state = make_state(yardline_100=8, offense="HOME", defense="AWAY")
         outcome = make_outcome(yards_gained=10)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
 
         assert result[_OFF] == "AWAY"
         assert result[_DEF] == "HOME"
@@ -337,7 +337,7 @@ class TestClockManagement:
         state = make_state(clock=120)
         outcome = make_outcome(time_elapsed=5)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
         result = apply_time(result, outcome.time_elapsed)
 
         assert result[_CLK] == 115
@@ -378,7 +378,7 @@ class TestQuarterTransitions:
         state = make_state(quarter=2, clock=2)
         outcome = make_outcome(time_elapsed=10)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
         result = apply_time(result, outcome.time_elapsed)
 
         assert result[_Q] == 3
@@ -478,7 +478,7 @@ class TestPossessionContinuity:
         state = make_state(down=3, distance=4, offense="AWAY")
         outcome = make_outcome(yards_gained=6)
 
-        result = apply_outcome(state, Intent.PASS, outcome)
+        result = apply_outcome(state, Intent.DROPBACK, outcome)
 
         assert result[_OFF] == "AWAY"
 
@@ -501,7 +501,7 @@ class TestIntentTypeIndependence:
         outcome = make_outcome(yards_gained=5, time_elapsed=7)
 
         run_result = apply_outcome(state, Intent.RUN, outcome)
-        pass_result = apply_outcome(state, Intent.PASS, outcome)
+        pass_result = apply_outcome(state, Intent.DROPBACK, outcome)
 
         assert run_result == pass_result
 

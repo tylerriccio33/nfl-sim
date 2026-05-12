@@ -8,7 +8,7 @@ import polars as pl
 import pytest
 
 from nfl_sim.engine.state import _CLK, Intent, Outcome, TurnoverType, _GameState
-from nfl_sim.model.config import MODEL_FEATURES, TOKEN_NAMES
+from nfl_sim.model.config import MODEL_FEATURES
 from nfl_sim.model.inference import aftermath_model, outcome_model
 from nfl_sim.model.store import _DISPATCH, FeatureStore, PlayContext, build_features
 
@@ -23,10 +23,24 @@ def _predict_single(ctx: PlayContext) -> tuple[Intent, Outcome]:
     """Run the outcome model for a single play using the batch APIs."""
     if not outcome_model._loaded:
         outcome_model._load()
-    features = build_features("xgb", _store, ctx)
-    probs = outcome_model.predict_probs_batch(features.reshape(1, -1))
-    idx = outcome_model.sample_tokens_batch(probs)[0]
-    token = TOKEN_NAMES[idx]
+
+    # Stage 1: predict intent from intent-model features
+    intent_feats = build_features("intent", _store, ctx).reshape(1, -1)
+    intent_probs = outcome_model.predict_intent_probs_batch(intent_feats)
+    intent_name = outcome_model.sample_intents_batch(intent_probs)[0]
+
+    # Stage 2: RUN/DROPBACK go through a per-intent token model;
+    # FIELD_GOAL/PUNT use the hardcoded / placeholder path via _token_to_outcome.
+    if intent_name in ("RUN", "DROPBACK"):
+        model_key = "xgb_run" if intent_name == "RUN" else "xgb_dropback"
+        feats = build_features(model_key, _store, ctx).reshape(1, -1)
+        probs = outcome_model.predict_token_probs_batch(intent_name, feats)
+        token = outcome_model.sample_tokens_batch(intent_name, probs)[0]
+    else:
+        # Pick any token whose intent matches — _token_to_outcome ignores
+        # the token's yards for FG/PUNT (they take the placeholder path).
+        token = "FG" if intent_name == "FIELD_GOAL" else "PUNT"
+
     intent, outcome = outcome_model._token_to_outcome(token, ctx)
     outcome.touchdown = False
     return intent, outcome
@@ -36,7 +50,7 @@ def _predict_time_single(ctx: PlayContext, intent: Intent, outcome: Outcome) -> 
     """Run the aftermath model for a single play using the batch API."""
     if not aftermath_model._loaded:
         aftermath_model._load()
-    if intent in (Intent.RUN, Intent.PASS):
+    if intent in (Intent.RUN, Intent.DROPBACK):
         ctx_with_outcome = PlayContext(
             ctx.state, ctx.trace, ctx.game_id, ctx.home, ctx.away, outcome
         )
@@ -91,10 +105,10 @@ def _make_context(**state_kw) -> PlayContext:
 def test_features_only_from_pre_play_state() -> None:
     """build_features uses only the pre-play state tuple, not outcomes."""
     ctx = _make_context()
-    feats = build_features("xgb", _store, ctx)
+    feats = build_features("intent", _store, ctx)
 
     # The feature vector length must match the canonical list exactly
-    assert len(feats) == len(MODEL_FEATURES["xgb"])
+    assert len(feats) == len(MODEL_FEATURES["intent"])
     assert feats.dtype == np.float32
 
 
@@ -112,8 +126,8 @@ def test_same_game_same_state_same_features() -> None:
     ctx_a = PlayContext(state, [], gid, home, away)
     ctx_b = PlayContext(state, [], gid, home, away)
 
-    feats_a = build_features("xgb", _store, ctx_a)
-    feats_b = build_features("xgb", _store, ctx_b)
+    feats_a = build_features("intent", _store, ctx_a)
+    feats_b = build_features("intent", _store, ctx_b)
 
     np.testing.assert_array_equal(feats_a, feats_b)
 
@@ -184,8 +198,8 @@ def test_edge_inputs_no_nan(kw: dict) -> None:
 def test_features_shape_and_dtype() -> None:
     """Feature vector must have the correct shape and dtype."""
     ctx = _make_context()
-    feats = build_features("xgb", _store, ctx)
-    feature_names = MODEL_FEATURES["xgb"]
+    feats = build_features("intent", _store, ctx)
+    feature_names = MODEL_FEATURES["intent"]
 
     assert feats.shape == (len(feature_names),)
     assert feats.dtype == np.float32
@@ -219,8 +233,8 @@ def test_feature_order_matches_canonical() -> None:
         home=home,
         away=away,
     )
-    feats = build_features("xgb", _store, ctx)
-    feature_names = MODEL_FEATURES["xgb"]
+    feats = build_features("intent", _store, ctx)
+    feature_names = MODEL_FEATURES["intent"]
 
     # State and ODT features are deterministic from the constructed state
     expected_subset = {
@@ -248,8 +262,8 @@ def test_feature_order_matches_canonical() -> None:
 def test_gen_feature_names_covers_build_features() -> None:
     """Feature names must match build_features output."""
     ctx = _make_context()
-    feats = build_features("xgb", _store, ctx)
-    names = MODEL_FEATURES["xgb"]
+    feats = build_features("intent", _store, ctx)
+    names = MODEL_FEATURES["intent"]
 
     assert len(names) == len(feats), (
         f"get_model_features() has {len(names)} names but build_features() produced {len(feats)} values"

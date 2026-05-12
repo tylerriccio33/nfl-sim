@@ -32,7 +32,7 @@ class Intent(Enum):
     """What the offense chooses to do; decision not the outcome."""
 
     RUN = 1
-    PASS = 2
+    DROPBACK = 2
     FIELD_GOAL = 3
     PUNT = 4
 
@@ -41,7 +41,7 @@ class Route(Enum):
     """Routing key that selects which outcome sub-model to use."""
 
     RUN = 1
-    PASS = 2
+    DROPBACK = 2
     ST = 3  # special teams (punt, field goal)
 
 

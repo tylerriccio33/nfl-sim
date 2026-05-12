@@ -11,6 +11,7 @@ def create_app() -> Flask:
     app = Flask(__name__, template_folder="templates")
     app.jinja_env.undefined = StrictUndefined
     app.config["SECRET_KEY"] = "nfl-sim-dev-key"
+    # TODO: Why on earth do we have this
 
     app.register_blueprint(bp)
 

@@ -15,7 +15,7 @@ from nfl_sim import sim_games
 from nfl_sim.model.store import FeatureStore
 
 NGAMES = None  # use all games in the dataset
-NSIMS = 1_000  # run `make converge` to explore
+NSIMS = 10  # run `make converge` to explore
 CHUNK_SIZE = 1_000  # process games in chunks to limit memory
 
 SCHEDULES_DATA = Path("data/schedules.parquet")
