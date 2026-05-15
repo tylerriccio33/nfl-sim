@@ -35,6 +35,7 @@ class TrainingResult:
     artifact_path: Path
 
 
+# TODO: feel like we shouldn't need this
 class Trainer(Protocol):
     """Protocol for model trainers.
 

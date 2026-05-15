@@ -7,10 +7,10 @@ clean: ## Cleans all artifacts including models
 	@rm -rf training/artifacts && mkdir -p training/artifacts
 	@rm -rf sim_rs/target
 
-lint: build ## Run ruff and typer
-	@uv run ruff check --fix
-	@uv run ruff format
-	@uv run ty check
+lint: ## Run ruff and typer
+	@uv run ruff check nfl_sim training --fix
+	@uv run ruff format nfl_sim training
+	@uv run ty check nfl_sim training
 	@cargo fmt --manifest-path sim_rs/Cargo.toml
 	@cargo clippy --manifest-path sim_rs/Cargo.toml --all-targets -- -D warnings
 

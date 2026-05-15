@@ -17,14 +17,13 @@ from pathlib import Path
 
 import polars as pl
 
-from nfl_sim.model.config import (
-    INTENT_VALUES,
-    PLAY_TYPE_MAP,
-    TRAINING_CONFIG,
-)
+from nfl_sim.model.config import INTENT_VALUES, PLAY_TYPE_MAP, TRAINING_CONFIG
 
-DATA_PATH = Path(TRAINING_CONFIG["pbp_path"])
-FEATURES_PATH = Path("data/features.parquet")
+# Make the prepare() function work in all run contexts
+ROOT = Path(__file__).parent.parent.resolve().absolute()
+DATA_PATH = ROOT / Path(TRAINING_CONFIG["pbp_path"])
+FEATURES_PATH = ROOT / Path("data/features.parquet")
+
 
 # Map play_type → intent value
 intent_name_mapping = pl.col("play_type").map_elements(

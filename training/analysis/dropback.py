@@ -1,0 +1,127 @@
+"""Train the stage-2 token classifier for DROPBACK intent.
+
+Run interactively: `uv run marimo edit training/analysis/dropback.py`
+"""
+
+import marimo
+
+__generated_with = "0.23.6"
+app = marimo.App()
+
+
+@app.cell
+def _():
+    INTENT = "DROPBACK"
+    MODEL_KEY = "xgb_dropback"
+
+    import json
+    from pathlib import Path
+
+    import numpy as np
+    import polars as pl
+    import xgboost as xgb
+    from sklearn.metrics import accuracy_score, log_loss
+    from sklearn.model_selection import GridSearchCV, GroupKFold, GroupShuffleSplit
+
+    from nfl_sim.model.config import MODELS, TOKENS_BY_INTENT
+    from training.prepare import prepare
+    from training.train_xgb import _tokenize_row as tokenize_row
+
+    cfg = MODELS[MODEL_KEY]
+    features = cfg["features"]
+    artifact = Path(cfg["artifact"]) / cfg["raw"]
+    tokens = TOKENS_BY_INTENT[INTENT]
+    tok_to_idx = {t: i for i, t in enumerate(tokens)}
+
+    df = prepare()
+    tok = [tokenize_row(row) for row in df.iter_rows(named=True)]
+    df = df.with_columns(token=pl.Series(tok)).filter(pl.col("token").is_in(tokens))
+    df = df.with_columns(_y=pl.col("token").replace_strict(tok_to_idx, return_dtype=pl.Int32))
+    print(f"{len(df)} {INTENT} plays, {len(tokens)} tokens: {tokens}")
+    for _t in tokens:
+        _c = int((df["token"] == _t).sum())
+        print(f"  {_t:15s} {_c:>7d}  ({_c / len(df) * 100:.1f}%)")
+    return (
+        GridSearchCV,
+        GroupKFold,
+        GroupShuffleSplit,
+        accuracy_score,
+        artifact,
+        df,
+        features,
+        json,
+        log_loss,
+        np,
+        tokens,
+        xgb,
+    )
+
+
+@app.cell
+def _(GroupShuffleSplit, df, features, np):
+    x = df.select(features).to_numpy().astype(np.float32)
+    y = df["_y"].to_numpy().astype(np.int32)
+    groups = df["game_id"].to_numpy()
+
+    splitter = GroupShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
+    dev_idx, test_idx = next(splitter.split(x, y, groups))
+    x_dev, y_dev, g_dev = x[dev_idx], y[dev_idx], groups[dev_idx]
+    x_te, y_te = x[test_idx], y[test_idx]
+    print(f"dev={len(x_dev)}  test={len(x_te)}")
+    return g_dev, x_dev, x_te, y_dev, y_te
+
+
+@app.cell
+def _(GridSearchCV, GroupKFold, g_dev, tokens, x_dev, xgb, y_dev):
+    grid = {
+        "n_estimators": [200, 400],
+        "max_depth": [4, 6, 8],
+        "learning_rate": [0.05, 0.1],
+    }
+    base = xgb.XGBClassifier(
+        objective="multi:softprob",
+        num_class=len(tokens),
+        eval_metric="mlogloss",
+        random_state=42,
+    )
+    search = GridSearchCV(
+        base,
+        grid,
+        scoring="neg_log_loss",
+        cv=GroupKFold(n_splits=4),
+        refit=True,
+        n_jobs=-1,
+        verbose=1,
+    )
+    search.fit(x_dev, y_dev, groups=g_dev)
+    final = search.best_estimator_
+    print(f"Best: {search.best_params_}  cv_logloss={-search.best_score_:.4f}")
+    return (final,)
+
+
+@app.cell
+def _(accuracy_score, final, log_loss, tokens, x_te, y_te):
+    proba = final.predict_proba(x_te)
+    pred = proba.argmax(1)
+    ll = log_loss(y_te, proba, labels=list(range(len(tokens))))
+    acc = accuracy_score(y_te, pred)
+    print(f"test  logloss={ll:.4f}  acc={acc:.3f}  n={len(y_te)}")
+    print("\nper-token accuracy:")
+    for _i, _name in enumerate(tokens):
+        _m = y_te == _i
+        if _m.sum():
+            print(f"  {_name:15s} {accuracy_score(y_te[_m], pred[_m]):.3f}  (n={int(_m.sum())})")
+    return
+
+
+@app.cell
+def _(artifact, final, json, tokens):
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    final.save_model(str(artifact))
+    (artifact.parent / "tokens.json").write_text(json.dumps(tokens))
+    print(f"Saved {artifact}")
+    return
+
+
+if __name__ == "__main__":
+    app.run()

@@ -40,6 +40,7 @@ _TOKEN_MODEL_INTENTS: tuple[tuple[str, str], ...] = (
 )
 
 
+# TODO: Needs to be when/then
 def _tokenize_row(row: dict) -> str | None:
     """Map a single play row to its token name."""
     play_type = row["play_type"]
