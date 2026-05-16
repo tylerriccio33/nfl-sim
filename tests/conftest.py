@@ -7,13 +7,11 @@ from pathlib import Path
 import polars as pl
 import polars.selectors as cs
 import pytest
-from flask.testing import FlaskClient
 
 from nfl_sim import place_sim_results_at_db, sim_games, understand
 from nfl_sim.engine.state import Outcome, _GameState
 from nfl_sim.model.store import FeatureStore, PlayContext
 from nfl_sim.utils import get_latest_season_week
-from nfl_sim.web import create_app
 
 # =============================================================================
 # Constants
@@ -45,14 +43,6 @@ def raw_schedules() -> pl.DataFrame:
 # =============================================================================
 # Web Fixtures
 # =============================================================================
-
-
-@pytest.fixture
-def client() -> FlaskClient:
-    """Flask test client."""
-    app = create_app()
-    app.config["TESTING"] = True
-    return app.test_client()
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 
-server: ## Run the Web Server (live debugging with latest week data)
-	@NFL_SIM_LIVE=1 uv run tests/web/test_live_server.py
+server: ## Run the Web Server (marimo dashboard)
+	@uv run marimo run nfl_sim/web/app.py
 
 clean: ## Cleans all artifacts including models
 	@rm -rf .venv
@@ -40,8 +40,8 @@ test: ## Run tests
 test-model: ## Run model grading tests (parity, efficacy, contract)
 	@uv run pytest tests/model/
 
-cov-api: ## Run web API integration tests with coverage
-	@uv run --no-sync pytest tests/web/test_web_integration.py \
+cov-api: ## Run web app tests with coverage
+	@uv run --no-sync pytest tests/web/test_web_app.py \
 		--cov nfl_sim \
 		--cov-report term-missing
 
@@ -62,8 +62,8 @@ bench-perf: ## Run performance of results against real
 bench-converge: ## Run convergence benchmark
 	@uv run --no-sync bench/convergence_perf.py
 
-infer-plays: ## Run XGB predictions on 1k random plays for inspection
-	@uv run training/infer_plays.py
+infer-plays: ## Inspect model predictions on random plays (marimo notebook)
+	@uv run marimo run training/analysis/infer_plays.py
 
 train: train-intent train-run train-dropback train-time train-punt export-onnx ## Train all models and export to ONNX
 

@@ -5,10 +5,60 @@ In production, results are pulled from pre-computed parquet files (e.g., S3).
 Results are cached locally as parquet files for efficient access.
 """
 
+import os
+from pathlib import Path
+
 import polars as pl
 
 from nfl_sim.analysis._agg_types import GameAggs
 from nfl_sim.const import DATABASE, FUTURE_GAMES, GAME_SUMMARY
+
+
+def ensure_results() -> None:
+    """Guarantee the web app has parquet to read, building it once if absent.
+
+    Every storage path is env-driven (see `nfl_sim.const`) and defaults to a
+    placeholder, so a bare `marimo run` has nothing to read. This points the
+    env at persistent files under `data/web/` and runs the sim once if they're
+    missing. `setdefault` means an env already configured (the test harness,
+    or a deployment) always wins — this is a no-op there.
+    """
+    repo = Path(__file__).resolve().parents[2]
+    data = repo / "data"
+    os.environ.setdefault("NFL_SIM_SCHEDULE_LOC", str(data / "schedules.parquet"))
+    os.environ.setdefault("NFL_SIM_PBP_LOC", str(data / "pbp.parquet"))
+
+    web = data / "web"
+    web.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("NFL_SIM_DATABASE", str(web / "pbp.parquet"))
+    os.environ.setdefault("NFL_SIM_FUTURE_GAMES", str(web / "future.parquet"))
+    os.environ.setdefault("GAME_SUMMARIZATION", str(web / "summary.parquet"))
+
+    have_all = all(Path(p()).exists() for p in (DATABASE, FUTURE_GAMES, GAME_SUMMARY))
+    if not have_all:
+        # Lazy import: avoids a heavy import chain for callers that only read.
+        from nfl_sim import place_sim_results_at_db  # noqa: PLC0415
+
+        place_sim_results_at_db()
+
+
+def sim_summary(agg: GameAggs) -> pl.DataFrame:
+    """Per-simulation scoreboard derived from a game's aggregate result.
+
+    One row per simulation: its index, both final scores, and which side won.
+    This is what the marimo app lists so a user can pick a sim to drill into.
+    Lives here (not inline in a cell) so it stays unit-testable.
+    """
+    home = list(agg.home_score_all)
+    away = list(agg.away_score_all)
+    return pl.DataFrame(
+        {
+            "sim_id": range(len(home)),
+            "away_score": away,
+            "home_score": home,
+            "winner": ["HOME" if h > a else "AWAY" if a > h else "TIE" for h, a in zip(home, away)],
+        }
+    )
 
 
 def pull_simulation_results(game_id: str) -> pl.DataFrame:

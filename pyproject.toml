@@ -7,8 +7,6 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "fire>=0.7.1",
-    "flask>=3.0.0",
-    "jinja2>=3.1.6",
     "joblib>=1.5.3",
     "loguru>=0.7.3",
     "numpy>=2.0.0",
@@ -36,6 +34,7 @@ nfl-sim = "nfl_sim.__main__:main"
 
 [dependency-groups]
 dev = [
+    "altair>=5.4.0",
     "great-tables>=0.20.0",
     "hypothesis>=6.100.0",
     "line-profiler>=4.1.0",
@@ -128,8 +127,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["D100", "D102", "D103", "B018", "F841", "FBT001"]
-# marimo notebooks: cells import locally and receive imported symbols as args
+# marimo notebooks: cells import locally, receive imported symbols as args,
+# and end on a bare reference to the value the cell should render.
 "training/analysis/*.py" = ["PLC0415", "N803", "N806"]
+"nfl_sim/web/app.py" = ["PLC0415", "N803", "N806", "B018"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
