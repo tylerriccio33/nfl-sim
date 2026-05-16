@@ -104,3 +104,7 @@ def _(artifact, final):
     final.save_model(str(artifact))
     print(f"Saved {artifact}")
     return
+
+
+if __name__ == "__main__":
+    app.run()

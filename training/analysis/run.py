@@ -24,8 +24,7 @@ def _():
     from sklearn.model_selection import GridSearchCV, GroupKFold, GroupShuffleSplit
 
     from nfl_sim.model.config import MODELS, TOKENS_BY_INTENT
-    from training.prepare import prepare
-    from training.train_xgb import _tokenize_row as tokenize_row
+    from training.prepare import prepare, tokenize_row
 
     cfg = MODELS[MODEL_KEY]
     features = cfg["features"]

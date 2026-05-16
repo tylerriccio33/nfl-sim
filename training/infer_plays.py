@@ -14,8 +14,7 @@ from pysuite import run
 
 from nfl_sim.model.config import MODEL_FEATURES
 from nfl_sim.model.inference import OutcomeModel
-from training.prepare import prepare
-from training.train_xgb import _tokenize_row
+from training.prepare import prepare, tokenize_row
 
 N_SAMPLES = 1000
 
@@ -26,7 +25,7 @@ def main() -> None:
     df = prepare()
 
     # Tokenize each play to get the "real" token
-    tokens = [_tokenize_row(row) for row in df.iter_rows(named=True)]
+    tokens = [tokenize_row(row) for row in df.iter_rows(named=True)]
     df = df.with_columns(pl.Series("real_token", tokens))
     df = df.drop_nulls(subset=["real_token"])
 

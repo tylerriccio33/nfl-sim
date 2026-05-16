@@ -7,6 +7,11 @@ clean: ## Cleans all artifacts including models
 	@rm -rf training/artifacts && mkdir -p training/artifacts
 	@rm -rf sim_rs/target
 
+rebuild: clean ## Wipe everything (venv, models, rust) and rebuild from scratch
+	@uv sync
+	@$(MAKE) build
+	@$(MAKE) train
+
 lint: ## Run ruff and typer
 	@uv run ruff check --fix
 	@uv run ruff format
@@ -60,19 +65,25 @@ bench-converge: ## Run convergence benchmark
 infer-plays: ## Run XGB predictions on 1k random plays for inspection
 	@uv run training/infer_plays.py
 
-train: train-xgb train-time train-punt export-onnx ## Train all models and export to ONNX
+train: train-intent train-run train-dropback train-time train-punt export-onnx ## Train all models and export to ONNX
 
-train-xgb: ## Train XGB token model
-	@uv run training/train_xgb.py
+train-intent: ## Train stage-1 intent classifier
+	@uv run training/analysis/intent.py
+
+train-run: ## Train stage-2 RUN token classifier
+	@uv run training/analysis/run.py
+
+train-dropback: ## Train stage-2 DROPBACK token classifier
+	@uv run training/analysis/dropback.py
+
+train-time: ## Train time-elapsed regressor
+	@uv run training/analysis/time.py
+
+train-punt: ## Train punt yards regressor
+	@uv run training/analysis/punt.py
 
 export-onnx: ## Export trained models to ONNX format (for Rust inference)
 	@uv run training/export_onnx.py
-
-train-time: ## Train time model
-	@uv run training/train_time.py
-
-train-punt: ## Train punt yards model (blocked is sampled at 0.05%)
-	@uv run training/train_punt.py
 
 online-features: ## Materialize online features to data/features.parquet
 	@uv run python scripts/materialize_features.py

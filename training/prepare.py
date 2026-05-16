@@ -34,6 +34,55 @@ intent_value_mapping = intent_name_mapping.map_elements(
 )
 
 
+# TODO: Needs to be when/then
+def tokenize_row(row: dict) -> str | None:
+    """Map a single play row to its token name.
+
+    Used by the stage-2 token notebooks (run/dropback) and infer_plays to
+    turn a raw pbp row into the token the classifier predicts.
+    """
+    play_type = row["play_type"]
+    yards = row["yards_gained"]
+    turnover = int(row["turnover_type"])
+    sack = int(row["sack"])
+    complete = int(row["complete_pass"])
+
+    if play_type == "punt":
+        return "PUNT"
+    if play_type == "field_goal":
+        return "FG"
+
+    if turnover == 2:  # fumble
+        if play_type == "pass":
+            return "PASS_FUM"
+        return "RUN_FUM"
+    if turnover == 1:  # interception
+        return "PASS_INT"
+
+    if play_type == "pass" and sack == 1:
+        return "SACK"
+    if play_type == "pass" and complete == 0:
+        return "IC"
+    if play_type == "pass" and complete == 1:
+        if yards >= 20:
+            return "CP_20P"
+        if yards >= 10:
+            return "CP_10_20"
+        if yards >= 5:
+            return "CP_5_10"
+        return "CP_0_5"
+
+    if yards >= 20:
+        return "RUN_20P"
+    if yards >= 10:
+        return "RUN_10_20"
+    if yards >= 5:
+        return "RUN_5_10"
+    if yards >= 0:
+        return "RUN_0_5"
+    return "RUN_NEG"
+
+
 def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
     """Load and prepare training data from pbp parquet.
 
