@@ -17,7 +17,7 @@ def run_benchmark(game_id: str, store: FeatureStore, n_sims_per_game: int) -> di
     times = []
     for _ in range(TRIALS):
         start = time.perf_counter()
-        sim_games([game_id], store, n=n_sims_per_game, max_workers=1)
+        sim_games([game_id], store, n=n_sims_per_game)
         elapsed = time.perf_counter() - start
         times.append(elapsed)
 
@@ -104,7 +104,7 @@ def main() -> None:
     game_id = store.game_ids()[0]
 
     # Warm up (load models)
-    sim_games([game_id], store, n=1, max_workers=1)
+    sim_games([game_id], store, n=1)
 
     all_stats = [run_benchmark(game_id, store, n) for n in NSIMS]
     report_results(all_stats)

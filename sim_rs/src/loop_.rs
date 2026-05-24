@@ -32,7 +32,7 @@ pub struct TraceColumns {
 }
 
 impl TraceColumns {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             game_id: Vec::new(),
             sim_id: Vec::new(),
@@ -51,8 +51,37 @@ impl TraceColumns {
             away_score: Vec::new(),
         }
     }
+
+    /// Append `other` onto `self`, offsetting `game_id` and `sim_id` by `id_offset`
+    /// so per-shard local indices map back to the original metas array.
+    pub fn extend_offset(&mut self, mut other: TraceColumns, id_offset: u32) {
+        if id_offset > 0 {
+            for v in &mut other.game_id {
+                *v += id_offset;
+            }
+            for v in &mut other.sim_id {
+                *v += id_offset;
+            }
+        }
+        self.game_id.extend(other.game_id);
+        self.sim_id.extend(other.sim_id);
+        self.play_id.extend(other.play_id);
+        self.quarter.extend(other.quarter);
+        self.clock.extend(other.clock);
+        self.down.extend(other.down);
+        self.distance.extend(other.distance);
+        self.yardline_100.extend(other.yardline_100);
+        self.posteam.extend(other.posteam);
+        self.intent.extend(other.intent);
+        self.yards_gained.extend(other.yards_gained);
+        self.touchdown.extend(other.touchdown);
+        self.turnover_type.extend(other.turnover_type);
+        self.home_score.extend(other.home_score);
+        self.away_score.extend(other.away_score);
+    }
 }
 
+#[derive(Clone, Copy)]
 pub struct FeaturePlans<'a> {
     pub intent: &'a FeaturePlan,
     pub run: &'a FeaturePlan,

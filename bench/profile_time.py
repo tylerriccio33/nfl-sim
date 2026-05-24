@@ -32,7 +32,7 @@ def main() -> None:
     home, away = store.meta(game_id)
 
     # Need to warm up; loads all the modules and models
-    sim_games([game_id], store, n=1, max_workers=1)
+    sim_games([game_id], store, n=1)
 
     for fn in FUNCTIONS:
         profiler.add_function(fn)
@@ -40,7 +40,7 @@ def main() -> None:
     # Profile N simulations
     n_sims = 100
     print(f"Profiling {home} vs {away} ({n_sims} simulations)...")
-    profiler.runcall(sim_games, [game_id], store, n=n_sims, max_workers=1)
+    profiler.runcall(sim_games, [game_id], store, n=n_sims)
 
     # Save results to file
     output_path = Path(__file__).parent / "profile_results.txt"

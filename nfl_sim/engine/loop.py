@@ -90,7 +90,6 @@ def sim_games(
     store: FeatureStore,
     *,
     n: int = 1,
-    max_workers: int | None = None,
     chunk_size: int = 1_000,
 ) -> pl.DataFrame:
     """Simulate multiple games n times each and return a flat PBP frame.
