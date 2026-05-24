@@ -62,6 +62,9 @@ bench-perf: ## Run performance of results against real
 bench-converge: ## Run convergence benchmark
 	@uv run --no-sync bench/convergence_perf.py
 
+bench-chunk: ## Sweep sim_games chunk_size to find throughput sweet spot
+	@uv run --no-sync bench/chunk_perf.py
+
 infer-plays: ## Inspect model predictions on random plays (marimo notebook)
 	@uv run marimo run training/analysis/infer_plays.py
 

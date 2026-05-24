@@ -11,14 +11,12 @@ import polars as pl
 from loguru import logger
 from pysuite import run
 from rich.console import Console
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
 
 from nfl_sim import sim_games
 from nfl_sim.model.store import FeatureStore
 
 NGAMES = None  # use all games in the dataset
-NSIMS = 100  # run `make converge` to explore
-PROGRESS_CHUNK = 200
+NSIMS = 25  # run `make converge` to explore
 
 SCHEDULES_DATA = Path("data/schedules.parquet")
 
@@ -64,22 +62,7 @@ def run_accuracy_benchmark(n_games: int | None = 100, n_sims_per_game: int = NSI
 
     console.print(f"[bold green]Simulating {len(game_ids)} games ({n_sims_per_game} sims each)...")
 
-    # Chunk only to drive the progress bar — rust still batches efficiently within each call.
-    chunks: list[pl.DataFrame] = []
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Simulating", total=len(game_ids))
-        for i in range(0, len(game_ids), PROGRESS_CHUNK):
-            chunk_ids = game_ids[i : i + PROGRESS_CHUNK]
-            chunks.append(sim_games(game_ids=chunk_ids, store=store, n=n_sims_per_game))
-            progress.update(task, advance=len(chunk_ids))
-
-    sim_pbp = pl.concat(chunks)
+    sim_pbp = sim_games(game_ids=game_ids, store=store, n=n_sims_per_game)
 
     sim_df: pl.DataFrame = (
         sim_pbp.lazy()

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
 
 import sim_rs  # compiled via maturin from sim_rs/
 
@@ -85,12 +87,25 @@ def _chunk_to_df(engine: sim_rs.SimEngine, chunk_metas: list[tuple[str, str, str
 type _GameMetadata = tuple[str, str, str]
 
 
+def _progress_enabled() -> bool:
+    """NFL_SIM_PROGRESS=0/false/no disables the sim progress bar. On by default."""
+    return os.environ.get("NFL_SIM_PROGRESS", "1").lower() not in {"0", "false", "no"}
+
+
+def _default_chunk_size() -> int:
+    """NFL_SIM_CHUNK_SIZE overrides the default; falls back to 1000."""
+    raw = os.environ.get("NFL_SIM_CHUNK_SIZE")
+    if raw is None:
+        return 250
+    return int(raw)
+
+
 def sim_games(
     game_ids: list[str],
     store: FeatureStore,
     *,
     n: int = 1,
-    chunk_size: int = 1_000,
+    chunk_size: int | None = None,
 ) -> pl.DataFrame:
     """Simulate multiple games n times each and return a flat PBP frame.
 
@@ -98,6 +113,9 @@ def sim_games(
     dict[game_id, list[GameTrace]] to a single DataFrame — callers that
     expected traces should migrate to consuming the frame.
     """
+    if chunk_size is None:
+        chunk_size = _default_chunk_size()
+
     # Flatten: repeat each game n times.
     flat_metas: list[_GameMetadata] = []
     for gid in game_ids:
@@ -111,6 +129,21 @@ def sim_games(
 
     engine = _make_engine(store)
 
-    frames: list[pl.DataFrame] = [_chunk_to_df(engine, chunk) for chunk in chunks]
+    if not _progress_enabled() or len(chunks) <= 1:
+        frames: list[pl.DataFrame] = [_chunk_to_df(engine, chunk) for chunk in chunks]
+        return pl.concat(frames)
+
+    frames = []
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task(f"Simulating {len(flat_metas)} sims", total=len(flat_metas))
+        for chunk in chunks:
+            frames.append(_chunk_to_df(engine, chunk))
+            progress.update(task, advance=len(chunk))
 
     return pl.concat(frames)
