@@ -191,7 +191,41 @@ make lint
 
 ## Adding a New Game-Level Feature
 
-TODO: Harden and fill out this section
+Online features (pre-materialized per `(game_id, team)`) flow through a registry — one declaration per feature, validated at import time. Adding one is two steps. Example: `dropback_rate` (team's prior-weeks rate of `qb_dropback`).
+
+1. **Register the producer** in `nfl_sim/model/online_feature_defs.py`:
+   ```python
+   @pbp_weekly_feature("dropback_rate")
+   def _() -> pl.Expr:
+       return pl.col("qb_dropback").mean()
+   ```
+   The function returns a polars `Expr` evaluated *inside* a `(posteam, season, week)` group_by over run+pass plays. The registry handles aliasing, `shift(1)`, and the 16-week rolling mean — you just declare what to compute per team-week.
+2. **Wire it to a consumer** in `nfl_sim/model/pipeline.toml`:
+   ```toml
+   [features.dropback_rate]
+   source = "online"
+   ```
+   Then add `"dropback_rate"` to the `features = [...]` list of every model that should consume it (e.g. `[models.intent]`).
+
+Then rebuild and verify:
+```bash
+make features        # rebuilds data/features.parquet from the registry
+make train-intent    # retrains consumer(s)
+make lint && make test
+```
+
+What happens automatically (no edits needed):
+- `nfl_sim/model/features.py` iterates the registry to build the weekly aggregate, shift, and home/away suffixing.
+- `scripts/materialize_features.py` pivots every registered feature into the per-team parquet.
+- `training/prepare.py` selects every registered feature from the parquet.
+- `nfl_sim/model/store.py` cross-checks the TOML against the registry on import — a TOML entry with no producer, or a registered feature missing from the TOML, raises immediately.
+
+Notes / gotchas:
+- Registry features share the weekly group_by, which is filtered to `play_type in ("run", "pass")`. If your new feature needs a different denominator (e.g. all offensive plays), it does not belong in this registry — split it out.
+- The `inner` join in `prepare.py` drops games missing the feature (e.g. week 1 with no prior data). The shift+rolling pipeline handles this for registry features; respect the same discipline if you add a different source.
+- Feature lists are **per-model**. Downstream tools (e.g. `training/analysis/infer_plays.py`) must build the feature matrix from `MODEL_FEATURES[<that model>]` per model, not reuse one model's list across stages — that produces `n_features_data != n_features_model` at predict time.
+- For **non-online** features: use `source = "state"` (with a tuple index), `"odt"` (add a resolver to `_ODT_RESOLVERS` in `model/store.py`), or `"outcome"` (add a field under `[outcome.*]` and regenerate via `make generate-outcome`).
+- For **non-pbp online** features (e.g. `spread_line`, which comes from the schedule and is relative): keep them as special cases in `engineer_game_features` / `materialize_features.py` and add them to the `_SCHEDULE_ONLINE` set in `model/store.py` so the registry contract doesn't reject them.
 
 ## Web Interface
 

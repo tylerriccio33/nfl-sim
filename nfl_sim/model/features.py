@@ -1,62 +1,71 @@
-"""Game-level feature engineering.
+"""Game-level feature engineering, driven by the online feature registry.
 
-This module contains the computation logic for online features (spread, EPA).
-It is called by the materialization script (scripts/materialize_features.py)
-to produce data/features.parquet. At runtime, features are served by the
-FeatureStore in store.py.
+This module owns the *shape* of the online feature pipeline: weekly group_by,
+shift-by-1, rolling mean, and home/away suffixing for the schedule join. The
+*content* (what to compute per team-week) lives in `online_feature_defs.py`
+as decorated functions — single declaration site per feature.
+
+Called by `scripts/materialize_features.py` to produce `data/features.parquet`.
+At runtime, features are served by FeatureStore in `store.py`.
 """
 
 import polars as pl
+
+# Side-effect import: registers every WeeklyFeature into the registry.
+from nfl_sim.model import online_feature_defs  # noqa: F401
+from nfl_sim.model.online_features import weekly_features
 
 
 def engineer_game_features(
     pbp: pl.DataFrame, schedule_data: pl.DataFrame, game_ids: list[str]
 ) -> pl.DataFrame:
-    """Engineer game-level features (spread, EPA) for the given game IDs.
+    """Engineer game-level features for the given game IDs.
 
-    Returns a DataFrame with one row per game containing:
-    game_id, home_team, away_team, spread_line, season_epa_home, season_epa_away
-
-    Args:
-        pbp: Play-by-play DataFrame.
-        schedule_data: Schedule data for engineering.
-        game_ids: List of game IDs to engineer features for.
-
+    Returns one row per game with: game_id, home_team, away_team, spread_line,
+    plus `<feat>_home` and `<feat>_away` for every registered weekly feature.
     """
-    ## Schedule Features:
+    # spread_line is schedule-sourced (not a pbp aggregate) and relative — kept
+    # outside the registry. Every other online feature flows from the registry.
     sched_features = (
         schedule_data.filter(pl.col("game_id").is_in(game_ids))
         .select("game_id", "home_team", "away_team", "spread_line")
         .unique()
     )
 
-    # Season-level EPA: for each game, compute the team's mean EPA across all
-    # prior weeks in the same season (expanding window, excluding current week).
+    feats = weekly_features()
     ids = ["posteam", "season", "week", "game_id"]
-    weekly = pbp.drop_nulls(ids).group_by(ids).agg(epa=pl.col("epa").mean())
+
+    weekly = (
+        pbp.drop_nulls(ids)
+        .filter(pl.col("play_type").is_in(["run", "pass"]))
+        .group_by(ids)
+        .agg(*[wf.weekly_agg().alias(wf.name) for wf in feats])
+    )
 
     shifted = (
         weekly.sort("posteam", "season", "week")
         .with_columns(
-            season_epa=pl.col("epa")
-            .shift(1)
-            .rolling_mean(window_size=16, min_samples=1)
-            .over("posteam", "season"),
+            *[
+                pl.col(wf.name)
+                .shift(1)
+                .rolling_mean(window_size=16, min_samples=1)
+                .over("posteam", "season")
+                .alias(wf.name)
+                for wf in feats
+            ]
         )
-        .drop("season", "week", "epa")
+        .drop("season", "week")
         .drop_nulls()
     )
 
-    pbp_feats: list[str] = [c for c in shifted.columns if c not in ids]
-
-    ## JOIN DATA BACK TO SCHEDULES AS HOME AND AWAY ##
+    feat_names = [wf.name for wf in feats]
     lookup_keys = ["game_id", "posteam"]
     joined = sched_features.join(
-        shifted.select(*lookup_keys, pl.col(pbp_feats).name.suffix("_home")),
+        shifted.select(*lookup_keys, pl.col(feat_names).name.suffix("_home")),
         left_on=("game_id", "home_team"),
         right_on=("game_id", "posteam"),
     ).join(
-        shifted.select(*lookup_keys, pl.col(pbp_feats).name.suffix("_away")),
+        shifted.select(*lookup_keys, pl.col(feat_names).name.suffix("_away")),
         left_on=("game_id", "away_team"),
         right_on=("game_id", "posteam"),
     )

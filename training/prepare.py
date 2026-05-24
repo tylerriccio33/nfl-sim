@@ -18,6 +18,7 @@ from pathlib import Path
 import polars as pl
 
 from nfl_sim.model.config import INTENT_VALUES, PLAY_TYPE_MAP, TRAINING_CONFIG
+from nfl_sim.model.online_features import weekly_feature_names
 
 # Make the prepare() function work in all run contexts
 ROOT = Path(__file__).parent.parent.resolve().absolute()
@@ -150,7 +151,7 @@ def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
     # Join online features from the materialized feature store.
     # The store is keyed by (game_id, team) with team-relative values already computed.
     online_feats = pl.read_parquet(FEATURES_PATH).select(
-        "game_id", "team", "spread_line", "season_epa"
+        "game_id", "team", "spread_line", *weekly_feature_names()
     )
     df = df.join(
         online_feats,

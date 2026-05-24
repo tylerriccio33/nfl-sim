@@ -61,6 +61,7 @@ _TURNOVER_CODE = {0: "NONE", 1: "INTERCEPTION", 2: "FUMBLE"}
 _POSTEAM_CODE = {0: "HOME", 1: "AWAY"}
 
 
+# TODO: This is just asking for issues
 def _chunk_to_df(engine: sim_rs.SimEngine, chunk_metas: list[tuple[str, str, str]]) -> pl.DataFrame:
     gids = [m[0] for m in chunk_metas]
     homes = [m[1] for m in chunk_metas]

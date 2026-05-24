@@ -19,7 +19,9 @@ import numpy as np
 import polars as pl
 
 from nfl_sim.engine.state import _DIST, _OFF, _SC, _YL, GameTrace, _GameState
+from nfl_sim.model import online_feature_defs  # noqa: F401  side-effect: registers
 from nfl_sim.model.config import CONFIG, MODEL_FEATURES
+from nfl_sim.model.online_features import weekly_feature_names
 
 if TYPE_CHECKING:
     from nfl_sim.engine._GENERATED_outcome import Outcome
@@ -38,6 +40,29 @@ for _model_name, _feats in MODEL_FEATURES.items():
         if _feat not in _DISPATCH:
             msg = f"Model '{_model_name}' uses feature '{_feat}' not declared in [features.*]"
             raise ValueError(msg)
+
+# Cross-check the online feature contract: every TOML-declared online feature
+# (except schedule-sourced spread_line) must have a producer in the registry,
+# and every registered feature must be declared in the TOML. Either gap means
+# the materialized parquet and the TOML disagree about what exists.
+_SCHEDULE_ONLINE = {"spread_line"}
+_TOML_ONLINE = {name for name, (src, _) in _DISPATCH.items() if src == "online"}
+_REGISTRY_ONLINE = set(weekly_feature_names())
+_missing_producer = _TOML_ONLINE - _REGISTRY_ONLINE - _SCHEDULE_ONLINE
+_missing_declaration = _REGISTRY_ONLINE - _TOML_ONLINE
+if _missing_producer:
+    msg = (
+        f"pipeline.toml declares online features with no producer: "
+        f"{sorted(_missing_producer)}. Register them in "
+        f"nfl_sim/model/online_feature_defs.py."
+    )
+    raise ValueError(msg)
+if _missing_declaration:
+    msg = (
+        f"Online features registered but not declared in pipeline.toml "
+        f"[features.*]: {sorted(_missing_declaration)}."
+    )
+    raise ValueError(msg)
 
 
 # ── ODT resolvers ────────────────────────────────────────────────────

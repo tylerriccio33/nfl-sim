@@ -165,6 +165,7 @@ impl SimEngine {
             )
         });
 
+        // TODO: Gotta fix this
         let d = PyDict::new_bound(py);
         d.set_item("game_id", trace.game_id.into_pyarray_bound(py))?;
         d.set_item("sim_id", trace.sim_id.into_pyarray_bound(py))?;

@@ -152,14 +152,17 @@ def _(MODEL_FEATURES, OutcomeModel):
     model = OutcomeModel()
     if not model._loaded:
         model._load()
-    # All stages share the same feature list today; use the intent model's.
-    feat_names = MODEL_FEATURES["intent"]
-    return feat_names, model
+    # Each stage has its own feature list — they may diverge (e.g. intent
+    # consumes team-tendency features that the token models don't).
+    feats_by_model = MODEL_FEATURES
+    return (feats_by_model,)
 
 
 @app.cell
-def _(INTENT_VALUES, feat_names, model, model_pick, np, pl, sample):
-    feats = sample.select(feat_names).to_numpy().astype(np.float32)
+def _(INTENT_VALUES, feats_by_model, model, model_pick, np, pl, sample):
+    def _feats(model_name: str) -> np.ndarray:
+        return sample.select(feats_by_model[model_name]).to_numpy().astype(np.float32)
+
     pick = model_pick.value
 
     # Real stage-1 intent name, inverted from the integer `intent` column.
@@ -167,20 +170,23 @@ def _(INTENT_VALUES, feat_names, model, model_pick, np, pl, sample):
     real_intent = [value_to_name[v] for v in sample["intent"].to_list()]
 
     if pick == "intent":
-        probs = model.predict_intent_probs_batch(feats)
+        probs = model.predict_intent_probs_batch(_feats("intent"))
         pred = model.sample_intents_batch(probs)
         truth, label = real_intent, "intent"
     elif pick in ("xgb_run", "xgb_dropback"):
         intent_name = "RUN" if pick == "xgb_run" else "DROPBACK"
-        probs = model.predict_token_probs_batch(intent_name, feats)
+        token_model = f"xgb_{intent_name.lower()}"
+        probs = model.predict_token_probs_batch(intent_name, _feats(token_model))
         pred = model.sample_tokens_batch(intent_name, probs)
         truth, label = sample["real_token"].to_list(), "token"
     else:  # full two-stage pipeline, as the sim runs it
-        intents = model.sample_intents_batch(model.predict_intent_probs_batch(feats))
+        intents = model.sample_intents_batch(model.predict_intent_probs_batch(_feats("intent")))
         pred = []
         for i, intent_name in enumerate(intents):
             if intent_name in ("RUN", "DROPBACK"):
-                tp = model.predict_token_probs_batch(intent_name, feats[i : i + 1])
+                token_model = f"xgb_{intent_name.lower()}"
+                row = _feats(token_model)[i : i + 1]
+                tp = model.predict_token_probs_batch(intent_name, row)
                 pred.append(model.sample_tokens_batch(intent_name, tp)[0])
             else:
                 pred.append("FG" if intent_name == "FIELD_GOAL" else "PUNT")
