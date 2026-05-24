@@ -206,6 +206,7 @@ features = [
     "goal_to_go",
     "spread_line",
     "season_epa",
+    "int_rate"
 ]
 outcomes = ["token"]
 
@@ -263,6 +264,9 @@ source = "online"
 source = "online"
 
 [features.dropback_rate]
+source = "online"
+
+[features.int_rate]
 source = "online"
 
 [features.score_diff]

@@ -20,3 +20,8 @@ def _() -> pl.Expr:
 @pbp_weekly_feature("dropback_rate")
 def _() -> pl.Expr:
     return pl.col("qb_dropback").mean()
+
+
+@pbp_weekly_feature("int_rate")
+def _() -> pl.Expr:
+    return pl.col("interception").mean()

@@ -13,7 +13,7 @@ import polars as pl
 
 # Side-effect import: registers every WeeklyFeature into the registry.
 from nfl_sim.model import online_feature_defs  # noqa: F401
-from nfl_sim.model.online_features import weekly_features
+from nfl_sim.model.online_features import WeeklyFeature, weekly_features
 
 
 def engineer_game_features(
@@ -32,7 +32,7 @@ def engineer_game_features(
         .unique()
     )
 
-    feats = weekly_features()
+    feats: list[WeeklyFeature] = weekly_features()
     ids = ["posteam", "season", "week", "game_id"]
 
     weekly = (
