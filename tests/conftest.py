@@ -164,6 +164,16 @@ def _real_pbp_to_sim_schema(pbp: pl.DataFrame) -> pl.DataFrame:
         .otherwise(pl.lit("UNKNOWN"))
     )
 
+    # Real pbp has no per-play "time elapsed" column, so derive it as the drop
+    # in the game clock from the previous play (within a game). First play of a
+    # game has no predecessor → null, filled to 0.
+    time_elapsed_expr = (
+        (pl.col("game_seconds_remaining").shift(1) - pl.col("game_seconds_remaining"))
+        .over("game_id")
+        .fill_null(0)
+        .cast(pl.Int64)
+    )
+
     return pbp.select(
         "game_id",
         pl.lit(1).alias("sim_id"),
@@ -174,6 +184,7 @@ def _real_pbp_to_sim_schema(pbp: pl.DataFrame) -> pl.DataFrame:
         posteam_expr.alias("posteam"),
         pl.col("home_score").cast(pl.Int64),
         pl.col("away_score").cast(pl.Int64),
+        time_elapsed_expr.alias("time_elapsed"),
     ).drop_nulls(subset=["down"])
 
 

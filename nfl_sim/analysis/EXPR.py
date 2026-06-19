@@ -18,6 +18,7 @@ _PLAY_SCHEMA: dict[str, type[pl.DataType]] = {
     "turnover_type": pl.String,
     "home_score": pl.Int64,
     "away_score": pl.Int64,
+    "time_elapsed": pl.Int64,
 }
 
 
@@ -86,7 +87,7 @@ def _resolve_schema(
 # NOTE: If you want something like "yards gained per play" it goes here
 
 
-standard_stats: tuple[str, ...] = ("yards_gained",)
+standard_stats: tuple[str, ...] = ("yards_gained", "time_elapsed")
 
 # These are all summed and use a custom expression.
 custom_stats: dict[str, pl.Expr] = {
@@ -101,6 +102,7 @@ custom_stats: dict[str, pl.Expr] = {
     "turnoverondowns": pl.col("event").str.to_lowercase() == "turnoverondowns",
     "fumbles": pl.col("event").str.to_lowercase().is_in(["fumblesix", "fumblelost"]),
     "first_downs": (pl.col("down") == 1),
+    "downs": pl.col("down"),
 }
 for key in custom_stats:
     assert key.endswith("s"), "Custom stats are plural, they are implied sums of the expression."
@@ -169,8 +171,10 @@ SIM_LEVEL_EXPRS: list[pl.Expr] = _SCORING_EXPRS + SIM_LEVEL_EXPRS
 # Input: One row per simulation with sim-level stats (including home_*/away_* columns)
 # Output: One row per game with mean/std/distribution stats
 
-
-sim_level_schema = _resolve_schema(_PLAY_SCHEMA, SIM_LEVEL_EXPRS)
+try:
+    sim_level_schema = _resolve_schema(_PLAY_SCHEMA, SIM_LEVEL_EXPRS)
+except pl.exceptions.ComputeError as pe:
+    raise AssertionError("Could not find a field in a certain statistic.") from pe
 
 GAME_LEVEL_EXPRS: list[pl.Expr] = [
     *[pl.col(stat).mean().name.suffix("_avg") for stat in sim_level_schema],

@@ -14,7 +14,6 @@ mod models;
 mod state;
 mod store;
 
-use numpy::IntoPyArray;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rayon::prelude::*;
@@ -165,24 +164,9 @@ impl SimEngine {
             )
         });
 
-        // TODO: Gotta fix this
-        let d = PyDict::new_bound(py);
-        d.set_item("game_id", trace.game_id.into_pyarray_bound(py))?;
-        d.set_item("sim_id", trace.sim_id.into_pyarray_bound(py))?;
-        d.set_item("play_id", trace.play_id.into_pyarray_bound(py))?;
-        d.set_item("quarter", trace.quarter.into_pyarray_bound(py))?;
-        d.set_item("clock", trace.clock.into_pyarray_bound(py))?;
-        d.set_item("down", trace.down.into_pyarray_bound(py))?;
-        d.set_item("distance", trace.distance.into_pyarray_bound(py))?;
-        d.set_item("yardline_100", trace.yardline_100.into_pyarray_bound(py))?;
-        d.set_item("posteam", trace.posteam.into_pyarray_bound(py))?;
-        d.set_item("intent", trace.intent.into_pyarray_bound(py))?;
-        d.set_item("yards_gained", trace.yards_gained.into_pyarray_bound(py))?;
-        d.set_item("touchdown", trace.touchdown.into_pyarray_bound(py))?;
-        d.set_item("turnover_type", trace.turnover_type.into_pyarray_bound(py))?;
-        d.set_item("home_score", trace.home_score.into_pyarray_bound(py))?;
-        d.set_item("away_score", trace.away_score.into_pyarray_bound(py))?;
-        Ok(d)
+        // Column list lives in `loop_.rs::trace_columns!` — single source of
+        // truth. `into_pydict` consumes `trace` and emits one entry per column.
+        trace.into_pydict(py)
     }
 }
 
@@ -208,7 +192,11 @@ fn run_batched_parallel(
     // Build (offset, metas_slice) pairs and pair each with a distinct worker.
     let shards: Vec<(usize, &[Meta])> = (0..n_workers)
         .map(|w| {
-            let start = w * chunk;
+            // Clamp both ends: with div_ceil chunking the trailing workers can
+            // have `start` run past `n_metas` (e.g. 8 workers over 25 metas →
+            // chunk 4 → worker 7 starts at 28). Clamp before slicing so we get
+            // an empty slice (dropped by the filter below) instead of panicking.
+            let start = (w * chunk).min(n_metas);
             let end = ((w + 1) * chunk).min(n_metas);
             (start, &metas[start..end])
         })

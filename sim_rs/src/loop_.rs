@@ -11,49 +11,98 @@ use crate::logic::{apply_outcome, apply_time, is_terminal};
 use crate::models::Models;
 use crate::state::{GameState, Intent, Outcome, Team, TurnoverType};
 use crate::store::OnlineStore;
+use numpy::IntoPyArray;
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
-/// Columnar trace output, ready to ship back as numpy/polars.
-pub struct TraceColumns {
-    pub game_id: Vec<u32>,
-    pub sim_id: Vec<u32>,
-    pub play_id: Vec<u32>,
-    pub quarter: Vec<u8>,
-    pub clock: Vec<i16>,
-    pub down: Vec<u8>,
-    pub distance: Vec<u8>,
-    pub yardline_100: Vec<u8>,
-    pub posteam: Vec<u8>,
-    pub intent: Vec<u8>,
-    pub yards_gained: Vec<i16>,
-    pub touchdown: Vec<u8>,
-    pub turnover_type: Vec<u8>,
-    pub home_score: Vec<i16>,
-    pub away_score: Vec<i16>,
+// ─── TraceColumns: single-source-of-truth column declaration ──────────────
+//
+// Every column the sim emits to Python is declared exactly once, in the
+// `trace_columns!` invocation below. The macro generates:
+//
+//   1. `pub struct TraceColumns { pub <name>: Vec<<ty>>, ... }`
+//   2. `TraceColumns::new()` initializing each Vec to empty.
+//   3. `TraceColumns::extend_inner(other)` appending other's Vec onto self's
+//      for every column. (The `game_id`/`sim_id` offset logic stays separate
+//      in `extend_offset` since only those two columns get rewritten.)
+//   4. `TraceColumns::into_pydict(py)` consuming `self` and pushing each Vec
+//      into a PyDict under its own name (via `stringify!`) as a numpy array.
+//
+// To add a column: add one `name: ty,` line below AND one positional argument
+// to the `out.push_row(...)` call in the per-play loop further down. The arg
+// count/type is compiler-checked, so a mismatch is a build error — not a
+// silently-short array. Nothing else.
+//
+// Macro mechanics: `$($name:ident : $ty:ty),* $(,)?` matches a comma-separated
+// list of `ident: type` pairs with an optional trailing comma. Each `$(...)`,*
+// inside the expansion is repeated once per captured pair, with `$name` and
+// `$ty` substituted positionally. `stringify!($name)` turns the identifier
+// into a string literal at compile time, which is what `set_item` needs.
+macro_rules! trace_columns {
+    ($($name:ident : $ty:ty),* $(,)?) => {
+        /// Columnar trace output, ready to ship back as numpy/polars.
+        pub struct TraceColumns {
+            $(pub $name: Vec<$ty>,)*
+        }
+
+        impl TraceColumns {
+            pub fn new() -> Self {
+                Self { $($name: Vec::new(),)* }
+            }
+
+            /// Push one trace row: exactly one value per column, in the same
+            /// order the columns are declared in `trace_columns!`. Folding the
+            /// pushes into the macro means a new column is a *compile error*
+            /// (wrong arg count) at the call site rather than a silently-short
+            /// array that only blows up downstream in polars.
+            #[allow(clippy::too_many_arguments)]
+            pub fn push_row(&mut self, $($name: $ty),*) {
+                $(self.$name.push($name);)*
+            }
+
+            /// Per-column `extend` of `other` onto `self`. Caller is
+            /// responsible for any per-column rewriting (e.g. id offsets)
+            /// *before* invoking this.
+            fn extend_inner(&mut self, other: TraceColumns) {
+                $(self.$name.extend(other.$name);)*
+            }
+
+            /// Consume self, return a PyDict mapping each column name to a
+            /// numpy array. Used by `SimEngine.run_batched` to hand the
+            /// trace back to Python in one call.
+            pub fn into_pydict<'py>(self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+                let d = PyDict::new_bound(py);
+                $(d.set_item(stringify!($name), self.$name.into_pyarray_bound(py))?;)*
+                Ok(d)
+            }
+        }
+    };
+}
+
+trace_columns! {
+    game_id: u32,
+    sim_id: u32,
+    play_id: u32,
+    quarter: u8,
+    clock: i16,
+    down: u8,
+    distance: u8,
+    yardline_100: u8,
+    posteam: u8,
+    intent: u8,
+    yards_gained: i16,
+    touchdown: u8,
+    turnover_type: u8,
+    home_score: i16,
+    away_score: i16,
+    time_elapsed: i16,
 }
 
 impl TraceColumns {
-    pub fn new() -> Self {
-        Self {
-            game_id: Vec::new(),
-            sim_id: Vec::new(),
-            play_id: Vec::new(),
-            quarter: Vec::new(),
-            clock: Vec::new(),
-            down: Vec::new(),
-            distance: Vec::new(),
-            yardline_100: Vec::new(),
-            posteam: Vec::new(),
-            intent: Vec::new(),
-            yards_gained: Vec::new(),
-            touchdown: Vec::new(),
-            turnover_type: Vec::new(),
-            home_score: Vec::new(),
-            away_score: Vec::new(),
-        }
-    }
-
-    /// Append `other` onto `self`, offsetting `game_id` and `sim_id` by `id_offset`
-    /// so per-shard local indices map back to the original metas array.
+    /// Append `other` onto `self`, offsetting `game_id` and `sim_id` by
+    /// `id_offset` so per-shard local indices map back to the original
+    /// metas array. Only these two columns are index-into-metas; every
+    /// other column is shard-independent and just gets concatenated.
     pub fn extend_offset(&mut self, mut other: TraceColumns, id_offset: u32) {
         if id_offset > 0 {
             for v in &mut other.game_id {
@@ -63,21 +112,7 @@ impl TraceColumns {
                 *v += id_offset;
             }
         }
-        self.game_id.extend(other.game_id);
-        self.sim_id.extend(other.sim_id);
-        self.play_id.extend(other.play_id);
-        self.quarter.extend(other.quarter);
-        self.clock.extend(other.clock);
-        self.down.extend(other.down);
-        self.distance.extend(other.distance);
-        self.yardline_100.extend(other.yardline_100);
-        self.posteam.extend(other.posteam);
-        self.intent.extend(other.intent);
-        self.yards_gained.extend(other.yards_gained);
-        self.touchdown.extend(other.touchdown);
-        self.turnover_type.extend(other.turnover_type);
-        self.home_score.extend(other.home_score);
-        self.away_score.extend(other.away_score);
+        self.extend_inner(other);
     }
 }
 
@@ -266,21 +301,26 @@ pub fn run_batched(
             let before = states_a[j];
             let after = apply_time(new_states[j], outcomes[j].time_elapsed);
 
-            out.game_id.push(i as u32);
-            out.sim_id.push(i as u32);
-            out.play_id.push(play_ids[i]);
-            out.quarter.push(before.quarter);
-            out.clock.push(before.clock);
-            out.down.push(before.down);
-            out.distance.push(before.distance);
-            out.yardline_100.push(before.yardline_100);
-            out.posteam.push(before.offense as u8);
-            out.intent.push(intents[j] as u8);
-            out.yards_gained.push(outcomes[j].yards_gained);
-            out.touchdown.push(outcomes[j].touchdown as u8);
-            out.turnover_type.push(outcomes[j].turnover_type as u8);
-            out.home_score.push(after.home_score);
-            out.away_score.push(after.away_score);
+            // Args are positional — keep them in the same order as the
+            // `trace_columns!` declaration (the compiler enforces count/type).
+            out.push_row(
+                i as u32,                        // game_id
+                i as u32,                        // sim_id
+                play_ids[i],                     // play_id
+                before.quarter,                  // quarter
+                before.clock,                    // clock
+                before.down,                     // down
+                before.distance,                 // distance
+                before.yardline_100,             // yardline_100
+                before.offense as u8,            // posteam
+                intents[j] as u8,                // intent
+                outcomes[j].yards_gained,        // yards_gained
+                outcomes[j].touchdown as u8,     // touchdown
+                outcomes[j].turnover_type as u8, // turnover_type
+                after.home_score,                // home_score
+                after.away_score,                // away_score
+                outcomes[j].time_elapsed,        // time_elapsed
+            );
 
             play_ids[i] += 1;
             states[i] = after;

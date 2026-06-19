@@ -6,7 +6,7 @@ Tests the full pipeline: context creation → simulation → understanding.
 import pytest
 
 from nfl_sim import understand
-from nfl_sim.analysis.EXPR import _PLAY_SCHEMA, SIM_LEVEL_EXPRS, _resolve_schema
+from nfl_sim.analysis.EXPR import _PLAY_SCHEMA, EVENT_EXPR, SIM_LEVEL_EXPRS, _resolve_schema
 
 
 def test_full_pipeline_completes(ctx, sims_multiple) -> None:
@@ -35,6 +35,28 @@ def test_home_away_symmetry() -> None:
         f"Mismatch: home-only={home_names - away_names}, away-only={away_names - home_names}"
     )
     assert len(home_names) > 0, "No home/away stats found"
+
+
+def test_play_schema_matches_rust_output(sims) -> None:
+    """`_PLAY_SCHEMA` must be a subset of the columns the Rust engine emits.
+
+    The analysis layer declares which columns it relies on; the Rust sim is
+    the source that produces them. If Rust drops a column or renames one,
+    every aggregation breaks silently — this catches that drift.
+    """
+    # _PLAY_SCHEMA describes the post-EVENT_EXPR frame (the shape the analysis
+    # layer aggregates), so apply that derivation before checking.
+    #
+    # To add a new column here, it must be emitted by the Rust sim in:
+    #   - sim_rs/src/loop_.rs   — `TraceColumns` struct field, `new()`,
+    #                             `extend_offset()`, and the per-play `.push()`
+    #   - sim_rs/src/lib.rs     — `d.set_item("<name>", trace.<name>...)`
+    # Then rebuild the Rust extension and add the column to `_PLAY_SCHEMA`
+    # in nfl_sim/analysis/EXPR.py.
+    available = set(sims.with_columns(EVENT_EXPR).columns)
+    declared = set(_PLAY_SCHEMA.keys())
+    missing = declared - available
+    assert not missing, f"_PLAY_SCHEMA declares columns Rust does not emit: {missing}"
 
 
 if __name__ == "__main__":

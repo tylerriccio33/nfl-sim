@@ -95,7 +95,11 @@ refresh-data: ## Refresh all data files
 	@uv run python data/refresh_data.py
 
 build: ## Build the rust library
-	@uv run maturin develop --release --manifest-path sim_rs/Cargo.toml
+	# sim_rs is an editable path dependency (see [tool.uv.sources]), so every
+	# `uv run` re-syncs it. A bare `maturin develop` install gets silently
+	# clobbered by the next sync. Reinstall through uv so the artifact uv hands
+	# to the runtime IS the one we just built (maturin backend, release=true).
+	@uv sync --reinstall-package sim_rs
 
 .PHONY: help
 help:  ## Display this help screen

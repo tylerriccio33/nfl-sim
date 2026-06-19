@@ -40,8 +40,23 @@ def understand(sims: pl.DataFrame) -> pl.DataFrame:
     assert "play_id" in schema
 
     # Derive event column from raw outcome fields if not already present
-    if "event" not in sims.collect_schema():  # TODO: Why would this never be there
+    if "event" not in schema:  # TODO: Why would this never be there
         sims = sims.with_columns(EVENT_EXPR)
+
+    # Contract check: `understand` is the single consumer that every producer
+    # (the Rust sim AND the real-pbp mapper used in parity tests) feeds. Adding
+    # a column to the aggregation expressions silently breaks any producer that
+    # didn't also add it — and the failure surfaces deep inside polars as a
+    # cryptic ColumnNotFoundError. Instead, derive the columns the expressions
+    # actually read straight from the expressions themselves and assert them up
+    # front, so a missing producer column is a clear error at the boundary.
+    present = set(sims.collect_schema().names())
+    required = {root for expr in SIM_LEVEL_EXPRS for root in expr.meta.root_names()}
+    missing = required - present
+    assert not missing, (
+        f"understand() input is missing columns its aggregations need: {sorted(missing)}. "
+        f"Every producer feeding understand() (Rust sim, real-pbp mapper) must emit these."
+    )
 
     return (
         sims.group_by("game_id", "sim_id")
