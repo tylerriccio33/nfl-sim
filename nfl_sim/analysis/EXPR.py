@@ -156,6 +156,7 @@ _SCORING_EXPRS: list[pl.Expr] = [
     pl.col("home_score").last().alias("home_score"),
     pl.col("away_score").last().alias("away_score"),
     (pl.col("home_score").last() - pl.col("away_score").last()).alias("margin"),
+    (pl.col("home_score").last() + pl.col("away_score").last()).alias("total_points"),
     (pl.col("home_score").last() > pl.col("away_score").last()).alias("home_win"),
     (pl.col("home_score").last() < pl.col("away_score").last()).alias("away_win"),
 ]
