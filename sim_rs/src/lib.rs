@@ -11,6 +11,7 @@ mod features;
 mod logic;
 mod loop_;
 mod models;
+mod pool;
 mod state;
 mod store;
 
@@ -22,6 +23,7 @@ use crate::config::{load as load_config, PipelineConfig};
 use crate::features::FeaturePlan;
 use crate::loop_::{FeaturePlans, TraceColumns};
 use crate::models::Models;
+use crate::pool::PlayPool;
 use crate::store::OnlineStore;
 
 type Meta = (String, String, String);
@@ -46,6 +48,7 @@ fn resolve_worker_count() -> usize {
 pub struct SimEngine {
     cfg: PipelineConfig,
     store: OnlineStore,
+    pool: PlayPool,
     /// One independent `Models` per worker thread. Each owns its own ONNX
     /// sessions + RNG, so shards run with zero shared mutable state.
     worker_models: Vec<Models>,
@@ -60,10 +63,12 @@ pub struct SimEngine {
 impl SimEngine {
     /// Construct once per process.
     #[new]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         pipeline_toml_path,
         game_ids, teams,
         online_feat_names, online_values,
+        pool_game_ids, pool_teams, pool_tokens, pool_yards,
         seed = 42,
     ))]
     fn new(
@@ -72,12 +77,17 @@ impl SimEngine {
         teams: Vec<String>,
         online_feat_names: Vec<String>,
         online_values: Vec<f32>,
+        pool_game_ids: Vec<String>,
+        pool_teams: Vec<String>,
+        pool_tokens: Vec<String>,
+        pool_yards: Vec<Vec<i16>>,
         seed: u64,
     ) -> PyResult<Self> {
         let cfg = load_config(std::path::Path::new(pipeline_toml_path))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
         let store = OnlineStore::new(&game_ids, &teams, &online_feat_names, &online_values);
+        let pool = PlayPool::new(&pool_game_ids, &pool_teams, &pool_tokens, pool_yards);
 
         let intent_plan = FeaturePlan::build(&cfg.intent_features, &cfg.feature_sources, &store);
         let run_plan = FeaturePlan::build(&cfg.xgb_run_features, &cfg.feature_sources, &store);
@@ -115,6 +125,7 @@ impl SimEngine {
         Ok(SimEngine {
             cfg,
             store,
+            pool,
             worker_models,
             intent_plan,
             run_plan,
@@ -158,6 +169,7 @@ impl SimEngine {
             run_batched_parallel(
                 &metas,
                 &self.store,
+                &self.pool,
                 &mut self.worker_models,
                 &self.cfg.intent_names,
                 plans,
@@ -176,6 +188,7 @@ impl SimEngine {
 fn run_batched_parallel(
     metas: &[Meta],
     store: &OnlineStore,
+    pool: &PlayPool,
     worker_models: &mut [Models],
     intent_names: &[String],
     plans: FeaturePlans<'_>,
@@ -211,7 +224,7 @@ fn run_batched_parallel(
         .par_iter_mut()
         .zip(shards.into_par_iter())
         .map(|(models, (offset, shard_metas))| {
-            let trace = loop_::run_batched(shard_metas, store, models, intent_names, plans);
+            let trace = loop_::run_batched(shard_metas, store, pool, models, intent_names, plans);
             (offset, trace)
         })
         .collect();

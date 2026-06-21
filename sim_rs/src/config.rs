@@ -51,6 +51,8 @@ pub struct RawFeature {
 /// Parsed token ready for the hot path.
 #[derive(Clone, Debug)]
 pub struct TokenCfg {
+    /// Token name (the `[tokens.*]` section key). Used to key the play pool.
+    pub name: String,
     pub intent: Intent,
     pub yards_lo: i16,
     pub yards_hi: i16,
@@ -100,6 +102,7 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
     for (name, v) in tokens_tbl.iter() {
         let raw: RawToken = v.clone().try_into()?;
         let cfg = TokenCfg {
+            name: name.clone(),
             intent: parse_intent(&raw.intent)?,
             yards_lo: raw.yards[0],
             yards_hi: raw.yards[1],

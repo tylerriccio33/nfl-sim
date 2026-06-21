@@ -30,10 +30,28 @@ class GameResult:
 
 
 _PIPELINE_TOML = str(Path(__file__).parent.parent / "model" / "pipeline.toml")
+_PLAY_POOL_PATH = "data/play_pool.parquet"
+
+
+def _load_play_pool(path: str) -> tuple[list[str], list[str], list[str], list[list[int]]]:
+    """Read the materialized play pool into Rust-ready parallel columns.
+
+    Missing artifact → empty pool (every token falls back to its uniform bucket
+    in the Rust engine), so the sim still runs before `make play-pool`.
+    """
+    if not Path(path).exists():
+        return [], [], [], []
+    df = pl.read_parquet(path)
+    return (
+        df["game_id"].to_list(),
+        df["team"].to_list(),
+        df["token"].to_list(),
+        df["yards"].to_list(),
+    )
 
 
 def _make_engine(store: FeatureStore) -> sim_rs.SimEngine:
-    """Hand the materialized online features to the Rust engine."""
+    """Hand the materialized online features + play pool to the Rust engine."""
     # Flatten the FeatureStore's columnar matrix into (n_keys, n_feats) row-major.
     keys = list(store._key_index.keys())  # (gid, team)
     online_feats = list(store._online_matrix.keys())
@@ -46,12 +64,18 @@ def _make_engine(store: FeatureStore) -> sim_rs.SimEngine:
     game_ids = [k[0] for k in keys]
     teams = [k[1] for k in keys]
 
+    pool_gids, pool_teams, pool_tokens, pool_yards = _load_play_pool(_PLAY_POOL_PATH)
+
     return sim_rs.SimEngine(
         _PIPELINE_TOML,
         game_ids,
         teams,
         online_feats,
         values.reshape(-1).tolist(),
+        pool_gids,
+        pool_teams,
+        pool_tokens,
+        pool_yards,
         seed=42,
     )
 

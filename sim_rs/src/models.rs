@@ -18,6 +18,7 @@ use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
 
 use crate::config::TokenCfg;
+use crate::pool::PlayPool;
 use crate::state::{Intent, Outcome, TurnoverType};
 
 pub struct Models {
@@ -118,23 +119,48 @@ impl Models {
     }
 
     /// Sample token indices for a per-intent prob matrix and convert each
-    /// pick to (Intent, Outcome) via the relevant token table.
-    pub fn sample_run_outcomes(&mut self, probs: &[f32], n: usize) -> Vec<(Intent, Outcome)> {
+    /// pick to (Intent, Outcome) via the relevant token table. `gids`/`teams`
+    /// are per-row (offense) keys into the play pool used to realize yards.
+    pub fn sample_run_outcomes(
+        &mut self,
+        probs: &[f32],
+        n: usize,
+        gids: &[String],
+        teams: &[String],
+        pool: &PlayPool,
+    ) -> Vec<(Intent, Outcome)> {
         let k = self.tokens_run.len();
         (0..n)
             .map(|row| {
                 let tok_idx = self.sample_one(&probs[row * k..(row + 1) * k]);
-                self.token_to_outcome(&self.tokens_run[tok_idx].clone())
+                self.token_to_outcome(
+                    &self.tokens_run[tok_idx].clone(),
+                    &gids[row],
+                    &teams[row],
+                    pool,
+                )
             })
             .collect()
     }
 
-    pub fn sample_dropback_outcomes(&mut self, probs: &[f32], n: usize) -> Vec<(Intent, Outcome)> {
+    pub fn sample_dropback_outcomes(
+        &mut self,
+        probs: &[f32],
+        n: usize,
+        gids: &[String],
+        teams: &[String],
+        pool: &PlayPool,
+    ) -> Vec<(Intent, Outcome)> {
         let k = self.tokens_dropback.len();
         (0..n)
             .map(|row| {
                 let tok_idx = self.sample_one(&probs[row * k..(row + 1) * k]);
-                self.token_to_outcome(&self.tokens_dropback[tok_idx].clone())
+                self.token_to_outcome(
+                    &self.tokens_dropback[tok_idx].clone(),
+                    &gids[row],
+                    &teams[row],
+                    pool,
+                )
             })
             .collect()
     }
@@ -151,13 +177,23 @@ impl Models {
         row_probs.len() - 1
     }
 
-    fn token_to_outcome(&mut self, t: &TokenCfg) -> (Intent, Outcome) {
+    fn token_to_outcome(
+        &mut self,
+        t: &TokenCfg,
+        gid: &str,
+        team: &str,
+        pool: &PlayPool,
+    ) -> (Intent, Outcome) {
         // Stage-2 outcome models only ever produce RUN / DROPBACK tokens —
         // FG and PUNT live on dedicated paths in loop_.rs.
-        let yards: i16 = if t.yards_lo == t.yards_hi {
-            t.yards_lo
-        } else {
-            self.rng.gen_range(t.yards_lo..=t.yards_hi)
+        //
+        // Realize yards by sampling a real historical play of this token from
+        // the offense team's pool (uniform over the most-recent ≤100). Only an
+        // empty/missing pool falls back to a uniform draw from the token bucket.
+        let yards: i16 = match pool.get(gid, team, &t.name) {
+            Some(p) if !p.is_empty() => p[self.rng.gen_range(0..p.len())],
+            _ if t.yards_lo == t.yards_hi => t.yards_lo,
+            _ => self.rng.gen_range(t.yards_lo..=t.yards_hi),
         };
         (
             t.intent,

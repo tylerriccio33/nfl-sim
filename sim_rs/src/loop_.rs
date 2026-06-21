@@ -9,6 +9,7 @@
 use crate::features::{build_features_batch, FeaturePlan};
 use crate::logic::{apply_outcome, apply_time, is_terminal};
 use crate::models::Models;
+use crate::pool::PlayPool;
 use crate::state::{GameState, Intent, Outcome, Team, TurnoverType};
 use crate::store::OnlineStore;
 use numpy::IntoPyArray;
@@ -129,6 +130,7 @@ pub struct FeaturePlans<'a> {
 pub fn run_batched(
     metas: &[(String, String, String)],
     store: &OnlineStore,
+    pool: &PlayPool,
     models: &mut Models,
     intent_names: &[String],
     plans: FeaturePlans<'_>,
@@ -194,6 +196,7 @@ pub fn run_batched(
                 models,
                 plans.run,
                 store,
+                pool,
                 &states_a,
                 &gids_a,
                 &offense_team_a,
@@ -211,6 +214,7 @@ pub fn run_batched(
                 models,
                 plans.dropback,
                 store,
+                pool,
                 &states_a,
                 &gids_a,
                 &offense_team_a,
@@ -341,6 +345,7 @@ fn predict_token_partition(
     models: &mut Models,
     plan: &FeaturePlan,
     store: &OnlineStore,
+    pool: &PlayPool,
     states_a: &[GameState],
     gids_a: &[String],
     offense_team_a: &[String],
@@ -366,12 +371,12 @@ fn predict_token_partition(
     let (probs, outcomes_pairs) = match intent {
         Intent::Run => {
             let p = models.predict_run_probs(&feats, m, plan.n_feats);
-            let o = models.sample_run_outcomes(&p, m);
+            let o = models.sample_run_outcomes(&p, m, &sub_gids, &sub_off, pool);
             (p, o)
         }
         Intent::Dropback => {
             let p = models.predict_dropback_probs(&feats, m, plan.n_feats);
-            let o = models.sample_dropback_outcomes(&p, m);
+            let o = models.sample_dropback_outcomes(&p, m, &sub_gids, &sub_off, pool);
             (p, o)
         }
         other => panic!("predict_token_partition called with non-token intent {other:?}"),

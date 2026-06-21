@@ -91,6 +91,9 @@ export-onnx: ## Export trained models to ONNX format (for Rust inference)
 online-features: ## Materialize online features to data/features.parquet
 	@uv run python scripts/materialize_features.py
 
+play-pool: ## Materialize the play pool to data/play_pool.parquet
+	@uv run python scripts/materialize_play_pool.py
+
 refresh-data: ## Refresh all data files
 	@uv run python data/refresh_data.py
 

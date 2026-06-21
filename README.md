@@ -59,12 +59,26 @@ Tokens are declared in `nfl_sim/model/pipeline.toml` under `[tokens.*]`. Each to
 **Inference:**
 1. `model/store.py` resolves the feature vector from online + state + odt sources.
 2. XGB `predict_proba` → sample a token from the distribution.
-3. Parse the token's TOML config → `(Intent, Outcome)`. PUNT yards route to a dedicated model.
+3. Parse the token's TOML config → `(Intent, Outcome)`. The token's yards are realized by **sampling a real historical play** from the [play pool](#play-pool) (not a uniform draw); PUNT yards route to a dedicated model.
 
 ### Dedicated models
 
 - **Punt yards** (`training/train_punt.py`, `make train-punt`) — predicts yards on PUNT intents.
 - **Time elapsed** (`training/train_time.py`, `make train-time`) — `AfterPlayModel`, conditioned on state + the outcome that just happened.
+
+### Play pool
+
+The token classifier decides *which* token a play is (e.g. `CP_10_20` — a complete pass for 10–20 yards), but it does not decide the exact yardage. Rather than drawing yards **uniformly** from the token's `[lo, hi]` bucket — which produces an unrealistically flat distribution — the engine samples a **real historical play** of that token, scoped to the offense team. This replaces the flat bucket with the team's empirical within-bucket shape while leaving the classifiers untouched.
+
+The pool is a **serving-only artifact** — it does not affect training. It is materialized to `data/play_pool.parquet` by `scripts/materialize_play_pool.py` (`make play-pool`):
+
+- **Keyed** per `(game_id, team, token)`.
+- For each game we simulate and each `(team, token)`, it collects that team's most-recent (≤100) real `yards_gained` for that token, drawn from **strictly earlier weeks** (no lookahead, mirroring the online-feature `shift(1)` discipline).
+- Recency comes purely from the ≤100 cutoff; within the window the engine samples **uniformly**.
+- Token bucketing reuses `tokenize_row` (`training/prepare.py`) — the single source of token logic — so the pool never diverges from how the classifiers were trained. FG/PUNT are excluded (they have dedicated outcome paths).
+- The artifact covers only the latest scheduled week by default, so it stays tiny and is rebuilt each week.
+
+At serve time `nfl_sim/engine/loop.py::_load_play_pool` reads the parquet and hands it to the Rust `SimEngine` constructor as flat parallel columns; Rust's `pool.rs::PlayPool` indexes it for O(1) lookup in the hot loop. When a `(team, token)` pool is **empty or missing** (e.g. the artifact hasn't been built, or a brand-new team-token), the engine falls back to the original uniform `[lo, hi]` draw — so the sim always runs.
 
 ## Rust Engine (`sim_rs/`)
 
@@ -78,6 +92,7 @@ sim_rs/src/
 ├── logic.rs        # apply_outcome / is_terminal
 ├── loop_.rs        # batched game loop
 ├── store.rs        # OnlineStore (Python passes online features in flat)
+├── pool.rs         # PlayPool — per-(game_id, team, token) real-yards bags
 ├── features.rs     # FeaturePlan — precompiled per-model feature pull
 └── models.rs       # ONNX-backed XGB / punt / time models
 ```
