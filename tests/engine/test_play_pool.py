@@ -11,29 +11,42 @@ actually draws sampled yards from the pool rather than uniformly.
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 import polars as pl
 import pytest
 
-from nfl_sim.engine.loop import _PLAY_POOL_PATH, _load_play_pool, sim_games
+from nfl_sim.engine.loop import _assert_pool_coverage, _load_play_pool, sim_games
 from nfl_sim.model.config import PLAY_POOL_FIELDS, TOKEN_NAMES
 from scripts.materialize_play_pool import _MAX_POOL, materialize
 
 if TYPE_CHECKING:
     from nfl_sim.model.store import FeatureStore
 
+# Path materialize() writes to and the engine's default — these tests exercise
+# the *real* latest-week artifact, not the conftest test-game pool.
+_DEFAULT_POOL_PATH = "data/play_pool.parquet"
+
 
 @pytest.fixture(scope="module")
-def play_pool() -> pl.DataFrame:
-    """Materialize the pool to the path the engine reads, return it as a frame.
+def play_pool() -> Iterator[pl.DataFrame]:
+    """Materialize the real pool to the default path and point the engine at it.
 
-    Writing to the default path (not a tmp dir) is deliberate: `_make_engine`
-    loads `data/play_pool.parquet`, so this fixture both validates the artifact
-    and primes it for the engine-level test below.
+    This module deliberately tests the latest-week artifact (the games with full
+    pool coverage), so it pins `NFL_SIM_PLAY_POOL_PATH` to the default path —
+    overriding the session-scoped conftest pool (scoped to the 2020 test games)
+    regardless of test ordering.
     """
     materialize()
-    return pl.read_parquet(_PLAY_POOL_PATH)
+    prev = os.environ.get("NFL_SIM_PLAY_POOL_PATH")
+    os.environ["NFL_SIM_PLAY_POOL_PATH"] = _DEFAULT_POOL_PATH
+    yield pl.read_parquet(_DEFAULT_POOL_PATH)
+    if prev is None:
+        del os.environ["NFL_SIM_PLAY_POOL_PATH"]
+    else:
+        os.environ["NFL_SIM_PLAY_POOL_PATH"] = prev
 
 
 def test_config_contract() -> None:
@@ -73,7 +86,7 @@ def test_row_index_alignment(play_pool: pl.DataFrame) -> None:
 
 def test_load_handoff_lanes(play_pool: pl.DataFrame) -> None:
     """`_load_play_pool` splits fields into typed lanes, aligned to the keys."""
-    pool = _load_play_pool(_PLAY_POOL_PATH)
+    pool = _load_play_pool(_DEFAULT_POOL_PATH)
     n_keys = len(play_pool)
 
     # The two lanes partition the configured fields, by dtype.
@@ -124,6 +137,18 @@ def test_sim_emits_passthrough(play_pool: pl.DataFrame, store: FeatureStore) -> 
     for code, team in (("HOME", home), ("AWAY", away)):
         observed = set(passes.filter(pl.col("posteam") == code)["passer_player_id"].to_list())
         assert observed.issubset(allowed[team]), observed - allowed[team]
+
+
+def test_missing_coverage_errors_before_simming(play_pool: pl.DataFrame) -> None:
+    """A team with no pool is a hard, loud error — never a silent uniform draw.
+
+    The pool covers the latest-week games; a fabricated game/team pair has no
+    bags, so the pre-flight check must refuse to run and name the gap.
+    """
+    pool = _load_play_pool(_DEFAULT_POOL_PATH)
+    bogus = [("9999_99_AAA_BBB", "AAA", "BBB")]
+    with pytest.raises(ValueError, match=r"no plays for 2 \(game, team\) pair"):
+        _assert_pool_coverage(pool, bogus)
 
 
 def test_sim_yards_drawn_from_pool(play_pool: pl.DataFrame, store: FeatureStore) -> None:

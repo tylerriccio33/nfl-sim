@@ -96,6 +96,24 @@ def _pool_for_target(plays: pl.DataFrame, team: str, season: int, week: int) -> 
     return prior.with_columns(team=pl.lit(team))
 
 
+def build_pool(pbp: pl.DataFrame, targets: pl.DataFrame) -> pl.DataFrame:
+    """Build the play pool for `targets` (game_id, home_team, away_team, season, week).
+
+    Each target game pulls its two teams' most-recent plays from strictly earlier
+    weeks *relative to that game's own season/week*, so the pool can span games in
+    different weeks (the latest scheduled week for serving; the test games here).
+    """
+    plays = _tokenized_plays(pbp)
+
+    frames: list[pl.DataFrame] = []
+    for game_id, home, away, season, week in targets.iter_rows():
+        for team in (home, away):
+            pool = _pool_for_target(plays, team, season, week)
+            frames.append(pool.with_columns(game_id=pl.lit(game_id)))
+
+    return pl.concat(frames).select("game_id", "team", "token", *PLAY_POOL_FIELDS)
+
+
 def materialize(
     pbp_path: str = "data/pbp.parquet",
     schedule_path: str = "data/schedules.parquet",
@@ -107,18 +125,10 @@ def materialize(
 
     season, week = get_latest_season_week(sched)
     targets = sched.filter(pl.col("season") == season, pl.col("week") == week).select(
-        "game_id", "home_team", "away_team"
+        "game_id", "home_team", "away_team", "season", "week"
     )
 
-    plays = _tokenized_plays(pbp)
-
-    frames: list[pl.DataFrame] = []
-    for game_id, home, away in targets.iter_rows():
-        for team in (home, away):
-            pool = _pool_for_target(plays, team, season, week)
-            frames.append(pool.with_columns(game_id=pl.lit(game_id)))
-
-    result = pl.concat(frames).select("game_id", "team", "token", *PLAY_POOL_FIELDS)
+    result = build_pool(pbp, targets)
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     result.write_parquet(out_path)

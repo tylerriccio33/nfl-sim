@@ -93,7 +93,13 @@ The pool is a **serving-only artifact** — it does not affect training. It is m
 - Token bucketing reuses `tokenize_row` (`training/prepare.py`) — the single source of token logic — so the pool never diverges from how the classifiers were trained. FG/PUNT are excluded (they have dedicated outcome paths).
 - The artifact covers only the latest scheduled week by default, so it stays tiny and is rebuilt each week.
 
-At serve time `_load_play_pool` reads the parquet and hands it to the Rust `SimEngine` constructor as flat **field-major** columns; Rust's `pool.rs::PlayPool` indexes it for O(1) lookup in the hot loop. When a `(team, token)` pool is **empty or missing** (e.g. the artifact hasn't been built, or a brand-new team-token), the engine falls back to the original uniform `[lo, hi]` draw — so the sim always runs.
+At serve time `_load_play_pool` reads the parquet and hands it to the Rust `SimEngine` constructor as flat **field-major** columns; Rust's `pool.rs::PlayPool` indexes it for O(1) lookup in the hot loop.
+
+The pool is **required**, not best-effort — the sim refuses to silently degrade to uniform draws:
+
+- A **missing artifact** is a hard error (`_load_play_pool` raises). Run `make play-pool` first.
+- **`(game, team)` coverage** is checked up front, before any game runs: `_assert_pool_coverage` (`engine/loop.py`) verifies every team we're about to sim has bags, and raises listing *all* gaps at once. The pool path is env-overridable via `NFL_SIM_PLAY_POOL_PATH` (tests point it at a games-scoped pool).
+- A **per-token** gap is the one remaining fallback, and it's unavoidable by construction: the classifier can sample a token a team never ran in prior weeks, so that `(team, token)` has no bag. Only there does the engine fall back to the token's uniform `[lo, hi]` draw (`models.rs::token_to_outcome`). This is *not* a missing-artifact case — coverage guarantees the team exists in the pool; it's a rare unseen token.
 
 ## Rust Engine (`sim_rs/`)
 

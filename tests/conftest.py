@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import polars as pl
@@ -12,6 +15,7 @@ from nfl_sim import place_sim_results_at_db, sim_games, understand
 from nfl_sim.engine.state import Outcome, _GameState
 from nfl_sim.model.store import FeatureStore, PlayContext
 from nfl_sim.utils import get_latest_season_week
+from scripts.materialize_play_pool import build_pool, materialize
 
 # =============================================================================
 # Constants
@@ -100,14 +104,61 @@ def ctx(store: FeatureStore) -> list[str]:
     return ids[:2]
 
 
-@pytest.fixture(scope="session")
-def sims(ctx: list[str], store: FeatureStore) -> pl.DataFrame:
-    return sim_games(ctx, store, n=1)
+@pytest.fixture(scope="session", autouse=True)
+def _default_play_pool() -> None:
+    """Materialize the real (latest-week) pool to the default path, once.
+
+    The sim now refuses to run without pool coverage, so tests that sim the
+    latest scheduled week (`place_sim_results_at_db`, the web app) need a real
+    artifact — exactly what `make play-pool` produces in production.
+    """
+    materialize()
+
+
+@contextmanager
+def _pool_env(path: str) -> Iterator[None]:
+    """Point `sim_games` at `path` for the duration of the block, then restore."""
+    prev = os.environ.get("NFL_SIM_PLAY_POOL_PATH")
+    os.environ["NFL_SIM_PLAY_POOL_PATH"] = path
+    try:
+        yield
+    finally:
+        if prev is None:
+            del os.environ["NFL_SIM_PLAY_POOL_PATH"]
+        else:
+            os.environ["NFL_SIM_PLAY_POOL_PATH"] = prev
 
 
 @pytest.fixture(scope="session")
-def sims_multiple(ctx: list[str], store: FeatureStore) -> pl.DataFrame:
-    return sim_games(ctx, store, n=5)
+def play_pool(ctx: list[str], tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Materialize a play pool scoped to the (2020) test games.
+
+    The default artifact only covers the latest week, so it has no bags for the
+    test games. We build a pool just for `ctx`; the `sims` fixtures point the
+    engine at it (via `_pool_env`) only for their own `sim_games` call, so latest
+    -week sims elsewhere keep reading the default artifact.
+    """
+    pbp = pl.read_parquet(PBP_LOC)
+    sched = pl.read_parquet(SCHEDULES_LOC)
+    targets = sched.filter(pl.col("game_id").is_in(ctx)).select(
+        "game_id", "home_team", "away_team", "season", "week"
+    )
+
+    out = tmp_path_factory.mktemp("play_pool") / "play_pool.parquet"
+    build_pool(pbp, targets).write_parquet(out)
+    return str(out)
+
+
+@pytest.fixture(scope="session")
+def sims(ctx: list[str], store: FeatureStore, play_pool: str) -> pl.DataFrame:
+    with _pool_env(play_pool):
+        return sim_games(ctx, store, n=1)
+
+
+@pytest.fixture(scope="session")
+def sims_multiple(ctx: list[str], store: FeatureStore, play_pool: str) -> pl.DataFrame:
+    with _pool_env(play_pool):
+        return sim_games(ctx, store, n=5)
 
 
 # =============================================================================
@@ -197,7 +248,10 @@ def _stats_to_avg_std(stats: pl.DataFrame) -> dict[str, tuple[float, float]]:
 
 @pytest.fixture(scope="session")
 def build_comparison_data(
-    raw_pbp: pl.DataFrame, raw_schedules: pl.DataFrame, store: FeatureStore
+    raw_pbp: pl.DataFrame,
+    raw_schedules: pl.DataFrame,
+    store: FeatureStore,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> tuple[dict[str, tuple[float, float]], dict[str, tuple[float, float]]]:
     ## Real data: reshape into sim schema and aggregate
     real_pbp = _real_pbp_to_sim_schema(raw_pbp)
@@ -213,8 +267,18 @@ def build_comparison_data(
     game_ids = [gid for gid in latest_games if gid in store._meta]
     assert len(game_ids) >= 10
 
+    # These span many weeks/seasons, so the default latest-week pool can't cover
+    # them — build a pool scoped to exactly this sampled set and point the engine
+    # at it (the sim refuses to run without coverage).
+    targets = raw_schedules.filter(pl.col("game_id").is_in(game_ids)).select(
+        "game_id", "home_team", "away_team", "season", "week"
+    )
+    pool_path = tmp_path_factory.mktemp("parity_pool") / "play_pool.parquet"
+    build_pool(raw_pbp, targets).write_parquet(pool_path)
+
     ## Sim Data:
-    sim_pbp: pl.DataFrame = sim_games(game_ids, store, n=25)
+    with _pool_env(str(pool_path)):
+        sim_pbp: pl.DataFrame = sim_games(game_ids, store, n=25)
     sim_stats = understand(sim_pbp)
     sim_stats_combined = _stats_to_avg_std(sim_stats)
 

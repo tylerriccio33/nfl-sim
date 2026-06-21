@@ -31,7 +31,15 @@ class GameResult:
 
 
 _PIPELINE_TOML = str(Path(__file__).parent.parent / "model" / "pipeline.toml")
-_PLAY_POOL_PATH = "data/play_pool.parquet"
+
+
+def _play_pool_path() -> str:
+    """Pool artifact location.
+
+    Env-overridable so tests can point at a pool scoped to their games without
+    clobbering the real serving artifact.
+    """
+    return os.environ.get("NFL_SIM_PLAY_POOL_PATH", "data/play_pool.parquet")
 
 
 class _LoadedPool(NamedTuple):
@@ -59,11 +67,14 @@ def _load_play_pool(path: str) -> _LoadedPool:
     lane, string → the string lane. The engine reads `yards_gained` (outcome)
     off the numeric lane and emits every other field as a passthrough column.
 
-    Missing artifact → empty pool (every token falls back to its uniform bucket
-    in the Rust engine), so the sim still runs before `make play-pool`.
+    A missing artifact is a hard error: the sim must not silently degrade to
+    uniform-bucket draws. Build it with `make play-pool` first.
     """
     if not Path(path).exists():
-        return _LoadedPool([], [], [], [], [], [], [])
+        raise FileNotFoundError(
+            f"play pool artifact not found at {path!r}. Run `make play-pool` to "
+            "build it — the sim refuses to run on uniform-bucket fallbacks."
+        )
     df = pl.read_parquet(path)
     # Contract: the artifact carries exactly the configured fields, in order.
     # A drift between pipeline.toml and a stale parquet fails loud here.
@@ -84,7 +95,26 @@ def _load_play_pool(path: str) -> _LoadedPool:
     )
 
 
-def _make_engine(store: FeatureStore) -> sim_rs.SimEngine:
+def _assert_pool_coverage(pool: _LoadedPool, metas: list[_GameMetadata]) -> None:
+    """Fail loud — *before* simming — if any team we're about to sim has no pool.
+
+    The pool is keyed per `(game_id, team)`; a team with no bags would silently
+    fall every play back to a uniform draw. Rather than discover that mid-loop,
+    we check coverage up front and report *all* gaps at once. (Per-token gaps are
+    a different, legitimately-unavoidable case — the classifier can sample a
+    token a team never ran before — and are handled in the engine, not here.)
+    """
+    have = set(zip(pool.game_ids, pool.teams, strict=True))
+    missing = sorted({(gid, team) for gid, home, away in metas for team in (home, away)} - have)
+    if missing:
+        gaps = ", ".join(f"{gid}/{team}" for gid, team in missing)
+        raise ValueError(
+            f"play pool has no plays for {len(missing)} (game, team) pair(s): {gaps}. "
+            "Rebuild it with `make play-pool` covering these games."
+        )
+
+
+def _make_engine(store: FeatureStore, pool: _LoadedPool) -> sim_rs.SimEngine:
     """Hand the materialized online features + play pool to the Rust engine."""
     # Flatten the FeatureStore's columnar matrix into (n_keys, n_feats) row-major.
     keys = list(store._key_index.keys())  # (gid, team)
@@ -97,8 +127,6 @@ def _make_engine(store: FeatureStore) -> sim_rs.SimEngine:
 
     game_ids = [k[0] for k in keys]
     teams = [k[1] for k in keys]
-
-    pool = _load_play_pool(_PLAY_POOL_PATH)
 
     return sim_rs.SimEngine(
         _PIPELINE_TOML,
@@ -189,7 +217,12 @@ def sim_games(
         flat_metas[i : i + chunk_size] for i in range(0, len(flat_metas), chunk_size)
     ]
 
-    engine = _make_engine(store)
+    # Refuse to run on a stale/partial pool: every team we're about to sim must
+    # have plays, or the engine would silently degrade to uniform draws.
+    pool = _load_play_pool(_play_pool_path())
+    _assert_pool_coverage(pool, flat_metas)
+
+    engine = _make_engine(store, pool)
 
     if not _progress_enabled() or len(chunks) <= 1:
         frames: list[pl.DataFrame] = [_chunk_to_df(engine, chunk) for chunk in chunks]
