@@ -155,6 +155,21 @@ complete_pass = false
 pass_attempt = false
 rush_attempt = false
 
+# ── Play pool ──────────────────────────────────────────────────────────
+# The token classifier decides *which* token a play is; the concrete field
+# values are realized by sampling a real historical play of that token (scoped
+# to the offense team). `fields` is the ordered set of columns pulled off that
+# one sampled play. Crucially, all fields come from the *same* sampled row, so
+# they stay mutually coherent (e.g. yards and — eventually — time/receiver are
+# from one real snap, never independently drawn).
+#
+# Adding a field here makes it materialize, travel, and surface automatically.
+# Type is inferred from the pbp dtype (int → numeric lane, str → string lane);
+# dest is inferred — `yards_gained` realizes the token's yards (outcome), every
+# other field is a passthrough column emitted on the trace for downstream use.
+[play_pool]
+fields = ["yards_gained", "passer_player_id"]
+
 # ── Models ───────────────────────────────────────────────────────────
 
 # Stage 1: predict the intent (RUN / DROPBACK / FIELD_GOAL / PUNT)

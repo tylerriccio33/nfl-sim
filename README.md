@@ -68,17 +68,32 @@ Tokens are declared in `nfl_sim/model/pipeline.toml` under `[tokens.*]`. Each to
 
 ### Play pool
 
-The token classifier decides *which* token a play is (e.g. `CP_10_20` — a complete pass for 10–20 yards), but it does not decide the exact yardage. Rather than drawing yards **uniformly** from the token's `[lo, hi]` bucket — which produces an unrealistically flat distribution — the engine samples a **real historical play** of that token, scoped to the offense team. This replaces the flat bucket with the team's empirical within-bucket shape while leaving the classifiers untouched.
+The token classifier decides *which* token a play is (e.g. `CP_10_20` — a complete pass for 10–20 yards), but it does not decide the concrete outcome. Rather than drawing yards **uniformly** from the token's `[lo, hi]` bucket — which produces an unrealistically flat distribution — the engine samples a **real historical play** of that token, scoped to the offense team. This replaces the flat bucket with the team's empirical within-bucket shape while leaving the classifiers untouched.
+
+#### Row-index sampling
+
+The pool does not sample a *value* (a yard number) — it samples a **play** (a row index), then reads every configured field off that single play. With one field (`yards_gained`) today this looks the same, but it's the key design choice: the moment more fields are carried (time elapsed, target receiver, …), they must come from the *same* real snap or they'd be independently drawn and incoherent.
+
+The carried fields are **config-driven** via `[play_pool].fields` in `pipeline.toml` — a single source of truth shared by the materializer, the Python→Rust handoff, and the Rust pool. Both the field's **type** and its **destination** are inferred, not declared:
+
+- **Type** comes from the pbp dtype: integer columns go in the engine's numeric (`i16`) lane, string columns in the string lane.
+- **Destination** is inferred from the name: `yards_gained` is the sole *outcome* field (consumed by game logic); every other field is a **passthrough** column, emitted on the trace for downstream post-processing but never read by the loop. `passer_player_id` is one such passthrough field — sampled off the same play as yards, so the passer always matches the play.
+
+Adding a **string passthrough field** is then literally one line in `fields` — it materializes, travels through both lanes, and surfaces as a trace column automatically (a numeric passthrough field additionally needs the symmetric numeric-passthrough emit, which mirrors the string one). Drift between the layers is a contract error caught at load/build:
+
+- `nfl_sim/engine/loop.py::_load_play_pool` checks the parquet's columns match `[play_pool].fields` before handoff.
+- `sim_rs/src/lib.rs` checks the field names Python sends match the TOML (the sampler addresses columns positionally).
+- `sim_rs/src/pool.rs::PlayBag::new` asserts every field's bag in a key shares one length — the invariant that makes "sample one row index" well-defined.
 
 The pool is a **serving-only artifact** — it does not affect training. It is materialized to `data/play_pool.parquet` by `scripts/materialize_play_pool.py` (`make play-pool`):
 
-- **Keyed** per `(game_id, team, token)`.
-- For each game we simulate and each `(team, token)`, it collects that team's most-recent (≤100) real `yards_gained` for that token, drawn from **strictly earlier weeks** (no lookahead, mirroring the online-feature `shift(1)` discipline).
-- Recency comes purely from the ≤100 cutoff; within the window the engine samples **uniformly**.
+- **Keyed** per `(game_id, team, token)`; the value is a small column store — one list per pool field (`i16` or string lane), all the same length (row `i` across columns is one real play).
+- For each game we simulate and each `(team, token)`, it collects that team's most-recent (≤100) real plays for that token, drawn from **strictly earlier weeks** (no lookahead, mirroring the online-feature `shift(1)` discipline). Every field is aggregated under the same recency ordering, keeping the columns aligned.
+- Recency comes purely from the ≤100 cutoff; within the window the engine samples a row **uniformly**.
 - Token bucketing reuses `tokenize_row` (`training/prepare.py`) — the single source of token logic — so the pool never diverges from how the classifiers were trained. FG/PUNT are excluded (they have dedicated outcome paths).
 - The artifact covers only the latest scheduled week by default, so it stays tiny and is rebuilt each week.
 
-At serve time `nfl_sim/engine/loop.py::_load_play_pool` reads the parquet and hands it to the Rust `SimEngine` constructor as flat parallel columns; Rust's `pool.rs::PlayPool` indexes it for O(1) lookup in the hot loop. When a `(team, token)` pool is **empty or missing** (e.g. the artifact hasn't been built, or a brand-new team-token), the engine falls back to the original uniform `[lo, hi]` draw — so the sim always runs.
+At serve time `_load_play_pool` reads the parquet and hands it to the Rust `SimEngine` constructor as flat **field-major** columns; Rust's `pool.rs::PlayPool` indexes it for O(1) lookup in the hot loop. When a `(team, token)` pool is **empty or missing** (e.g. the artifact hasn't been built, or a brand-new team-token), the engine falls back to the original uniform `[lo, hi]` draw — so the sim always runs.
 
 ## Rust Engine (`sim_rs/`)
 

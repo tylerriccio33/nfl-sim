@@ -21,7 +21,7 @@ use rayon::prelude::*;
 
 use crate::config::{load as load_config, PipelineConfig};
 use crate::features::FeaturePlan;
-use crate::loop_::{FeaturePlans, TraceColumns};
+use crate::loop_::{FeaturePlans, Passthrough, TraceColumns};
 use crate::models::Models;
 use crate::pool::PlayPool;
 use crate::store::OnlineStore;
@@ -49,6 +49,9 @@ pub struct SimEngine {
     cfg: PipelineConfig,
     store: OnlineStore,
     pool: PlayPool,
+    /// String passthrough field names, in output order (every string pool field
+    /// is passthrough). Emitted as trace columns by the loop.
+    pool_str_pt_names: Vec<String>,
     /// One independent `Models` per worker thread. Each owns its own ONNX
     /// sessions + RNG, so shards run with zero shared mutable state.
     worker_models: Vec<Models>,
@@ -68,7 +71,9 @@ impl SimEngine {
         pipeline_toml_path,
         game_ids, teams,
         online_feat_names, online_values,
-        pool_game_ids, pool_teams, pool_tokens, pool_yards,
+        pool_game_ids, pool_teams, pool_tokens,
+        pool_num_field_names, pool_num_values,
+        pool_str_field_names, pool_str_values,
         seed = 42,
     ))]
     fn new(
@@ -80,14 +85,52 @@ impl SimEngine {
         pool_game_ids: Vec<String>,
         pool_teams: Vec<String>,
         pool_tokens: Vec<String>,
-        pool_yards: Vec<Vec<i16>>,
+        pool_num_field_names: Vec<String>,
+        pool_num_values: Vec<Vec<Vec<i16>>>,
+        pool_str_field_names: Vec<String>,
+        pool_str_values: Vec<Vec<Vec<String>>>,
         seed: u64,
     ) -> PyResult<Self> {
         let cfg = load_config(std::path::Path::new(pipeline_toml_path))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
         let store = OnlineStore::new(&game_ids, &teams, &online_feat_names, &online_values);
-        let pool = PlayPool::new(&pool_game_ids, &pool_teams, &pool_tokens, pool_yards);
+
+        // Contract: the field names Python hands over (across both lanes) must
+        // be exactly the TOML's `[play_pool].fields` — the sampler addresses bag
+        // columns positionally. An empty pool (no artifact) is exempt.
+        let all_names: Vec<&String> = pool_num_field_names
+            .iter()
+            .chain(pool_str_field_names.iter())
+            .collect();
+        if !all_names.is_empty() {
+            let cfg_set: std::collections::HashSet<&String> = cfg.play_pool_fields.iter().collect();
+            let got_set: std::collections::HashSet<&String> = all_names.into_iter().collect();
+            if got_set != cfg_set {
+                return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "play pool fields {:?}/{:?} != [play_pool].fields {:?}",
+                    pool_num_field_names, pool_str_field_names, cfg.play_pool_fields
+                )));
+            }
+        }
+        // `yards_gained` realizes the token's yards; it lives in the numeric
+        // lane. Locate its column once. (When the pool is empty its lane is too,
+        // so fall back to index 0 — it's never read in that case.)
+        let pool_yards_idx = pool_num_field_names
+            .iter()
+            .position(|f| f == "yards_gained")
+            .unwrap_or(0);
+        // Every string field is a passthrough column; emit them all, in order.
+        let pool_str_pt_idx: Vec<usize> = (0..pool_str_field_names.len()).collect();
+        let pool_str_pt_names = pool_str_field_names.clone();
+
+        let pool = PlayPool::new(
+            &pool_game_ids,
+            &pool_teams,
+            &pool_tokens,
+            pool_num_values,
+            pool_str_values,
+        );
 
         let intent_plan = FeaturePlan::build(&cfg.intent_features, &cfg.feature_sources, &store);
         let run_plan = FeaturePlan::build(&cfg.xgb_run_features, &cfg.feature_sources, &store);
@@ -115,6 +158,8 @@ impl SimEngine {
                 &cfg.time_model_path,
                 cfg.tokens_run.clone(),
                 cfg.tokens_dropback.clone(),
+                pool_yards_idx,
+                pool_str_pt_idx.clone(),
                 n_intents,
                 worker_seed,
             )
@@ -126,6 +171,7 @@ impl SimEngine {
             cfg,
             store,
             pool,
+            pool_str_pt_names,
             worker_models,
             intent_plan,
             run_plan,
@@ -165,20 +211,24 @@ impl SimEngine {
             time: &self.time_plan,
         };
 
-        let trace = py.allow_threads(|| {
+        let (trace, passthrough) = py.allow_threads(|| {
             run_batched_parallel(
                 &metas,
                 &self.store,
                 &self.pool,
                 &mut self.worker_models,
                 &self.cfg.intent_names,
+                &self.pool_str_pt_names,
                 plans,
             )
         });
 
-        // Column list lives in `loop_.rs::trace_columns!` — single source of
-        // truth. `into_pydict` consumes `trace` and emits one entry per column.
-        trace.into_pydict(py)
+        // Fixed numeric columns live in `loop_.rs::trace_columns!` (single
+        // source of truth); the config-driven passthrough columns are appended
+        // to the same dict as Python lists.
+        let d = trace.into_pydict(py)?;
+        passthrough.add_to_pydict(&d)?;
+        Ok(d)
     }
 }
 
@@ -191,11 +241,12 @@ fn run_batched_parallel(
     pool: &PlayPool,
     worker_models: &mut [Models],
     intent_names: &[String],
+    str_pt_names: &[String],
     plans: FeaturePlans<'_>,
-) -> TraceColumns {
+) -> (TraceColumns, Passthrough) {
     let n_metas = metas.len();
     if n_metas == 0 {
-        return TraceColumns::new();
+        return (TraceColumns::new(), Passthrough::new(str_pt_names));
     }
 
     // One shard per worker, capped at metas.len() so we don't spawn idle threads.
@@ -220,22 +271,33 @@ fn run_batched_parallel(
     let (active_workers, _idle) = worker_models.split_at_mut(used);
 
     // Run each shard on its own Models instance, in parallel.
-    let mut per_shard: Vec<(usize, TraceColumns)> = active_workers
+    let mut per_shard: Vec<(usize, (TraceColumns, Passthrough))> = active_workers
         .par_iter_mut()
         .zip(shards.into_par_iter())
         .map(|(models, (offset, shard_metas))| {
-            let trace = loop_::run_batched(shard_metas, store, pool, models, intent_names, plans);
+            let trace = loop_::run_batched(
+                shard_metas,
+                store,
+                pool,
+                models,
+                intent_names,
+                str_pt_names,
+                plans,
+            );
             (offset, trace)
         })
         .collect();
 
-    // Merge in deterministic order (by offset) so the output row layout is stable.
+    // Merge in deterministic order (by offset) so the output row layout is
+    // stable. Passthrough columns concatenate in the same order (no id offset).
     per_shard.sort_by_key(|(o, _)| *o);
     let mut merged = TraceColumns::new();
-    for (offset, trace) in per_shard {
+    let mut merged_pt = Passthrough::new(str_pt_names);
+    for (offset, (trace, pt)) in per_shard {
         merged.extend_offset(trace, offset as u32);
+        merged_pt.extend(pt);
     }
-    merged
+    (merged, merged_pt)
 }
 
 #[pymodule]

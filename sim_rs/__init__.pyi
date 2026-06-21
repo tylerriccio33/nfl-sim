@@ -13,7 +13,10 @@ class SimEngine:
         pool_game_ids: list[str],
         pool_teams: list[str],
         pool_tokens: list[str],
-        pool_yards: list[list[int]],
+        pool_num_field_names: list[str],
+        pool_num_values: list[list[list[int]]],
+        pool_str_field_names: list[str],
+        pool_str_values: list[list[list[str]]],
         seed: int = ...,
     ) -> None: ...
     def run_batched(

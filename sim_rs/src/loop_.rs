@@ -117,6 +117,50 @@ impl TraceColumns {
     }
 }
 
+/// Dynamic, config-driven passthrough columns (string lane).
+///
+/// The `trace_columns!` macro covers the engine's fixed numeric columns, which
+/// ship to Python as numpy arrays. Passthrough fields are different on both
+/// axes: their *set* is config-driven (`[play_pool].fields`) rather than
+/// compiled in, and strings aren't numpy. So they live here — column-major,
+/// pushed in lockstep with `TraceColumns` rows, and emitted as Python lists.
+pub struct Passthrough {
+    names: Vec<String>,
+    cols: Vec<Vec<String>>,
+}
+
+impl Passthrough {
+    pub fn new(names: &[String]) -> Self {
+        Self {
+            names: names.to_vec(),
+            cols: vec![Vec::new(); names.len()],
+        }
+    }
+
+    /// Push one row's values (output order, one per passthrough field).
+    fn push_row(&mut self, vals: &[String]) {
+        debug_assert_eq!(vals.len(), self.cols.len());
+        for (c, v) in self.cols.iter_mut().zip(vals) {
+            c.push(v.clone());
+        }
+    }
+
+    /// Append another shard's columns (no id rewriting — these aren't indices).
+    pub fn extend(&mut self, other: Passthrough) {
+        for (c, o) in self.cols.iter_mut().zip(other.cols) {
+            c.extend(o);
+        }
+    }
+
+    /// Add each passthrough column to `d` under its field name (Python list).
+    pub fn add_to_pydict(self, d: &Bound<'_, PyDict>) -> PyResult<()> {
+        for (name, col) in self.names.into_iter().zip(self.cols) {
+            d.set_item(name, col)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct FeaturePlans<'a> {
     pub intent: &'a FeaturePlan,
@@ -133,14 +177,17 @@ pub fn run_batched(
     pool: &PlayPool,
     models: &mut Models,
     intent_names: &[String],
+    str_pt_names: &[String],
     plans: FeaturePlans<'_>,
-) -> TraceColumns {
+) -> (TraceColumns, Passthrough) {
     let n = metas.len();
+    let n_str_pt = str_pt_names.len();
     let mut states: Vec<GameState> = vec![GameState::INITIAL; n];
     let mut play_ids: Vec<u32> = vec![0; n];
     let mut alive: Vec<usize> = (0..n).collect();
 
     let mut out = TraceColumns::new();
+    let mut passthrough = Passthrough::new(str_pt_names);
 
     while !alive.is_empty() {
         let a = alive.len();
@@ -187,12 +234,14 @@ pub fn run_batched(
             }
         }
 
-        // Default-init outcomes; each branch fills its rows.
+        // Default-init outcomes + passthrough; each branch fills its rows.
+        // FG/PUNT rows keep the sentinel passthrough (one "" per field).
         let mut outcomes: Vec<Outcome> = vec![Outcome::default(); a];
+        let mut pt_rows: Vec<Vec<String>> = (0..a).map(|_| vec![String::new(); n_str_pt]).collect();
 
         // ── Stage 2a: RUN token model on RUN partition ──
         if !run_rows.is_empty() {
-            let (sub_outcomes, _ints) = predict_token_partition(
+            let (sub_outcomes, _ints, sub_pt) = predict_token_partition(
                 models,
                 plans.run,
                 store,
@@ -206,11 +255,14 @@ pub fn run_batched(
             for (k, &j) in run_rows.iter().enumerate() {
                 outcomes[j] = sub_outcomes[k];
             }
+            for (pt, &j) in sub_pt.into_iter().zip(run_rows.iter()) {
+                pt_rows[j] = pt;
+            }
         }
 
         // ── Stage 2b: DROPBACK token model on DROPBACK partition ──
         if !dropback_rows.is_empty() {
-            let (sub_outcomes, _ints) = predict_token_partition(
+            let (sub_outcomes, _ints, sub_pt) = predict_token_partition(
                 models,
                 plans.dropback,
                 store,
@@ -223,6 +275,9 @@ pub fn run_batched(
             );
             for (k, &j) in dropback_rows.iter().enumerate() {
                 outcomes[j] = sub_outcomes[k];
+            }
+            for (pt, &j) in sub_pt.into_iter().zip(dropback_rows.iter()) {
+                pt_rows[j] = pt;
             }
         }
 
@@ -325,6 +380,8 @@ pub fn run_batched(
                 after.away_score,                // away_score
                 outcomes[j].time_elapsed,        // time_elapsed
             );
+            // Passthrough columns travel in lockstep with the trace row above.
+            passthrough.push_row(&pt_rows[j]);
 
             play_ids[i] += 1;
             states[i] = after;
@@ -335,11 +392,11 @@ pub fn run_batched(
         alive = new_alive;
     }
 
-    out
+    (out, passthrough)
 }
 
 /// Build a feature subset for `rows`, run the per-intent token model, and
-/// return one (Intent, Outcome) per row in the partition.
+/// return one (Outcome, Intent, passthrough) per row in the partition.
 #[allow(clippy::too_many_arguments)]
 fn predict_token_partition(
     models: &mut Models,
@@ -351,7 +408,7 @@ fn predict_token_partition(
     offense_team_a: &[String],
     rows: &[usize],
     intent: Intent,
-) -> (Vec<Outcome>, Vec<Intent>) {
+) -> (Vec<Outcome>, Vec<Intent>, Vec<Vec<String>>) {
     let m = rows.len();
     let sub_states: Vec<GameState> = rows.iter().map(|&j| states_a[j]).collect();
     let sub_gids: Vec<String> = rows.iter().map(|&j| gids_a[j].clone()).collect();
@@ -368,7 +425,7 @@ fn predict_token_partition(
         &mut feats,
     );
 
-    let (probs, outcomes_pairs) = match intent {
+    let (probs, triples) = match intent {
         Intent::Run => {
             let p = models.predict_run_probs(&feats, m, plan.n_feats);
             let o = models.sample_run_outcomes(&p, m, &sub_gids, &sub_off, pool);
@@ -383,7 +440,8 @@ fn predict_token_partition(
     };
     let _ = probs;
 
-    let outcomes: Vec<Outcome> = outcomes_pairs.iter().map(|(_, o)| *o).collect();
-    let ints: Vec<Intent> = outcomes_pairs.iter().map(|(i, _)| *i).collect();
-    (outcomes, ints)
+    let outcomes: Vec<Outcome> = triples.iter().map(|(_, o, _)| *o).collect();
+    let ints: Vec<Intent> = triples.iter().map(|(i, _, _)| *i).collect();
+    let passthrough: Vec<Vec<String>> = triples.into_iter().map(|(_, _, pt)| pt).collect();
+    (outcomes, ints, passthrough)
 }

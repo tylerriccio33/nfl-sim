@@ -5,13 +5,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 import polars as pl
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
 
 import sim_rs  # compiled via maturin from sim_rs/
+from nfl_sim.model.config import PLAY_POOL_FIELDS
 
 if TYPE_CHECKING:
     from nfl_sim.engine.state import GameTrace
@@ -33,20 +34,53 @@ _PIPELINE_TOML = str(Path(__file__).parent.parent / "model" / "pipeline.toml")
 _PLAY_POOL_PATH = "data/play_pool.parquet"
 
 
-def _load_play_pool(path: str) -> tuple[list[str], list[str], list[str], list[list[int]]]:
-    """Read the materialized play pool into Rust-ready parallel columns.
+class _LoadedPool(NamedTuple):
+    """Rust-ready play pool, split into a numeric and a string lane.
+
+    Keys are parallel: `game_ids[k]`, `teams[k]`, `tokens[k]` identify pool key
+    `k`. Each lane is *field-major*: `num_values[f][k]` is the bag for numeric
+    field `num_names[f]` at key `k`. Within a key every bag (across both lanes)
+    is the same length — the row-index contract the Rust pool asserts.
+    """
+
+    game_ids: list[str]
+    teams: list[str]
+    tokens: list[str]
+    num_names: list[str]
+    num_values: list[list[list[int]]]
+    str_names: list[str]
+    str_values: list[list[list[str]]]
+
+
+def _load_play_pool(path: str) -> _LoadedPool:
+    """Read the materialized play pool, splitting fields into typed lanes.
+
+    A field's lane is inferred from its (list) element dtype: numeric → the i16
+    lane, string → the string lane. The engine reads `yards_gained` (outcome)
+    off the numeric lane and emits every other field as a passthrough column.
 
     Missing artifact → empty pool (every token falls back to its uniform bucket
     in the Rust engine), so the sim still runs before `make play-pool`.
     """
     if not Path(path).exists():
-        return [], [], [], []
+        return _LoadedPool([], [], [], [], [], [], [])
     df = pl.read_parquet(path)
-    return (
-        df["game_id"].to_list(),
-        df["team"].to_list(),
-        df["token"].to_list(),
-        df["yards"].to_list(),
+    # Contract: the artifact carries exactly the configured fields, in order.
+    # A drift between pipeline.toml and a stale parquet fails loud here.
+    expected = ["game_id", "team", "token", *PLAY_POOL_FIELDS]
+    if df.columns != expected:
+        raise ValueError(f"play pool columns {df.columns} != expected {expected}")
+
+    num_names = [f for f in PLAY_POOL_FIELDS if df.schema[f].inner.is_numeric()]  # type: ignore[union-attr]
+    str_names = [f for f in PLAY_POOL_FIELDS if f not in num_names]
+    return _LoadedPool(
+        game_ids=df["game_id"].to_list(),
+        teams=df["team"].to_list(),
+        tokens=df["token"].to_list(),
+        num_names=num_names,
+        num_values=[df[f].to_list() for f in num_names],
+        str_names=str_names,
+        str_values=[df[f].to_list() for f in str_names],
     )
 
 
@@ -64,7 +98,7 @@ def _make_engine(store: FeatureStore) -> sim_rs.SimEngine:
     game_ids = [k[0] for k in keys]
     teams = [k[1] for k in keys]
 
-    pool_gids, pool_teams, pool_tokens, pool_yards = _load_play_pool(_PLAY_POOL_PATH)
+    pool = _load_play_pool(_PLAY_POOL_PATH)
 
     return sim_rs.SimEngine(
         _PIPELINE_TOML,
@@ -72,10 +106,13 @@ def _make_engine(store: FeatureStore) -> sim_rs.SimEngine:
         teams,
         online_feats,
         values.reshape(-1).tolist(),
-        pool_gids,
-        pool_teams,
-        pool_tokens,
-        pool_yards,
+        pool.game_ids,
+        pool.teams,
+        pool.tokens,
+        pool.num_names,
+        pool.num_values,
+        pool.str_names,
+        pool.str_values,
         seed=42,
     )
 

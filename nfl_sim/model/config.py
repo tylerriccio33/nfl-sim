@@ -48,6 +48,13 @@ TOKENS_BY_INTENT: dict[str, list[str]] = {
     for intent_name in INTENT_NAMES
 }
 
+# ── Play pool ────────────────────────────────────────────────────
+
+# Ordered fields pulled off a single sampled real play (row-index sampling).
+# Single source of truth shared by the materializer, the engine handoff, and
+# the Rust pool — drift between them is a contract error caught at load/build.
+PLAY_POOL_FIELDS: list[str] = list(CONFIG["play_pool"]["fields"])
+
 # ── Artifact paths ───────────────────────────────────────────────
 
 

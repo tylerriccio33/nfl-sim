@@ -23,6 +23,15 @@ use crate::state::{Intent, TurnoverType};
 pub struct RawConfig {
     pub models: BTreeMap<String, RawModel>,
     pub features: BTreeMap<String, RawFeature>,
+    pub play_pool: RawPlayPool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RawPlayPool {
+    /// Ordered fields pulled off a single sampled real play (row-index
+    /// sampling). Must match the columns the materializer writes and the field
+    /// names Python hands to the engine — both contracts are checked at init.
+    pub fields: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +90,10 @@ pub struct PipelineConfig {
 
     pub feature_sources: BTreeMap<String, (String, Option<usize>)>,
 
+    /// Ordered play-pool field names (from `[play_pool].fields`). The pool's
+    /// row-index sampler reads each field at the sampled index.
+    pub play_pool_fields: Vec<String>,
+
     pub intent_model_path: String,
     pub xgb_run_model_path: String,
     pub xgb_dropback_model_path: String,
@@ -132,6 +145,8 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
     for (name, f) in cfg.features.iter() {
         feature_sources.insert(name.clone(), (f.source.clone(), f.index));
     }
+
+    let play_pool_fields = cfg.play_pool.fields.clone();
 
     // Resolve artifact directory: env var or relative path. Rust consumes
     // the ONNX export (not the XGBoost-native artifact `raw` points at in
@@ -203,6 +218,7 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
         punt_features,
         time_features,
         feature_sources,
+        play_pool_fields,
         intent_model_path,
         xgb_run_model_path,
         xgb_dropback_model_path,

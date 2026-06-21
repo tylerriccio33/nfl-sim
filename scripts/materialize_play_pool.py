@@ -1,16 +1,21 @@
 """Materialize the play pool to data/play_pool.parquet.
 
 For each game we simulate, and each (team, token), collect the team's most
-recent (<=100) real historical yards for that token from *strictly earlier
-weeks*. At serving time the Rust engine samples uniformly from this bag to
-realize a token's yards, instead of drawing uniformly from the token's bucket.
+recent (<=100) real historical plays for that token from *strictly earlier
+weeks*. At serving time the Rust engine samples one of these plays by row index
+to realize a token's outcome, instead of drawing uniformly from the token bucket.
+
+The carried fields are config-driven (`[play_pool].fields` in pipeline.toml).
+All fields of a play are aggregated under the *same* recency ordering, so row
+`i` of every field column is one coherent real play — that alignment is the
+contract the row-index sampler relies on.
 
 This is a serving-only artifact — it does not touch training. It only covers the
 target game set (default: the latest scheduled week, mirroring
 `place_sim_results_at_db`), so it stays tiny and is rebuilt each week.
 
 Output schema (one row per pool key):
-    game_id (str), team (str), token (str), yards (list[i16])
+    game_id (str), team (str), token (str), <one list[i16] column per pool field>
 
 Usage:
     make play-pool
@@ -20,6 +25,7 @@ from pathlib import Path
 
 import polars as pl
 
+from nfl_sim.model.config import PLAY_POOL_FIELDS
 from nfl_sim.utils import get_latest_season_week
 from training.prepare import tokenize_row
 
@@ -28,12 +34,15 @@ _MAX_POOL = 100
 
 
 def _tokenized_plays(pbp: pl.DataFrame) -> pl.DataFrame:
-    """One row per run/pass play, labelled with its token.
+    """One row per run/pass play, labelled with its token + the pool fields.
 
     Reuses `tokenize_row` (the single source of token bucketing) so the pool
     never diverges from how the classifiers were trained. FG/PUNT are excluded
     — they have dedicated outcome paths and no pool.
     """
+    # Drop-null only on the keys + yards_gained (the outcome / token input).
+    # Passthrough fields are intentionally nullable — passer_player_id is null
+    # on every run play, so requiring it would drop the entire run pool.
     plays = pbp.filter(pl.col("play_type").is_in(["run", "pass"])).drop_nulls(
         ["posteam", "season", "week", "game_id", "play_id", "yards_gained"]
     )
@@ -52,18 +61,29 @@ def _tokenized_plays(pbp: pl.DataFrame) -> pl.DataFrame:
         ["play_type", "yards_gained", "turnover_type", "sack", "complete_pass"]
     ).map_elements(tokenize_row, return_dtype=pl.Utf8)
 
+    # Numeric fields → Int16 (the engine's numeric lane); string fields → keep,
+    # filling nulls with "" (the engine's string lane carries no nulls).
+    def _field(name: str) -> pl.Expr:
+        if plays.schema[name].is_numeric():
+            return pl.col(name).cast(pl.Int16)
+        return pl.col(name).fill_null("")
+
     return plays.select(
         "posteam",
         "season",
         "week",
         "play_id",
         token.alias("token"),
-        pl.col("yards_gained").cast(pl.Int16),
+        *(_field(f) for f in PLAY_POOL_FIELDS),
     )
 
 
 def _pool_for_target(plays: pl.DataFrame, team: str, season: int, week: int) -> pl.DataFrame:
-    """Most-recent (<=100) yards per token for `team`, from strictly earlier weeks."""
+    """Most-recent (<=100) plays per token for `team`, from strictly earlier weeks.
+
+    Every pool field is aggregated under the same sort, so the bags stay aligned:
+    row `i` across all field columns is the same real play.
+    """
     prior = (
         plays.filter(
             pl.col("posteam") == team,
@@ -71,7 +91,7 @@ def _pool_for_target(plays: pl.DataFrame, team: str, season: int, week: int) -> 
         )
         .sort("season", "week", "play_id")  # ascending → tail() == most recent
         .group_by("token", maintain_order=True)
-        .agg(pl.col("yards_gained").tail(_MAX_POOL).alias("yards"))
+        .agg(*(pl.col(f).tail(_MAX_POOL) for f in PLAY_POOL_FIELDS))
     )
     return prior.with_columns(team=pl.lit(team))
 
@@ -98,7 +118,7 @@ def materialize(
             pool = _pool_for_target(plays, team, season, week)
             frames.append(pool.with_columns(game_id=pl.lit(game_id)))
 
-    result = pl.concat(frames).select("game_id", "team", "token", "yards")
+    result = pl.concat(frames).select("game_id", "team", "token", *PLAY_POOL_FIELDS)
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     result.write_parquet(out_path)
