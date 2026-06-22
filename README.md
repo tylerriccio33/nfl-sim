@@ -225,9 +225,19 @@ make lint
 - We will almost never care about backward compatability.
 - Over-engineering is the devil!
 
-## Adding a New Game-Level Feature
+## How To for Devs
 
-Online features (pre-materialized per `(game_id, team)`) flow through a registry — one declaration per feature, validated at import time. Adding one is two steps. Example: `dropback_rate` (team's prior-weeks rate of `qb_dropback`).
+Quick, step-by-step recipes for the five most common changes. Each ends with the
+rebuild/verify commands that prove the change landed. The unifying theme: almost
+everything is driven by `nfl_sim/model/pipeline.toml` — you declare intent in the
+TOML and the layers (materializer, Python store, Rust pool/loop) pick it up,
+cross-checking each other at load/build so drift is a loud error, not silent rot.
+
+### 1. Add a new feature to a model
+
+Online features (pre-materialized per `(game_id, team)`) flow through a registry —
+one declaration per feature, validated at import time. Example: `dropback_rate`
+(team's prior-weeks rate of `qb_dropback`).
 
 1. **Register the producer** in `nfl_sim/model/online_feature_defs.py`:
    ```python
@@ -235,33 +245,176 @@ Online features (pre-materialized per `(game_id, team)`) flow through a registry
    def _() -> pl.Expr:
        return pl.col("qb_dropback").mean()
    ```
-   The function returns a polars `Expr` evaluated *inside* a `(posteam, season, week)` group_by over run+pass plays. The registry handles aliasing, `shift(1)`, and the 16-week rolling mean — you just declare what to compute per team-week.
-2. **Wire it to a consumer** in `nfl_sim/model/pipeline.toml`:
+   The function returns a polars `Expr` evaluated *inside* a `(posteam, season, week)`
+   group_by over run+pass plays. The registry handles aliasing, `shift(1)`, and the
+   16-week rolling mean — you just declare what to compute per team-week.
+2. **Declare the feature** in `nfl_sim/model/pipeline.toml`:
    ```toml
    [features.dropback_rate]
    source = "online"
    ```
-   Then add `"dropback_rate"` to the `features = [...]` list of every model that should consume it (e.g. `[models.intent]`).
+3. **Wire it to consumers** — add `"dropback_rate"` to the `features = [...]` list of
+   every `[models.*]` that should see it (e.g. `[models.intent]`).
+4. **Rebuild and verify:**
+   ```bash
+   make features        # rebuilds data/features.parquet from the registry
+   make train-intent    # retrains consumer(s)
+   make lint && make test
+   ```
 
-Then rebuild and verify:
-```bash
-make features        # rebuilds data/features.parquet from the registry
-make train-intent    # retrains consumer(s)
-make lint && make test
-```
+What happens automatically (no edits needed): `features.py` builds the weekly
+aggregate/shift/home-away suffixing, `materialize_features.py` pivots it into the
+per-team parquet, `prepare.py` selects it, and `store.py` cross-checks the TOML
+against the registry on import (a TOML entry with no producer — or vice versa —
+raises immediately).
 
-What happens automatically (no edits needed):
-- `nfl_sim/model/features.py` iterates the registry to build the weekly aggregate, shift, and home/away suffixing.
-- `scripts/materialize_features.py` pivots every registered feature into the per-team parquet.
-- `training/prepare.py` selects every registered feature from the parquet.
-- `nfl_sim/model/store.py` cross-checks the TOML against the registry on import — a TOML entry with no producer, or a registered feature missing from the TOML, raises immediately.
+For a **non-online** feature, skip steps 1–2 and instead pick the right `source` in
+the TOML:
+- `source = "state"` with an `index` — read directly off the `_GameState` tuple.
+- `source = "odt"` — add a resolver to `_ODT_RESOLVERS` in `model/store.py`.
+- `source = "outcome"` — the field must exist under `[outcome.*]` (see recipe 3);
+  outcome features are post-play only (time model).
 
-Notes / gotchas:
-- Registry features share the weekly group_by, which is filtered to `play_type in ("run", "pass")`. If your new feature needs a different denominator (e.g. all offensive plays), it does not belong in this registry — split it out.
-- The `inner` join in `prepare.py` drops games missing the feature (e.g. week 1 with no prior data). The shift+rolling pipeline handles this for registry features; respect the same discipline if you add a different source.
-- Feature lists are **per-model**. Downstream tools (e.g. `training/analysis/infer_plays.py`) must build the feature matrix from `MODEL_FEATURES[<that model>]` per model, not reuse one model's list across stages — that produces `n_features_data != n_features_model` at predict time.
-- For **non-online** features: use `source = "state"` (with a tuple index), `"odt"` (add a resolver to `_ODT_RESOLVERS` in `model/store.py`), or `"outcome"` (add a field under `[outcome.*]` and regenerate via `make generate-outcome`).
-- For **non-pbp online** features (e.g. `spread_line`, which comes from the schedule and is relative): keep them as special cases in `engineer_game_features` / `materialize_features.py` and add them to the `_SCHEDULE_ONLINE` set in `model/store.py` so the registry contract doesn't reject them.
+Gotchas:
+- The registry group_by is filtered to `play_type in ("run", "pass")`. A feature
+  needing a different denominator does not belong here — split it out.
+- Feature lists are **per-model**. Downstream tools must build their matrix from
+  `MODEL_FEATURES[<that model>]`, never reuse one model's list across stages.
+- Non-pbp online features (e.g. `spread_line` from the schedule) stay special-cased
+  in `engineer_game_features` / `materialize_features.py` and must be added to the
+  `_SCHEDULE_ONLINE` set in `model/store.py` so the registry contract accepts them.
+
+### 2. Add a new passthrough field (sampled, emitted on the trace)
+
+A passthrough field is pulled off the **same** real historical play the play pool
+samples for yards — so it stays coherent with the snap (e.g. `passer_player_id`
+always matches the sampled play). It is emitted on the trace for downstream
+post-processing but never read by the game loop.
+
+For a **string** passthrough field this is literally one line:
+
+1. **Add the column name** to `[play_pool].fields` in `pipeline.toml`:
+   ```toml
+   [play_pool]
+   fields = ["yards_gained", "passer_player_id", "receiver_player_id"]
+   ```
+   The column must exist in `data/pbp.parquet` (check the `dictionary/` folder for
+   available columns). Type is inferred from the pbp dtype — a string column lands
+   in the string lane; destination is inferred from the name — anything other than
+   `yards_gained` is passthrough.
+2. **Rebuild and verify:**
+   ```bash
+   make play-pool       # re-materializes data/play_pool.parquet with the new field
+   make lint && make test
+   ```
+
+It now travels through both contract checks (`_load_play_pool` in `engine/loop.py`,
+the field-name check in `sim_rs/src/lib.rs`) and surfaces as a trace column
+automatically. No Rust edit needed.
+
+> ⚠️ **Numeric passthrough is not fully wired today.** Only the string lane has the
+> passthrough emit (`Passthrough` in `sim_rs/src/loop_.rs` is string-only). A numeric
+> passthrough field would need the symmetric numeric-passthrough emit added to mirror
+> the string one. If you need to carry an integer field on the trace, do that Rust
+> work first or carry it as a string. (Flagged for later.)
+
+### 3. Add a new outcome field (consumed by game logic, like `yards_gained`)
+
+Outcome fields live on the generated `Outcome` dataclass and are read by the game
+rules. Unlike passthrough fields they actually drive state transitions.
+
+1. **Declare the field** under `[outcome.*]` in `pipeline.toml`:
+   ```toml
+   [outcome.return_yards]
+   type = "int"          # int | bool | TurnoverType
+   default = 0           # optional
+   ```
+2. **Regenerate the dataclass:**
+   ```bash
+   make generate-outcome   # rewrites nfl_sim/engine/_GENERATED_outcome.py
+   ```
+3. **Populate it.** A field on the dataclass is inert until something fills it. Decide
+   the source and wire it:
+   - from the token config → add the key to `[tokens.*]` and parse it in
+     `token_to_outcome` (`sim_rs/src/models.rs`);
+   - from a sampled play → add it to `[play_pool].fields` and read it off the row;
+   - from a dedicated model → add a `[models.*]` and call it.
+4. **Consume it in the rules.** If the field changes state, handle it in
+   `apply_outcome` in **both** `nfl_sim/engine/logic.py` and `sim_rs/src/logic.rs`
+   (the Python and Rust engines must stay in lockstep).
+5. **Optionally expose it as a feature** — `source = "outcome"` under `[features.*]`
+   (time model only) — and/or surface it on the trace.
+6. **Rebuild and verify:**
+   ```bash
+   make generate-outcome && make lint && make test && make parity
+   ```
+
+> Step 3–4 are the real work: a bare TOML field + regenerate gets you a typed slot,
+> but a field "used in the outcome" only matters once it's populated **and** read by
+> the rules in both engines. Don't stop at step 2.
+
+### 4. Add a new token
+
+A token encodes a play type + outcome bucket. The classifier predicts the token
+distribution; the token's config turns the sample into a concrete `(Intent, Outcome)`.
+Token logic has a **single source of truth** — `tokenize_row` in `training/prepare.py`
+— and the runtime config in TOML must agree with it.
+
+1. **Declare the token** under `[tokens.*]` in `pipeline.toml`:
+   ```toml
+   [tokens.CP_30P]
+   intent = "DROPBACK"
+   yards = [30, 80]
+   turnover = "NONE"
+   complete_pass = true
+   pass_attempt = true
+   rush_attempt = false
+   ```
+2. **Teach `tokenize_row`** (`training/prepare.py`) to emit the new token from raw pbp
+   fields — e.g. split the existing `CP_20P` branch into `CP_20_30` / `CP_30P`. This is
+   what the classifier trains against; if the TOML has a token `tokenize_row` never
+   emits, the model can never predict it (and vice versa).
+3. **Retrain the affected stage** — a new DROPBACK token means retraining the dropback
+   classifier (and the run classifier for a RUN token).
+4. **Rebuild and verify:**
+   ```bash
+   make play-pool       # so bags exist for the new (team, token) buckets
+   make lint && make test && make parity
+   ```
+
+Notes:
+- The token's yards are realized by sampling a real play from the pool; an unseen
+  `(team, token)` falls back to the uniform `[lo, hi]` draw (`models.rs`).
+- FG/PUNT tokens are excluded from the pool — they have dedicated outcome paths.
+
+### 5. Add a new aggregation
+
+Post-sim stats are defined as polars expressions in `nfl_sim/analysis/EXPR.py` and
+roll up automatically: play → simulation → game → week. You declare the play-level
+stat once; the framework derives the `_avg`/`_std`/`_min`/`_max` and `home_`/`away_`/
+total variants.
+
+1. **Add the stat** in `nfl_sim/analysis/EXPR.py`:
+   - a plain sum of an existing column → add the column name to `standard_stats`;
+   - a derived/conditional stat → add an entry to `custom_stats` (the expression is
+     summed, so the key **must be plural** — there's an assert enforcing it):
+     ```python
+     custom_stats = {
+         ...
+         "sacks": pl.col("event").str.to_lowercase() == "sack",
+     }
+     ```
+   Any column you reference must be present in `_PLAY_SCHEMA` (or already on the play
+   trace). Game-global meta stats (computed off `home_score`/`away_score`) go in
+   `_SCORING_EXPRS` instead.
+2. **Regenerate the type stubs and verify:**
+   ```bash
+   make agg-types       # regenerates analysis/_agg_types.pyi
+   make lint && make test
+   ```
+
+The home/away/total split and the game- and week-level rollups are produced by the
+framework — you don't touch `GAME_LEVEL_EXPRS` or the web layer.
 
 ## Web Interface
 
