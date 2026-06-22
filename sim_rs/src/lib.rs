@@ -52,6 +52,9 @@ pub struct SimEngine {
     /// String passthrough field names, in output order (every string pool field
     /// is passthrough). Emitted as trace columns by the loop.
     pool_str_pt_names: Vec<String>,
+    /// Numeric passthrough field names, in output order (every numeric pool field
+    /// except `yards_gained`). Emitted as trace columns by the loop.
+    pool_num_pt_names: Vec<String>,
     /// One independent `Models` per worker thread. Each owns its own ONNX
     /// sessions + RNG, so shards run with zero shared mutable state.
     worker_models: Vec<Models>,
@@ -123,6 +126,16 @@ impl SimEngine {
         // Every string field is a passthrough column; emit them all, in order.
         let pool_str_pt_idx: Vec<usize> = (0..pool_str_field_names.len()).collect();
         let pool_str_pt_names = pool_str_field_names.clone();
+        // Every numeric field *except* `yards_gained` (the outcome) is a
+        // passthrough column. (When the pool is empty the lane is too, so this
+        // is just an empty list — nothing is read.)
+        let pool_num_pt_idx: Vec<usize> = (0..pool_num_field_names.len())
+            .filter(|&i| i != pool_yards_idx)
+            .collect();
+        let pool_num_pt_names: Vec<String> = pool_num_pt_idx
+            .iter()
+            .map(|&i| pool_num_field_names[i].clone())
+            .collect();
 
         let pool = PlayPool::new(
             &pool_game_ids,
@@ -160,6 +173,7 @@ impl SimEngine {
                 cfg.tokens_dropback.clone(),
                 pool_yards_idx,
                 pool_str_pt_idx.clone(),
+                pool_num_pt_idx.clone(),
                 n_intents,
                 worker_seed,
             )
@@ -172,6 +186,7 @@ impl SimEngine {
             store,
             pool,
             pool_str_pt_names,
+            pool_num_pt_names,
             worker_models,
             intent_plan,
             run_plan,
@@ -219,6 +234,7 @@ impl SimEngine {
                 &mut self.worker_models,
                 &self.cfg.intent_names,
                 &self.pool_str_pt_names,
+                &self.pool_num_pt_names,
                 plans,
             )
         });
@@ -235,6 +251,7 @@ impl SimEngine {
 /// Shard `metas` across `worker_models`, run each shard's portion of the loop
 /// in parallel via rayon, then merge per-shard traces (with `game_id`/`sim_id`
 /// offsets corrected so indices still refer to the full metas array).
+#[allow(clippy::too_many_arguments)]
 fn run_batched_parallel(
     metas: &[Meta],
     store: &OnlineStore,
@@ -242,11 +259,15 @@ fn run_batched_parallel(
     worker_models: &mut [Models],
     intent_names: &[String],
     str_pt_names: &[String],
+    num_pt_names: &[String],
     plans: FeaturePlans<'_>,
 ) -> (TraceColumns, Passthrough) {
     let n_metas = metas.len();
     if n_metas == 0 {
-        return (TraceColumns::new(), Passthrough::new(str_pt_names));
+        return (
+            TraceColumns::new(),
+            Passthrough::new(str_pt_names, num_pt_names),
+        );
     }
 
     // One shard per worker, capped at metas.len() so we don't spawn idle threads.
@@ -282,6 +303,7 @@ fn run_batched_parallel(
                 models,
                 intent_names,
                 str_pt_names,
+                num_pt_names,
                 plans,
             );
             (offset, trace)
@@ -292,7 +314,7 @@ fn run_batched_parallel(
     // stable. Passthrough columns concatenate in the same order (no id offset).
     per_shard.sort_by_key(|(o, _)| *o);
     let mut merged = TraceColumns::new();
-    let mut merged_pt = Passthrough::new(str_pt_names);
+    let mut merged_pt = Passthrough::new(str_pt_names, num_pt_names);
     for (offset, (trace, pt)) in per_shard {
         merged.extend_offset(trace, offset as u32);
         merged_pt.extend(pt);

@@ -61,11 +61,14 @@ def _tokenized_plays(pbp: pl.DataFrame) -> pl.DataFrame:
         ["play_type", "yards_gained", "turnover_type", "sack", "complete_pass"]
     ).map_elements(tokenize_row, return_dtype=pl.Utf8)
 
-    # Numeric fields → Int16 (the engine's numeric lane); string fields → keep,
-    # filling nulls with "" (the engine's string lane carries no nulls).
+    # Numeric fields → Int16 (the engine's numeric lane); string fields → keep.
+    # Neither lane carries nulls: a numeric passthrough field (e.g. air_yards,
+    # null on every run) fills to 0 — the same sentinel the engine emits when no
+    # play backs the outcome — and strings fill to "". yards_gained is never null
+    # (drop_nulls above guarantees it), so its fill is a no-op.
     def _field(name: str) -> pl.Expr:
         if plays.schema[name].is_numeric():
-            return pl.col(name).cast(pl.Int16)
+            return pl.col(name).cast(pl.Int16).fill_null(0)
         return pl.col(name).fill_null("")
 
     return plays.select(

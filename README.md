@@ -79,7 +79,7 @@ The carried fields are **config-driven** via `[play_pool].fields` in `pipeline.t
 - **Type** comes from the pbp dtype: integer columns go in the engine's numeric (`i16`) lane, string columns in the string lane.
 - **Destination** is inferred from the name: `yards_gained` is the sole *outcome* field (consumed by game logic); every other field is a **passthrough** column, emitted on the trace for downstream post-processing but never read by the loop. `passer_player_id` is one such passthrough field — sampled off the same play as yards, so the passer always matches the play.
 
-Adding a **string passthrough field** is then literally one line in `fields` — it materializes, travels through both lanes, and surfaces as a trace column automatically (a numeric passthrough field additionally needs the symmetric numeric-passthrough emit, which mirrors the string one). Drift between the layers is a contract error caught at load/build:
+Adding a **passthrough field** (string *or* numeric) is then literally one line in `fields` — it materializes, travels through its lane, and surfaces as a trace column automatically. Both lanes carry passthrough values, read off the same sampled row as yards (`PtRow` in `sim_rs/src/models.rs`) so they stay coherent. Drift between the layers is a contract error caught at load/build:
 
 - `nfl_sim/engine/loop.py::_load_play_pool` checks the parquet's columns match `[play_pool].fields` before handoff.
 - `sim_rs/src/lib.rs` checks the field names Python sends match the TOML (the sampler addresses columns positionally).
@@ -291,32 +291,36 @@ samples for yards — so it stays coherent with the snap (e.g. `passer_player_id
 always matches the sampled play). It is emitted on the trace for downstream
 post-processing but never read by the game loop.
 
-For a **string** passthrough field this is literally one line:
+Both lanes are wired, so it's literally one line regardless of type:
 
 1. **Add the column name** to `[play_pool].fields` in `pipeline.toml`:
    ```toml
    [play_pool]
-   fields = ["yards_gained", "passer_player_id", "receiver_player_id"]
+   fields = ["yards_gained", "passer_player_id", "air_yards"]
    ```
    The column must exist in `data/pbp.parquet` (check the `dictionary/` folder for
-   available columns). Type is inferred from the pbp dtype — a string column lands
-   in the string lane; destination is inferred from the name — anything other than
-   `yards_gained` is passthrough.
+   available columns). Type is inferred from the pbp dtype — a **string** column
+   lands in the string lane, a **numeric** column in the `i16` numeric lane;
+   destination is inferred from the name — anything other than `yards_gained` is
+   passthrough.
 2. **Rebuild and verify:**
    ```bash
    make play-pool       # re-materializes data/play_pool.parquet with the new field
    make lint && make test
    ```
 
-It now travels through both contract checks (`_load_play_pool` in `engine/loop.py`,
-the field-name check in `sim_rs/src/lib.rs`) and surfaces as a trace column
+It travels through both contract checks (`_load_play_pool` in `engine/loop.py`, the
+field-name check in `sim_rs/src/lib.rs`) and surfaces as a trace column
 automatically. No Rust edit needed.
 
-> ⚠️ **Numeric passthrough is not fully wired today.** Only the string lane has the
-> passthrough emit (`Passthrough` in `sim_rs/src/loop_.rs` is string-only). A numeric
-> passthrough field would need the symmetric numeric-passthrough emit added to mirror
-> the string one. If you need to carry an integer field on the trace, do that Rust
-> work first or carry it as a string. (Flagged for later.)
+Notes:
+- Neither lane carries nulls. The materializer (`scripts/materialize_play_pool.py`)
+  fills string nulls with `""` and numeric nulls with `0` — the same sentinels the
+  engine emits when no real play backs the outcome (FG/PUNT, or a rare unseen
+  `(team, token)`). So a numeric field that's null on some plays (e.g. `air_yards`,
+  null on every run) surfaces as `0` there, not null.
+- Coherence holds across both lanes: string and numeric passthroughs are read off
+  the **same** sampled row as yards (`PtRow` in `sim_rs/src/models.rs`).
 
 ### 3. Add a new outcome field (consumed by game logic, like `yards_gained`)
 

@@ -8,7 +8,7 @@
 
 use crate::features::{build_features_batch, FeaturePlan};
 use crate::logic::{apply_outcome, apply_time, is_terminal};
-use crate::models::Models;
+use crate::models::{Models, PtRow};
 use crate::pool::PlayPool;
 use crate::state::{GameState, Intent, Outcome, Team, TurnoverType};
 use crate::store::OnlineStore;
@@ -117,44 +117,61 @@ impl TraceColumns {
     }
 }
 
-/// Dynamic, config-driven passthrough columns (string lane).
+/// Dynamic, config-driven passthrough columns — both lanes.
 ///
 /// The `trace_columns!` macro covers the engine's fixed numeric columns, which
 /// ship to Python as numpy arrays. Passthrough fields are different on both
 /// axes: their *set* is config-driven (`[play_pool].fields`) rather than
-/// compiled in, and strings aren't numpy. So they live here — column-major,
-/// pushed in lockstep with `TraceColumns` rows, and emitted as Python lists.
+/// compiled in, and they span both lanes (strings aren't numpy at all; numeric
+/// passthroughs aren't part of the fixed trace schema). So they live here —
+/// column-major, pushed in lockstep with `TraceColumns` rows, and emitted as
+/// Python lists. A numeric passthrough field (an int pbp column other than
+/// `yards_gained`) surfaces exactly the way a string one does.
 pub struct Passthrough {
-    names: Vec<String>,
-    cols: Vec<Vec<String>>,
+    str_names: Vec<String>,
+    str_cols: Vec<Vec<String>>,
+    num_names: Vec<String>,
+    num_cols: Vec<Vec<i16>>,
 }
 
 impl Passthrough {
-    pub fn new(names: &[String]) -> Self {
+    pub fn new(str_names: &[String], num_names: &[String]) -> Self {
         Self {
-            names: names.to_vec(),
-            cols: vec![Vec::new(); names.len()],
+            str_names: str_names.to_vec(),
+            str_cols: vec![Vec::new(); str_names.len()],
+            num_names: num_names.to_vec(),
+            num_cols: vec![Vec::new(); num_names.len()],
         }
     }
 
-    /// Push one row's values (output order, one per passthrough field).
-    fn push_row(&mut self, vals: &[String]) {
-        debug_assert_eq!(vals.len(), self.cols.len());
-        for (c, v) in self.cols.iter_mut().zip(vals) {
+    /// Push one row's values into each lane (output order within the lane).
+    fn push_row(&mut self, row: &PtRow) {
+        debug_assert_eq!(row.str_vals.len(), self.str_cols.len());
+        debug_assert_eq!(row.num_vals.len(), self.num_cols.len());
+        for (c, v) in self.str_cols.iter_mut().zip(&row.str_vals) {
             c.push(v.clone());
+        }
+        for (c, &v) in self.num_cols.iter_mut().zip(&row.num_vals) {
+            c.push(v);
         }
     }
 
     /// Append another shard's columns (no id rewriting — these aren't indices).
     pub fn extend(&mut self, other: Passthrough) {
-        for (c, o) in self.cols.iter_mut().zip(other.cols) {
+        for (c, o) in self.str_cols.iter_mut().zip(other.str_cols) {
+            c.extend(o);
+        }
+        for (c, o) in self.num_cols.iter_mut().zip(other.num_cols) {
             c.extend(o);
         }
     }
 
     /// Add each passthrough column to `d` under its field name (Python list).
     pub fn add_to_pydict(self, d: &Bound<'_, PyDict>) -> PyResult<()> {
-        for (name, col) in self.names.into_iter().zip(self.cols) {
+        for (name, col) in self.str_names.into_iter().zip(self.str_cols) {
+            d.set_item(name, col)?;
+        }
+        for (name, col) in self.num_names.into_iter().zip(self.num_cols) {
             d.set_item(name, col)?;
         }
         Ok(())
@@ -171,6 +188,7 @@ pub struct FeaturePlans<'a> {
 }
 
 /// `metas` is one row per sim: (game_id, home, away).
+#[allow(clippy::too_many_arguments)]
 pub fn run_batched(
     metas: &[(String, String, String)],
     store: &OnlineStore,
@@ -178,16 +196,18 @@ pub fn run_batched(
     models: &mut Models,
     intent_names: &[String],
     str_pt_names: &[String],
+    num_pt_names: &[String],
     plans: FeaturePlans<'_>,
 ) -> (TraceColumns, Passthrough) {
     let n = metas.len();
     let n_str_pt = str_pt_names.len();
+    let n_num_pt = num_pt_names.len();
     let mut states: Vec<GameState> = vec![GameState::INITIAL; n];
     let mut play_ids: Vec<u32> = vec![0; n];
     let mut alive: Vec<usize> = (0..n).collect();
 
     let mut out = TraceColumns::new();
-    let mut passthrough = Passthrough::new(str_pt_names);
+    let mut passthrough = Passthrough::new(str_pt_names, num_pt_names);
 
     while !alive.is_empty() {
         let a = alive.len();
@@ -235,9 +255,14 @@ pub fn run_batched(
         }
 
         // Default-init outcomes + passthrough; each branch fills its rows.
-        // FG/PUNT rows keep the sentinel passthrough (one "" per field).
+        // FG/PUNT rows keep the sentinel passthrough (one "" / 0 per field).
         let mut outcomes: Vec<Outcome> = vec![Outcome::default(); a];
-        let mut pt_rows: Vec<Vec<String>> = (0..a).map(|_| vec![String::new(); n_str_pt]).collect();
+        let mut pt_rows: Vec<PtRow> = (0..a)
+            .map(|_| PtRow {
+                str_vals: vec![String::new(); n_str_pt],
+                num_vals: vec![0i16; n_num_pt],
+            })
+            .collect();
 
         // ── Stage 2a: RUN token model on RUN partition ──
         if !run_rows.is_empty() {
@@ -408,7 +433,7 @@ fn predict_token_partition(
     offense_team_a: &[String],
     rows: &[usize],
     intent: Intent,
-) -> (Vec<Outcome>, Vec<Intent>, Vec<Vec<String>>) {
+) -> (Vec<Outcome>, Vec<Intent>, Vec<PtRow>) {
     let m = rows.len();
     let sub_states: Vec<GameState> = rows.iter().map(|&j| states_a[j]).collect();
     let sub_gids: Vec<String> = rows.iter().map(|&j| gids_a[j].clone()).collect();
@@ -442,6 +467,6 @@ fn predict_token_partition(
 
     let outcomes: Vec<Outcome> = triples.iter().map(|(_, o, _)| *o).collect();
     let ints: Vec<Intent> = triples.iter().map(|(i, _, _)| *i).collect();
-    let passthrough: Vec<Vec<String>> = triples.into_iter().map(|(_, _, pt)| pt).collect();
+    let passthrough: Vec<PtRow> = triples.into_iter().map(|(_, _, pt)| pt).collect();
     (outcomes, ints, passthrough)
 }

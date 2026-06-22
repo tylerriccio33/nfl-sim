@@ -21,6 +21,16 @@ use crate::config::TokenCfg;
 use crate::pool::PlayPool;
 use crate::state::{Intent, Outcome, TurnoverType};
 
+/// One sampled play's passthrough values, split by lane. Both lanes are read
+/// off the *same* bag row as `yards_gained`, so every passthrough field stays
+/// coherent with the snap (string lane: e.g. `passer_player_id`; numeric lane:
+/// any int pbp column other than `yards_gained`).
+#[derive(Clone)]
+pub struct PtRow {
+    pub str_vals: Vec<String>,
+    pub num_vals: Vec<i16>,
+}
+
 pub struct Models {
     intent_session: Session,
     run_session: Session,
@@ -39,6 +49,11 @@ pub struct Models {
     /// order. Read off the same sampled row as yards, so they stay coherent.
     pub pool_str_pt_idx: Vec<usize>,
 
+    /// Numeric-lane column indices to emit as passthrough values, in output
+    /// order — every numeric pool field except `yards_gained` (which the loop
+    /// consumes into the Outcome). Read off the same sampled row as yards.
+    pub pool_num_pt_idx: Vec<usize>,
+
     pub n_intents: usize,
     pub rng: Xoshiro256PlusPlus,
 }
@@ -55,6 +70,7 @@ impl Models {
         tokens_dropback: Vec<TokenCfg>,
         pool_yards_idx: usize,
         pool_str_pt_idx: Vec<usize>,
+        pool_num_pt_idx: Vec<usize>,
         n_intents: usize,
         seed: u64,
     ) -> anyhow::Result<Self> {
@@ -82,6 +98,7 @@ impl Models {
             tokens_dropback,
             pool_yards_idx,
             pool_str_pt_idx,
+            pool_num_pt_idx,
             n_intents,
             rng: Xoshiro256PlusPlus::seed_from_u64(seed),
         })
@@ -133,8 +150,8 @@ impl Models {
     /// Sample token indices for a per-intent prob matrix and convert each pick
     /// to (Intent, Outcome, passthrough) via the relevant token table.
     /// `gids`/`teams` are per-row (offense) keys into the play pool used to
-    /// realize the sampled play; the trailing `Vec<String>` is that play's
-    /// passthrough string values (output order).
+    /// realize the sampled play; the trailing `PtRow` carries that play's
+    /// passthrough values for both lanes (output order).
     pub fn sample_run_outcomes(
         &mut self,
         probs: &[f32],
@@ -142,7 +159,7 @@ impl Models {
         gids: &[String],
         teams: &[String],
         pool: &PlayPool,
-    ) -> Vec<(Intent, Outcome, Vec<String>)> {
+    ) -> Vec<(Intent, Outcome, PtRow)> {
         let k = self.tokens_run.len();
         (0..n)
             .map(|row| {
@@ -164,7 +181,7 @@ impl Models {
         gids: &[String],
         teams: &[String],
         pool: &PlayPool,
-    ) -> Vec<(Intent, Outcome, Vec<String>)> {
+    ) -> Vec<(Intent, Outcome, PtRow)> {
         let k = self.tokens_dropback.len();
         (0..n)
             .map(|row| {
@@ -197,26 +214,33 @@ impl Models {
         gid: &str,
         team: &str,
         pool: &PlayPool,
-    ) -> (Intent, Outcome, Vec<String>) {
+    ) -> (Intent, Outcome, PtRow) {
         // Stage-2 outcome models only ever produce RUN / DROPBACK tokens —
         // FG and PUNT live on dedicated paths in loop_.rs.
         //
         // Realize the outcome by sampling a real historical play of this token
         // from the offense team's pool: pick one *row* uniformly over the
         // most-recent ≤100, then read every field off that single play — yards
-        // (consumed into the Outcome) and the passthrough strings (emitted on
-        // the trace), all from the same snap so they stay coherent. Only an
-        // empty/missing pool falls back to a uniform yards draw with no
-        // passthrough (sentinel "").
+        // (consumed into the Outcome) and the passthrough fields (string +
+        // numeric, emitted on the trace), all from the same snap so they stay
+        // coherent. Only an empty/missing pool falls back to a uniform yards
+        // draw with empty passthrough (sentinel "" / 0).
         let yi = self.pool_yards_idx;
-        let (yards, passthrough): (i16, Vec<String>) = match pool.get(gid, team, &t.name) {
+        let (yards, passthrough): (i16, PtRow) = match pool.get(gid, team, &t.name) {
             Some(bag) if !bag.is_empty() => {
                 let row = self.rng.gen_range(0..bag.len());
-                let pt = self
-                    .pool_str_pt_idx
-                    .iter()
-                    .map(|&f| bag.text(f, row).to_string())
-                    .collect();
+                let pt = PtRow {
+                    str_vals: self
+                        .pool_str_pt_idx
+                        .iter()
+                        .map(|&f| bag.text(f, row).to_string())
+                        .collect(),
+                    num_vals: self
+                        .pool_num_pt_idx
+                        .iter()
+                        .map(|&f| bag.num(f, row))
+                        .collect(),
+                };
                 (bag.num(yi, row), pt)
             }
             _ if t.yards_lo == t.yards_hi => (t.yards_lo, self.empty_passthrough()),
@@ -240,11 +264,14 @@ impl Models {
         )
     }
 
-    /// Sentinel passthrough row (one "" per string passthrough field), used when
-    /// no real play backs the outcome (FG/PUNT use this via `loop_`; the pool
+    /// Sentinel passthrough row (one "" / 0 per passthrough field), used when no
+    /// real play backs the outcome (FG/PUNT use this via `loop_`; the pool
     /// fallback uses it directly).
-    pub fn empty_passthrough(&self) -> Vec<String> {
-        vec![String::new(); self.pool_str_pt_idx.len()]
+    pub fn empty_passthrough(&self) -> PtRow {
+        PtRow {
+            str_vals: vec![String::new(); self.pool_str_pt_idx.len()],
+            num_vals: vec![0i16; self.pool_num_pt_idx.len()],
+        }
     }
 
     // ── Punt + time (unchanged from prior implementation) ────────────
