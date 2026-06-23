@@ -25,7 +25,7 @@ nfl_sim/
 └── utils.py
 
 sim_rs/                          # Rust mirror of the sim loop (pyo3)
-training/                        # XGB / time / punt training + ONNX export
+training/                        # token + time training + ONNX export
 ```
 
 **`engine/`** knows about game state, rules, and types. It has no ML imports. The sim loop imports from `model/` to call inference, but `state.py` and `logic.py` are completely pure.
@@ -52,19 +52,21 @@ A single XGBoost multiclass classifier. Each play is mapped to a **token** encod
 
 Tokens are declared in `nfl_sim/model/pipeline.toml` under `[tokens.*]`. Each token specifies `intent`, `yards = [lo, hi]`, `turnover`, `complete_pass`, `pass_attempt`, `rush_attempt` — that config is what turns a sampled token into a concrete `(Intent, Outcome)`.
 
-**Training** (`make train-xgb`):
-1. Each historical play is tokenized from `(play_type, yards_gained, complete_pass, sack, turnover_type)`.
-2. XGBoost multiclass softprob classifier trained on the feature set declared in `pipeline.toml`.
+There is **one** classifier over *all* tokens — no separate intent stage and no
+per-intent expert. The token's `intent` field is what routes `apply_outcome`.
+
+**Training** (`make train-token`, notebook `training/analysis/token_model.py`):
+1. Each historical play is tokenized from `(play_type, yards_gained, complete_pass, sack, turnover_type)` via `tokenize_row`.
+2. A single XGBoost multiclass softprob classifier is trained over every token, on the feature set declared in `pipeline.toml` under `[models.token]`.
 
 **Inference:**
 1. `model/store.py` resolves the feature vector from online + state + odt sources.
 2. XGB `predict_proba` → sample a token from the distribution.
-3. Parse the token's TOML config → `(Intent, Outcome)`. The token's yards are realized by **sampling a real historical play** from the [play pool](#play-pool) (not a uniform draw); PUNT yards route to a dedicated model.
+3. Parse the token's TOML config → `(Intent, Outcome)`. RUN/DROPBACK token yards are realized by **sampling a real historical play** from the [play pool](#play-pool) (not a uniform draw); FG/PUNT are excluded from the pool and take their token's uniform `[lo, hi]` bucket — there is no dedicated FG math or punt regressor.
 
 ### Dedicated models
 
-- **Punt yards** (`training/train_punt.py`, `make train-punt`) — predicts yards on PUNT intents.
-- **Time elapsed** (`training/train_time.py`, `make train-time`) — `AfterPlayModel`, conditioned on state + the outcome that just happened.
+- **Time elapsed** (`make train-time`, notebook `training/analysis/time.py`) — `AfterPlayModel`, conditioned on state + the outcome that just happened.
 
 ### Play pool
 
@@ -90,7 +92,7 @@ The pool is a **serving-only artifact** — it does not affect training. It is m
 - **Keyed** per `(game_id, team, token)`; the value is a small column store — one list per pool field (`i16` or string lane), all the same length (row `i` across columns is one real play).
 - For each game we simulate and each `(team, token)`, it collects that team's most-recent (≤100) real plays for that token, drawn from **strictly earlier weeks** (no lookahead, mirroring the online-feature `shift(1)` discipline). Every field is aggregated under the same recency ordering, keeping the columns aligned.
 - Recency comes purely from the ≤100 cutoff; within the window the engine samples a row **uniformly**.
-- Token bucketing reuses `tokenize_row` (`training/prepare.py`) — the single source of token logic — so the pool never diverges from how the classifiers were trained. FG/PUNT are excluded (they have dedicated outcome paths).
+- Token bucketing reuses `tokenize_row` (`training/prepare.py`) — the single source of token logic — so the pool never diverges from how the classifier was trained. FG/PUNT are excluded (they take their token's uniform `[lo, hi]` bucket, which drives `apply_outcome` directly — no dedicated outcome path).
 - The artifact covers only the latest scheduled week by default, so it stays tiny and is rebuilt each week.
 
 At serve time `_load_play_pool` reads the parquet and hands it to the Rust `SimEngine` constructor as flat **field-major** columns; Rust's `pool.rs::PlayPool` indexes it for O(1) lookup in the hot loop.
@@ -115,7 +117,7 @@ sim_rs/src/
 ├── store.rs        # OnlineStore (Python passes online features in flat)
 ├── pool.rs         # PlayPool — per-(game_id, team, token) real-yards bags
 ├── features.rs     # FeaturePlan — precompiled per-model feature pull
-└── models.rs       # ONNX-backed XGB / punt / time models
+└── models.rs       # ONNX-backed token + time models
 ```
 
 Python owns feature-store I/O (reads the online parquet, passes arrays to the constructor). Rust owns the hot loop and inference. Models are consumed as ONNX — produced by `make export-onnx` (`training/export_onnx.py`).
@@ -254,11 +256,11 @@ one declaration per feature, validated at import time. Example: `dropback_rate`
    source = "online"
    ```
 3. **Wire it to consumers** — add `"dropback_rate"` to the `features = [...]` list of
-   every `[models.*]` that should see it (e.g. `[models.intent]`).
+   every `[models.*]` that should see it (e.g. `[models.token]`).
 4. **Rebuild and verify:**
    ```bash
    make features        # rebuilds data/features.parquet from the registry
-   make train-intent    # retrains consumer(s)
+   make train-token     # retrains consumer(s)
    make lint && make test
    ```
 
@@ -378,8 +380,8 @@ Token logic has a **single source of truth** — `tokenize_row` in `training/pre
    fields — e.g. split the existing `CP_20P` branch into `CP_20_30` / `CP_30P`. This is
    what the classifier trains against; if the TOML has a token `tokenize_row` never
    emits, the model can never predict it (and vice versa).
-3. **Retrain the affected stage** — a new DROPBACK token means retraining the dropback
-   classifier (and the run classifier for a RUN token).
+3. **Retrain the token classifier** — `make train-token` (a new token is just a new
+   class for the single model to learn).
 4. **Rebuild and verify:**
    ```bash
    make play-pool       # so bags exist for the new (team, token) buckets
@@ -389,7 +391,8 @@ Token logic has a **single source of truth** — `tokenize_row` in `training/pre
 Notes:
 - The token's yards are realized by sampling a real play from the pool; an unseen
   `(team, token)` falls back to the uniform `[lo, hi]` draw (`models.rs`).
-- FG/PUNT tokens are excluded from the pool — they have dedicated outcome paths.
+- FG/PUNT tokens are excluded from the pool — they always take the uniform
+  `[lo, hi]` draw, which drives `apply_outcome` directly (no dedicated path).
 
 ### 5. Add a new aggregation
 

@@ -1,16 +1,16 @@
 //! The hot loop — port of _run_batched_game_loop() in nfl_sim/engine/loop.py.
 //!
-//! Two-stage outcome generation per step:
-//!   1. Intent model runs over every alive sim → sampled intent per sim.
-//!   2. Sims are partitioned by intent. RUN/DROPBACK groups run their own
-//!      stage-2 token classifier on the partition. FG/PUNT groups skip the
-//!      token path entirely (FG gets math; PUNT gets the yards regressor).
+//! Single-model outcome generation per step: the token classifier runs over
+//! every alive sim, one token is sampled per sim, and `token_to_outcome`
+//! realizes it — RUN/DROPBACK tokens sample a real play from the pool, FG/PUNT
+//! fall back to their uniform `[lo, hi]` bucket. The token's intent drives
+//! `apply_outcome`. No partitioning, no per-intent expert.
 
 use crate::features::{build_features_batch, FeaturePlan};
 use crate::logic::{apply_outcome, apply_time, is_terminal};
 use crate::models::{Models, PtRow};
 use crate::pool::PlayPool;
-use crate::state::{GameState, Intent, Outcome, Team, TurnoverType};
+use crate::state::{GameState, Intent, Outcome, Team};
 use crate::store::OnlineStore;
 use numpy::IntoPyArray;
 use pyo3::prelude::*;
@@ -180,10 +180,7 @@ impl Passthrough {
 
 #[derive(Clone, Copy)]
 pub struct FeaturePlans<'a> {
-    pub intent: &'a FeaturePlan,
-    pub run: &'a FeaturePlan,
-    pub dropback: &'a FeaturePlan,
-    pub punt: &'a FeaturePlan,
+    pub token: &'a FeaturePlan,
     pub time: &'a FeaturePlan,
 }
 
@@ -194,14 +191,11 @@ pub fn run_batched(
     store: &OnlineStore,
     pool: &PlayPool,
     models: &mut Models,
-    intent_names: &[String],
     str_pt_names: &[String],
     num_pt_names: &[String],
     plans: FeaturePlans<'_>,
 ) -> (TraceColumns, Passthrough) {
     let n = metas.len();
-    let n_str_pt = str_pt_names.len();
-    let n_num_pt = num_pt_names.len();
     let mut states: Vec<GameState> = vec![GameState::INITIAL; n];
     let mut play_ids: Vec<u32> = vec![0; n];
     let mut alive: Vec<usize> = (0..n).collect();
@@ -226,127 +220,26 @@ pub fn run_batched(
             })
             .collect();
 
-        // ── Stage 1: intent prediction over all alive sims ──
-        let mut intent_feats = vec![0f32; a * plans.intent.n_feats];
+        // ── Token prediction over all alive sims ──
+        // One model call → one token per sim → realize it. RUN/DROPBACK tokens
+        // sample a real play from the pool; FG/PUNT (not in the pool) take the
+        // uniform `[lo, hi]` fallback. The token carries its own intent.
+        let mut token_feats = vec![0f32; a * plans.token.n_feats];
         build_features_batch(
-            plans.intent,
+            plans.token,
             store,
             &states_a,
             &gids_a,
             &offense_team_a,
             None,
-            &mut intent_feats,
+            &mut token_feats,
         );
-        let intent_probs = models.predict_intent_probs(&intent_feats, a, plans.intent.n_feats);
-        let intents = models.sample_intents(&intent_probs, a, intent_names);
+        let token_probs = models.predict_token_probs(&token_feats, a, plans.token.n_feats);
+        let triples = models.sample_token_outcomes(&token_probs, a, &gids_a, &offense_team_a, pool);
 
-        // ── Partition row indices by intent ──
-        let mut run_rows: Vec<usize> = Vec::new();
-        let mut dropback_rows: Vec<usize> = Vec::new();
-        let mut fg_rows: Vec<usize> = Vec::new();
-        let mut punt_rows: Vec<usize> = Vec::new();
-        for (j, intent) in intents.iter().enumerate() {
-            match intent {
-                Intent::Run => run_rows.push(j),
-                Intent::Dropback => dropback_rows.push(j),
-                Intent::FieldGoal => fg_rows.push(j),
-                Intent::Punt => punt_rows.push(j),
-            }
-        }
-
-        // Default-init outcomes + passthrough; each branch fills its rows.
-        // FG/PUNT rows keep the sentinel passthrough (one "" / 0 per field).
-        let mut outcomes: Vec<Outcome> = vec![Outcome::default(); a];
-        let mut pt_rows: Vec<PtRow> = (0..a)
-            .map(|_| PtRow {
-                str_vals: vec![String::new(); n_str_pt],
-                num_vals: vec![0i16; n_num_pt],
-            })
-            .collect();
-
-        // ── Stage 2a: RUN token model on RUN partition ──
-        if !run_rows.is_empty() {
-            let (sub_outcomes, _ints, sub_pt) = predict_token_partition(
-                models,
-                plans.run,
-                store,
-                pool,
-                &states_a,
-                &gids_a,
-                &offense_team_a,
-                &run_rows,
-                Intent::Run,
-            );
-            for (k, &j) in run_rows.iter().enumerate() {
-                outcomes[j] = sub_outcomes[k];
-            }
-            for (pt, &j) in sub_pt.into_iter().zip(run_rows.iter()) {
-                pt_rows[j] = pt;
-            }
-        }
-
-        // ── Stage 2b: DROPBACK token model on DROPBACK partition ──
-        if !dropback_rows.is_empty() {
-            let (sub_outcomes, _ints, sub_pt) = predict_token_partition(
-                models,
-                plans.dropback,
-                store,
-                pool,
-                &states_a,
-                &gids_a,
-                &offense_team_a,
-                &dropback_rows,
-                Intent::Dropback,
-            );
-            for (k, &j) in dropback_rows.iter().enumerate() {
-                outcomes[j] = sub_outcomes[k];
-            }
-            for (pt, &j) in sub_pt.into_iter().zip(dropback_rows.iter()) {
-                pt_rows[j] = pt;
-            }
-        }
-
-        // ── FG: deterministic math, no model ──
-        for &j in &fg_rows {
-            let yl = states_a[j].yardline_100 as i16;
-            outcomes[j] = Outcome {
-                yards_gained: yl + 10,
-                turnover_type: TurnoverType::None,
-                touchdown: false,
-                time_elapsed: 20,
-                ..Outcome::default()
-            };
-        }
-
-        // ── PUNT: batched yards regressor ──
-        if !punt_rows.is_empty() {
-            let p_states: Vec<GameState> = punt_rows.iter().map(|&j| states_a[j]).collect();
-            let p_gids: Vec<String> = punt_rows.iter().map(|&j| gids_a[j].clone()).collect();
-            let p_off: Vec<String> = punt_rows
-                .iter()
-                .map(|&j| offense_team_a[j].clone())
-                .collect();
-            let mut p_feat = vec![0f32; punt_rows.len() * plans.punt.n_feats];
-            build_features_batch(
-                plans.punt,
-                store,
-                &p_states,
-                &p_gids,
-                &p_off,
-                None,
-                &mut p_feat,
-            );
-            let yards = models.predict_punt(&p_feat, punt_rows.len());
-            for (k, &j) in punt_rows.iter().enumerate() {
-                outcomes[j] = Outcome {
-                    yards_gained: yards[k],
-                    turnover_type: TurnoverType::None,
-                    touchdown: false,
-                    time_elapsed: 20,
-                    ..Outcome::default()
-                };
-            }
-        }
+        let intents: Vec<Intent> = triples.iter().map(|(i, _, _)| *i).collect();
+        let mut outcomes: Vec<Outcome> = triples.iter().map(|(_, o, _)| *o).collect();
+        let pt_rows: Vec<PtRow> = triples.into_iter().map(|(_, _, pt)| pt).collect();
 
         // ── apply spatial outcomes ──
         let new_states: Vec<GameState> = (0..a)
@@ -418,55 +311,4 @@ pub fn run_batched(
     }
 
     (out, passthrough)
-}
-
-/// Build a feature subset for `rows`, run the per-intent token model, and
-/// return one (Outcome, Intent, passthrough) per row in the partition.
-#[allow(clippy::too_many_arguments)]
-fn predict_token_partition(
-    models: &mut Models,
-    plan: &FeaturePlan,
-    store: &OnlineStore,
-    pool: &PlayPool,
-    states_a: &[GameState],
-    gids_a: &[String],
-    offense_team_a: &[String],
-    rows: &[usize],
-    intent: Intent,
-) -> (Vec<Outcome>, Vec<Intent>, Vec<PtRow>) {
-    let m = rows.len();
-    let sub_states: Vec<GameState> = rows.iter().map(|&j| states_a[j]).collect();
-    let sub_gids: Vec<String> = rows.iter().map(|&j| gids_a[j].clone()).collect();
-    let sub_off: Vec<String> = rows.iter().map(|&j| offense_team_a[j].clone()).collect();
-
-    let mut feats = vec![0f32; m * plan.n_feats];
-    build_features_batch(
-        plan,
-        store,
-        &sub_states,
-        &sub_gids,
-        &sub_off,
-        None,
-        &mut feats,
-    );
-
-    let (probs, triples) = match intent {
-        Intent::Run => {
-            let p = models.predict_run_probs(&feats, m, plan.n_feats);
-            let o = models.sample_run_outcomes(&p, m, &sub_gids, &sub_off, pool);
-            (p, o)
-        }
-        Intent::Dropback => {
-            let p = models.predict_dropback_probs(&feats, m, plan.n_feats);
-            let o = models.sample_dropback_outcomes(&p, m, &sub_gids, &sub_off, pool);
-            (p, o)
-        }
-        other => panic!("predict_token_partition called with non-token intent {other:?}"),
-    };
-    let _ = probs;
-
-    let outcomes: Vec<Outcome> = triples.iter().map(|(_, o, _)| *o).collect();
-    let ints: Vec<Intent> = triples.iter().map(|(i, _, _)| *i).collect();
-    let passthrough: Vec<PtRow> = triples.into_iter().map(|(_, _, pt)| pt).collect();
-    (outcomes, ints, passthrough)
 }

@@ -1,15 +1,12 @@
 //! XGBoost model loading via ONNX format.
 //!
-//! Five ONNX models are loaded at startup:
-//!   * `intent_session`  — stage 1, 4-class intent classifier.
-//!   * `run_session`     — stage 2, token classifier for intent=RUN.
-//!   * `dropback_session`— stage 2, token classifier for intent=DROPBACK.
-//!   * `punt_session`    — punt yards regressor.
-//!   * `time_session`    — time elapsed regressor.
+//! Two ONNX models are loaded at startup:
+//!   * `token_session` — the single token classifier over *all* tokens.
+//!   * `time_session`  — time elapsed regressor.
 //!
-//! FIELD_GOAL and PUNT outcomes are produced outside the token machinery
-//! (hardcoded FG math + punt yards regressor), so they have no stage-2
-//! token model.
+//! FG/PUNT are ordinary tokens: their yards come from the token's uniform
+//! `[lo, hi]` bucket (they aren't in the play pool), with no dedicated math or
+//! regressor.
 
 use ort::session::{builder::GraphOptimizationLevel, Session};
 use ort::value::Value;
@@ -32,14 +29,11 @@ pub struct PtRow {
 }
 
 pub struct Models {
-    intent_session: Session,
-    run_session: Session,
-    dropback_session: Session,
-    punt_session: Session,
+    token_session: Session,
     time_session: Session,
 
-    pub tokens_run: Vec<TokenCfg>,
-    pub tokens_dropback: Vec<TokenCfg>,
+    /// Token configs ordered by the classifier's class index (all tokens).
+    pub tokens: Vec<TokenCfg>,
 
     /// Column index of `yards_gained` within a `PlayBag`'s numeric lane. The
     /// sampled play's yards are read from this column.
@@ -54,24 +48,18 @@ pub struct Models {
     /// consumes into the Outcome). Read off the same sampled row as yards.
     pub pool_num_pt_idx: Vec<usize>,
 
-    pub n_intents: usize,
     pub rng: Xoshiro256PlusPlus,
 }
 
 impl Models {
     #[allow(clippy::too_many_arguments)]
     pub fn load(
-        intent_path: &str,
-        run_path: &str,
-        dropback_path: &str,
-        punt_path: &str,
+        token_path: &str,
         time_path: &str,
-        tokens_run: Vec<TokenCfg>,
-        tokens_dropback: Vec<TokenCfg>,
+        tokens: Vec<TokenCfg>,
         pool_yards_idx: usize,
         pool_str_pt_idx: Vec<usize>,
         pool_num_pt_idx: Vec<usize>,
-        n_intents: usize,
         seed: u64,
     ) -> anyhow::Result<Self> {
         // ort 2.0.0-rc.12: `SessionBuilder` is neither `Send` nor `Sync`, so
@@ -89,70 +77,28 @@ impl Models {
         };
 
         Ok(Models {
-            intent_session: build(intent_path)?,
-            run_session: build(run_path)?,
-            dropback_session: build(dropback_path)?,
-            punt_session: build(punt_path)?,
+            token_session: build(token_path)?,
             time_session: build(time_path)?,
-            tokens_run,
-            tokens_dropback,
+            tokens,
             pool_yards_idx,
             pool_str_pt_idx,
             pool_num_pt_idx,
-            n_intents,
             rng: Xoshiro256PlusPlus::seed_from_u64(seed),
         })
     }
 
-    // ── Stage 1: intent prediction ──────────────────────────────────
+    // ── Token prediction ────────────────────────────────────────────
 
-    /// (n, n_feats) features → (n * n_intents) probabilities, row-major.
-    pub fn predict_intent_probs(&mut self, feats: &[f32], n: usize, n_feats: usize) -> Vec<f32> {
-        Self::run_classifier(&mut self.intent_session, feats, n, n_feats)
+    /// (n, n_feats) features → (n * n_tokens) probabilities, row-major.
+    pub fn predict_token_probs(&mut self, feats: &[f32], n: usize, n_feats: usize) -> Vec<f32> {
+        Self::run_classifier(&mut self.token_session, feats, n, n_feats)
     }
 
-    /// Sample one intent per row from a (n, n_intents) prob matrix.
-    pub fn sample_intents(
-        &mut self,
-        probs: &[f32],
-        n: usize,
-        intent_names: &[String],
-    ) -> Vec<Intent> {
-        let k = self.n_intents;
-        let mut out = Vec::with_capacity(n);
-        for row in 0..n {
-            let u: f32 = self.rng.gen();
-            let base = row * k;
-            let mut acc = 0f32;
-            let mut picked = k - 1;
-            for c in 0..k {
-                acc += probs[base + c];
-                if acc >= u {
-                    picked = c;
-                    break;
-                }
-            }
-            out.push(intent_name_to_enum(&intent_names[picked]));
-        }
-        out
-    }
-
-    // ── Stage 2: per-intent token prediction ────────────────────────
-
-    pub fn predict_run_probs(&mut self, feats: &[f32], n: usize, n_feats: usize) -> Vec<f32> {
-        Self::run_classifier(&mut self.run_session, feats, n, n_feats)
-    }
-
-    pub fn predict_dropback_probs(&mut self, feats: &[f32], n: usize, n_feats: usize) -> Vec<f32> {
-        Self::run_classifier(&mut self.dropback_session, feats, n, n_feats)
-    }
-
-    /// Sample token indices for a per-intent prob matrix and convert each pick
-    /// to (Intent, Outcome, passthrough) via the relevant token table.
-    /// `gids`/`teams` are per-row (offense) keys into the play pool used to
-    /// realize the sampled play; the trailing `PtRow` carries that play's
-    /// passthrough values for both lanes (output order).
-    pub fn sample_run_outcomes(
+    /// Sample one token per row and convert each pick to (Intent, Outcome,
+    /// passthrough). `gids`/`teams` are per-row (offense) keys into the play
+    /// pool used to realize the sampled play; the trailing `PtRow` carries that
+    /// play's passthrough values for both lanes (output order).
+    pub fn sample_token_outcomes(
         &mut self,
         probs: &[f32],
         n: usize,
@@ -160,38 +106,11 @@ impl Models {
         teams: &[String],
         pool: &PlayPool,
     ) -> Vec<(Intent, Outcome, PtRow)> {
-        let k = self.tokens_run.len();
+        let k = self.tokens.len();
         (0..n)
             .map(|row| {
                 let tok_idx = self.sample_one(&probs[row * k..(row + 1) * k]);
-                self.token_to_outcome(
-                    &self.tokens_run[tok_idx].clone(),
-                    &gids[row],
-                    &teams[row],
-                    pool,
-                )
-            })
-            .collect()
-    }
-
-    pub fn sample_dropback_outcomes(
-        &mut self,
-        probs: &[f32],
-        n: usize,
-        gids: &[String],
-        teams: &[String],
-        pool: &PlayPool,
-    ) -> Vec<(Intent, Outcome, PtRow)> {
-        let k = self.tokens_dropback.len();
-        (0..n)
-            .map(|row| {
-                let tok_idx = self.sample_one(&probs[row * k..(row + 1) * k]);
-                self.token_to_outcome(
-                    &self.tokens_dropback[tok_idx].clone(),
-                    &gids[row],
-                    &teams[row],
-                    pool,
-                )
+                self.token_to_outcome(&self.tokens[tok_idx].clone(), &gids[row], &teams[row], pool)
             })
             .collect()
     }
@@ -215,16 +134,14 @@ impl Models {
         team: &str,
         pool: &PlayPool,
     ) -> (Intent, Outcome, PtRow) {
-        // Stage-2 outcome models only ever produce RUN / DROPBACK tokens —
-        // FG and PUNT live on dedicated paths in loop_.rs.
-        //
         // Realize the outcome by sampling a real historical play of this token
         // from the offense team's pool: pick one *row* uniformly over the
         // most-recent ≤100, then read every field off that single play — yards
         // (consumed into the Outcome) and the passthrough fields (string +
         // numeric, emitted on the trace), all from the same snap so they stay
-        // coherent. Only an empty/missing pool falls back to a uniform yards
-        // draw with empty passthrough (sentinel "" / 0).
+        // coherent. An empty/missing pool falls back to a uniform yards draw with
+        // empty passthrough (sentinel "" / 0) — this is the path FG/PUNT always
+        // take, since they are excluded from the pool.
         let yi = self.pool_yards_idx;
         let (yards, passthrough): (i16, PtRow) = match pool.get(gid, team, &t.name) {
             Some(bag) if !bag.is_empty() => {
@@ -274,25 +191,7 @@ impl Models {
         }
     }
 
-    // ── Punt + time (unchanged from prior implementation) ────────────
-
-    /// Punt yards: (n, 1) features → vec of predicted yards.
-    pub fn predict_punt(&mut self, feats: &[f32], n: usize) -> Vec<i16> {
-        let input = ndarray::Array2::from_shape_vec((n, 1), feats.to_vec())
-            .expect("Invalid punt feature shape");
-
-        let val = Value::from_array(input).expect("Failed to build ONNX value");
-        let outputs = self
-            .punt_session
-            .run(ort::inputs![val])
-            .expect("Punt inference failed");
-
-        let output = outputs[0]
-            .try_extract_array::<f32>()
-            .expect("Failed to extract punt output");
-
-        output.iter().map(|&v| v.round().max(0.0) as i16).collect()
-    }
+    // ── Time ─────────────────────────────────────────────────────────
 
     /// Time elapsed: (n, n_feats) features → vec of predicted seconds.
     pub fn predict_time(&mut self, feats: &[f32], n: usize, n_feats: usize) -> Vec<i16> {
@@ -337,16 +236,6 @@ impl Models {
             .try_extract_array::<f32>()
             .expect("Failed to extract classifier probs");
         output.iter().copied().collect()
-    }
-}
-
-fn intent_name_to_enum(name: &str) -> Intent {
-    match name {
-        "RUN" => Intent::Run,
-        "DROPBACK" => Intent::Dropback,
-        "FIELD_GOAL" => Intent::FieldGoal,
-        "PUNT" => Intent::Punt,
-        other => panic!("unknown intent name {other}"),
     }
 }
 

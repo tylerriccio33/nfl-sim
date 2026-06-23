@@ -1,17 +1,19 @@
 """All model inference lives here.
 
 Two model classes:
-  1. ``OutcomeModel`` — pre-whistle: XGB token prediction → Intent + Outcome
+  1. ``OutcomeModel`` — pre-whistle: a single XGB token classifier predicts a
+     token directly over *all* tokens; the token is parsed into Intent + Outcome.
   2. ``AfterPlayModel`` — post-whistle: time elapsed prediction, conditioned on
      game state/context and the outcome that just happened
 
 Both are lazy-loaded on first call.  This lets the module be imported freely
 (e.g. during training or in tests) without requiring trained artifacts on disk.
+
+This Python engine is a reference/test surface — the production sim runs through
+the Rust ``sim_rs`` crate.
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 import numpy as np
 import xgboost as xgb
@@ -21,10 +23,7 @@ from nfl_sim.engine.state import (
     Outcome,
     TurnoverType,
 )
-from nfl_sim.model.config import ARTIFACT_PATHS, INTENT_NAMES, TOKENS, TOKENS_BY_INTENT
-
-if TYPE_CHECKING:
-    from nfl_sim.model.store import PlayContext
+from nfl_sim.model.config import ARTIFACT_PATHS, TOKEN_NAMES, TOKENS
 
 # Map turnover string from TOML → TurnoverType enum
 _TURNOVER_MAP = {
@@ -41,127 +40,59 @@ _INTENT_MAP = {
     "PUNT": Intent.PUNT,
 }
 
-# Intents that get their own token outcome model (stage 2). FIELD_GOAL and PUNT
-# stay on the existing hardcoded / regressor paths.
-_TOKEN_OUTCOME_INTENTS: tuple[str, ...] = ("RUN", "DROPBACK")
-
 
 class OutcomeModel:
-    """Two-stage outcome predictor.
+    """Single-stage outcome predictor.
 
-    Stage 1 — ``_intent_booster``: predicts the play intent
-        (RUN / DROPBACK / FIELD_GOAL / PUNT).
-    Stage 2 — ``_outcome_boosters[intent]``: given the sampled intent,
-        a dedicated XGB classifier predicts the outcome token from that
-        intent's token subset. FIELD_GOAL uses ``_predict_fg``; PUNT uses
-        ``predict_punt_batch`` for yards.
+    One XGB multiclass classifier (``_token_booster``) predicts a token over
+    *all* tokens (RUN_*, CP_*, IC, SACK, *_FUM, PASS_INT, FG, PUNT). The token
+    fully encodes intent + outcome bucket; ``_token_to_outcome`` parses it into
+    an ``(Intent, Outcome)`` pair. FG/PUNT yards come from the token's uniform
+    ``[lo, hi]`` bucket — there is no dedicated FG math or punt regressor.
     """
 
-    __slots__ = (
-        "_intent_booster",
-        "_loaded",
-        "_outcome_boosters",
-        "_outcome_tokens",
-        "_punt_yards",
-        "_rng",
-    )
+    __slots__ = ("_loaded", "_rng", "_token_booster")
 
-    _intent_booster: xgb.Booster
     _loaded: bool
-    _outcome_boosters: dict[str, xgb.Booster]
-    _outcome_tokens: dict[str, list[str]]
-    _punt_yards: xgb.Booster
     _rng: np.random.Generator
+    _token_booster: xgb.Booster
 
     def __init__(self) -> None:
         self._loaded = False
 
     def _load(self) -> None:
-        """Load every artifact into attributes, or fail loudly."""
+        """Load the token classifier, or fail loudly."""
         self._rng = np.random.default_rng()
-
-        # Stage 1: intent classifier
-        self._intent_booster = xgb.Booster()
-        self._intent_booster.load_model(str(ARTIFACT_PATHS.intent_dir / ARTIFACT_PATHS.intent_raw))
-
-        # Stage 2: one outcome booster per intent that has a token model.
-        # The TOML's TOKENS_BY_INTENT defines the local class-index → token
-        # mapping; trainer must save tokens in the same order.
-        self._outcome_boosters = {}
-        self._outcome_tokens = {}
-        for intent_name, artifact_dir, raw in (
-            ("RUN", ARTIFACT_PATHS.xgb_run_dir, ARTIFACT_PATHS.xgb_run_raw),
-            ("DROPBACK", ARTIFACT_PATHS.xgb_dropback_dir, ARTIFACT_PATHS.xgb_dropback_raw),
-        ):
-            booster = xgb.Booster()
-            booster.load_model(str(artifact_dir / raw))
-            self._outcome_boosters[intent_name] = booster
-            self._outcome_tokens[intent_name] = TOKENS_BY_INTENT[intent_name]
-
-        # Punt yards model (XGBoost .json)
-        self._punt_yards = xgb.Booster()
-        self._punt_yards.load_model(
-            str(ARTIFACT_PATHS.punt_yards_dir / ARTIFACT_PATHS.punt_yards_raw)
-        )
-
+        self._token_booster = xgb.Booster()
+        self._token_booster.load_model(str(ARTIFACT_PATHS.token_dir / ARTIFACT_PATHS.token_raw))
         self._loaded = True
 
-    def predict_intent_probs_batch(self, features_batch: np.ndarray) -> np.ndarray:
-        """Stage 1: (N, F) → (N, len(INTENT_NAMES)) intent probabilities."""
-        return self._intent_booster.inplace_predict(
+    def predict_token_probs_batch(self, features_batch: np.ndarray) -> np.ndarray:
+        """(N, F) → (N, len(TOKEN_NAMES)) token probabilities."""
+        return self._token_booster.inplace_predict(
             features_batch.astype(np.float32), validate_features=False
         )
 
-    def sample_intents_batch(self, probs_batch: np.ndarray) -> list[str]:
-        """Sample one intent name per row from the intent prob matrix."""
-        idxs = self._sample_from_probs(probs_batch)
-        return [INTENT_NAMES[i] for i in idxs]
+    def sample_tokens_batch(self, probs_batch: np.ndarray) -> list[str]:
+        """Sample one token name per row from the token prob matrix.
 
-    def predict_token_probs_batch(self, intent_name: str, features_batch: np.ndarray) -> np.ndarray:
-        """Stage 2: token probabilities for a single intent's outcome model."""
-        return self._outcome_boosters[intent_name].inplace_predict(
-            features_batch.astype(np.float32), validate_features=False
-        )
-
-    def sample_tokens_batch(self, intent_name: str, probs_batch: np.ndarray) -> list[str]:
-        """Sample token names for one intent group given its prob matrix."""
-        idxs = self._sample_from_probs(probs_batch)
-        tokens = self._outcome_tokens[intent_name]
-        return [tokens[i] for i in idxs]
-
-    def _sample_from_probs(self, probs_batch: np.ndarray) -> list[int]:
-        """Vectorized sampling: (N, K) → list of K-class indices.
-
-        Uses cumulative-sum trick to sample from each row's distribution in one
-        shot instead of N separate rng.choice calls.
+        Uses the cumulative-sum trick to sample from each row's distribution in
+        one shot instead of N separate rng.choice calls.
         """
         u = self._rng.random(probs_batch.shape[0])
         cumprobs = np.cumsum(probs_batch, axis=1)
-        return np.argmax(cumprobs >= u[:, None], axis=1).tolist()
+        idxs = np.argmax(cumprobs >= u[:, None], axis=1).tolist()
+        return [TOKEN_NAMES[i] for i in idxs]
 
-    def _token_to_outcome(self, token: str, context: PlayContext) -> tuple[Intent, Outcome]:
+    def _token_to_outcome(self, token: str) -> tuple[Intent, Outcome]:
         """Parse a token into Intent + Outcome using TOML config.
 
-        PUNT outcomes get a placeholder here — yards are filled in later by
-        predict_punt_batch() in the game loop.
+        Every token — FG and PUNT included — draws yards uniformly from its
+        ``[lo, hi]`` bucket; that value drives ``apply_outcome`` directly.
         """
         cfg = TOKENS[token]
         intent = _INTENT_MAP[cfg["intent"]]
 
-        # Field goal: pure math, no model needed
-        if intent == Intent.FIELD_GOAL:
-            return intent, self._predict_fg(context)
-
-        # Punt: placeholder outcome — yards filled by predict_punt_batch()
-        if intent == Intent.PUNT:
-            return intent, Outcome(
-                yards_gained=0,
-                turnover_type=TurnoverType.NONE,
-                touchdown=False,
-                time_elapsed=20,
-            )
-
-        # Sample yards uniformly from the token's bucket
         lo, hi = cfg["yards"]
         yards = int(self._rng.integers(lo, hi + 1)) if lo != hi else lo
 
@@ -173,48 +104,6 @@ class OutcomeModel:
             complete_pass=cfg["complete_pass"],
             pass_attempt=cfg["pass_attempt"],
             rush_attempt=cfg["rush_attempt"],
-        )
-
-    def predict_punt_batch(self, feat_batch: np.ndarray) -> np.ndarray:
-        """Batch punt yards prediction.
-
-        Args:
-            feat_batch: (N, F) feature matrix for punt plays, built by caller.
-
-        Returns:
-            Array of predicted punt yards, one per row.
-
-        """
-        n = feat_batch.shape[0]
-        if n == 0:
-            return np.empty(0)
-
-        blocked_prob = 0.0005
-        blocked = self._rng.random(n) < blocked_prob
-
-        raw = self._punt_yards.inplace_predict(
-            feat_batch.astype(np.float32), validate_features=False
-        )
-        preds = np.maximum(0, np.round(raw)).astype(np.int32)
-
-        # Override blocked punts
-        preds[blocked] = -35
-        return preds
-
-    def _predict_fg(self, context: PlayContext) -> Outcome:
-        """Predict field goal outcome."""
-        blocked_prob = 0.0005
-        yardline_100 = context.state[6]  # _YL index
-        rng = self._rng
-
-        blocked = rng.random() < blocked_prob
-        yards_gained = yardline_100 - 20 if blocked else yardline_100 + 10
-
-        return Outcome(
-            yards_gained=yards_gained,
-            turnover_type=TurnoverType.NONE,
-            touchdown=False,
-            time_elapsed=20,
         )
 
 

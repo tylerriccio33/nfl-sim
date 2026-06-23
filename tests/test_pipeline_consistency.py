@@ -31,10 +31,8 @@ from nfl_sim.model.store import _ODT_RESOLVERS
 
 # Outcome names a model may emit that are NOT [outcome.*] fields. These are
 # produced by dedicated heads rather than living on the Outcome struct:
-#   intent        — stage-1 intent classifier
-#   token         — stage-2 token classifiers (parsed into Intent + Outcome)
-#   kick_distance — punt yards regressor
-_SPECIAL_OUTCOMES: set[str] = {"intent", "token", "kick_distance"}
+#   token — the single token classifier (parsed into Intent + Outcome)
+_SPECIAL_OUTCOMES: set[str] = {"token"}
 
 _KNOWN_SOURCES: set[str] = {"online", "state", "odt", "outcome"}
 

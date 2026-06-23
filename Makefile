@@ -68,22 +68,13 @@ bench-chunk: ## Sweep sim_games chunk_size to find throughput sweet spot
 infer-plays: ## Inspect model predictions on random plays (marimo notebook)
 	@uv run marimo run training/analysis/infer_plays.py
 
-train: train-intent train-run train-dropback train-time train-punt export-onnx ## Train all models and export to ONNX
+train: train-token train-time export-onnx ## Train all models and export to ONNX
 
-train-intent: ## Train stage-1 intent classifier
-	@uv run training/analysis/intent.py
-
-train-run: ## Train stage-2 RUN token classifier
-	@uv run training/analysis/run.py
-
-train-dropback: ## Train stage-2 DROPBACK token classifier
-	@uv run training/analysis/dropback.py
+train-token: ## Train the single token classifier
+	@uv run training/analysis/token_model.py
 
 train-time: ## Train time-elapsed regressor
 	@uv run training/analysis/time.py
-
-train-punt: ## Train punt yards regressor
-	@uv run training/analysis/punt.py
 
 export-onnx: ## Export trained models to ONNX format (for Rust inference)
 	@uv run training/export_onnx.py

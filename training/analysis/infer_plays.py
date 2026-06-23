@@ -40,15 +40,13 @@ def _():
     import numpy as np
     import polars as pl
 
-    from nfl_sim.model.config import INTENT_VALUES, MODEL_FEATURES, TOKENS_BY_INTENT
+    from nfl_sim.model.config import MODEL_FEATURES
     from nfl_sim.model.inference import OutcomeModel
     from training.prepare import prepare, tokenize_row
 
     return (
-        INTENT_VALUES,
         MODEL_FEATURES,
         OutcomeModel,
-        TOKENS_BY_INTENT,
         mo,
         np,
         pl,
@@ -64,10 +62,9 @@ def _(mo):
         ## 1. The data
 
         We load every real, regulation play and tokenize each one. The
-        **token** (`real_token`) is exactly what the stage-2 classifier is
-        trained to predict — e.g. `CP_5_10` (complete pass, 5-10 yds) or
-        `RUN_NEG` (run for a loss). The stage-1 **intent**
-        (RUN / DROPBACK / FIELD_GOAL / PUNT) is derived from it.
+        **token** (`real_token`) is exactly what the single classifier is
+        trained to predict — e.g. `CP_5_10` (complete pass, 5-10 yds),
+        `RUN_NEG` (run for a loss), `FG`, or `PUNT`.
         """
     )
     return
@@ -95,16 +92,11 @@ def _(base, mo):
 def _(mo):
     mo.md(
         """
-        ## 2. Pick a model & sample size
+        ## 2. Sample size
 
-        | Option | What it scores |
-        |---|---|
-        | **full** | The whole two-stage pipeline (sample intent → sample token) — the exact path the sim runs. |
-        | **intent** | Just the stage-1 RUN/DROPBACK/FIELD_GOAL/PUNT classifier. |
-        | **xgb_run** | The stage-2 token model for runs, scored only on real run plays. |
-        | **xgb_dropback** | The stage-2 token model for dropbacks, scored only on real dropbacks. |
-
-        Drag the slider to trade speed for a tighter accuracy estimate.
+        The single token classifier predicts a token over *all* tokens — the
+        exact path the sim runs. Drag the slider to trade speed for a tighter
+        accuracy estimate.
         """
     )
     return
@@ -112,11 +104,6 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    model_pick = mo.ui.dropdown(
-        options=["full", "intent", "xgb_run", "xgb_dropback"],
-        value="full",
-        label="Model",
-    )
     n_pick = mo.ui.slider(
         start=100,
         stop=5000,
@@ -125,24 +112,15 @@ def _(mo):
         label="Sample size",
         show_value=True,
     )
-    mo.hstack([model_pick, n_pick], justify="start", gap=2)
-    return model_pick, n_pick
+    mo.hstack([n_pick], justify="start")
+    return (n_pick,)
 
 
 @app.cell
-def _(TOKENS_BY_INTENT, base, model_pick, n_pick, np, pl):
-    # The single-token models are only meaningful on plays whose real intent
-    # is that intent, so filter to that intent's token set before sampling.
-    intent_filter = {"xgb_run": "RUN", "xgb_dropback": "DROPBACK"}.get(model_pick.value)
-    pool = (
-        base.filter(pl.col("real_token").is_in(TOKENS_BY_INTENT[intent_filter]))
-        if intent_filter
-        else base
-    )
-
+def _(base, n_pick, np):
     rng = np.random.default_rng(42)
-    n = min(n_pick.value, len(pool))
-    sample = pool[rng.choice(len(pool), size=n, replace=False).tolist()]
+    n = min(n_pick.value, len(base))
+    sample = base[rng.choice(len(base), size=n, replace=False).tolist()]
     return (sample,)
 
 
@@ -152,45 +130,17 @@ def _(MODEL_FEATURES, OutcomeModel):
     model = OutcomeModel()
     if not model._loaded:
         model._load()
-    # Each stage has its own feature list — they may diverge (e.g. intent
-    # consumes team-tendency features that the token models don't).
     feats_by_model = MODEL_FEATURES
     return (feats_by_model,)
 
 
 @app.cell
-def _(INTENT_VALUES, feats_by_model, model, model_pick, np, pl, sample):
-    def _feats(model_name: str) -> np.ndarray:
-        return sample.select(feats_by_model[model_name]).to_numpy().astype(np.float32)
-
-    pick = model_pick.value
-
-    # Real stage-1 intent name, inverted from the integer `intent` column.
-    value_to_name = {v: k for k, v in INTENT_VALUES.items()}
-    real_intent = [value_to_name[v] for v in sample["intent"].to_list()]
-
-    if pick == "intent":
-        probs = model.predict_intent_probs_batch(_feats("intent"))
-        pred = model.sample_intents_batch(probs)
-        truth, label = real_intent, "intent"
-    elif pick in ("xgb_run", "xgb_dropback"):
-        intent_name = "RUN" if pick == "xgb_run" else "DROPBACK"
-        token_model = f"xgb_{intent_name.lower()}"
-        probs = model.predict_token_probs_batch(intent_name, _feats(token_model))
-        pred = model.sample_tokens_batch(intent_name, probs)
-        truth, label = sample["real_token"].to_list(), "token"
-    else:  # full two-stage pipeline, as the sim runs it
-        intents = model.sample_intents_batch(model.predict_intent_probs_batch(_feats("intent")))
-        pred = []
-        for i, intent_name in enumerate(intents):
-            if intent_name in ("RUN", "DROPBACK"):
-                token_model = f"xgb_{intent_name.lower()}"
-                row = _feats(token_model)[i : i + 1]
-                tp = model.predict_token_probs_batch(intent_name, row)
-                pred.append(model.sample_tokens_batch(intent_name, tp)[0])
-            else:
-                pred.append("FG" if intent_name == "FIELD_GOAL" else "PUNT")
-        truth, label = sample["real_token"].to_list(), "token"
+def _(feats_by_model, model, np, pl, sample):
+    feats = sample.select(feats_by_model["token"]).to_numpy().astype(np.float32)
+    probs = model.predict_token_probs_batch(feats)
+    pred = model.sample_tokens_batch(probs)
+    truth, label = sample["real_token"].to_list(), "token"
+    pick = "token"
 
     result = sample.select(
         "game_id",

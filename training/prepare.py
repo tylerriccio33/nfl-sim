@@ -9,7 +9,7 @@ Steps:
   2. Compute time_elapsed and turnover_type
   3. Derive offense/defense
   4. Join online features from data/features.parquet (keyed by game_id + posteam)
-  5. Add derived columns (score_diff, goal_to_go, intent)
+  5. Add derived columns (score_diff, goal_to_go)
   6. Return DataFrame with features + outcome columns
 """
 
@@ -17,22 +17,13 @@ from pathlib import Path
 
 import polars as pl
 
-from nfl_sim.model.config import INTENT_VALUES, PLAY_TYPE_MAP, TRAINING_CONFIG
+from nfl_sim.model.config import PLAY_TYPE_MAP, TRAINING_CONFIG
 from nfl_sim.model.online_features import weekly_feature_names
 
 # Make the prepare() function work in all run contexts
 ROOT = Path(__file__).parent.parent.resolve().absolute()
 DATA_PATH = ROOT / Path(TRAINING_CONFIG["pbp_path"])
 FEATURES_PATH = ROOT / Path("data/features.parquet")
-
-
-# Map play_type → intent value
-intent_name_mapping = pl.col("play_type").map_elements(
-    lambda pt: PLAY_TYPE_MAP.get(pt, "RUN"), return_dtype=pl.String
-)
-intent_value_mapping = intent_name_mapping.map_elements(
-    lambda name: INTENT_VALUES.get(name, 1), return_dtype=pl.Int32
-)
 
 
 # TODO: Needs to be when/then
@@ -162,7 +153,6 @@ def prepare(pbp_path: Path = DATA_PATH) -> pl.DataFrame:
 
     # Add derived columns
     df = df.with_columns(
-        intent=intent_value_mapping,
         score_diff=pl.when(pl.col("posteam_type") == "home")
         .then(pl.col("total_home_score") - pl.col("total_away_score"))
         .otherwise(pl.col("total_away_score") - pl.col("total_home_score")),

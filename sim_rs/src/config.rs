@@ -1,17 +1,13 @@
 //! Loads nfl_sim/model/pipeline.toml. Single source of truth for tokens,
 //! feature plans, and artifact paths.
 //!
-//! Two-stage model layout:
-//!   stage 1: `intent`    — classifier over INTENT_NAMES (RUN / DROPBACK /
-//!                          FIELD_GOAL / PUNT).
-//!   stage 2: `xgb_run`,
-//!            `xgb_dropback` — per-intent token classifiers. Each artifact
-//!                             dir ships a `tokens.json` declaring the local
-//!                             class-index → token-name ordering used at
-//!                             training time, which we must mirror at
-//!                             inference.
-//! FIELD_GOAL and PUNT outcomes are handled outside the token machinery
-//! (hardcoded FG math + dedicated punt yards regressor).
+//! Single-model layout: one `token` classifier predicts a token directly over
+//! *all* tokens (RUN_* / CP_* / IC / SACK / *_FUM / PASS_INT / FG / PUNT). The
+//! token fully encodes intent + outcome bucket — there is no separate intent
+//! stage or per-intent expert. The artifact dir ships a `tokens.json` declaring
+//! the class-index → token-name ordering used at training time, which we must
+//! mirror at inference. FG/PUNT outcomes are realized from the token's uniform
+//! `[lo, hi]` bucket like any other token (no FG math, no punt regressor).
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -72,20 +68,11 @@ pub struct TokenCfg {
 }
 
 pub struct PipelineConfig {
-    /// Ordered intent names, matching the intent model's class index. Pulled
-    /// from `intents.json` saved alongside the trained intent artifact.
-    pub intent_names: Vec<String>,
+    /// Token configs ordered by the classifier's class index, read from the
+    /// trained artifact's `tokens.json`. Covers *all* tokens.
+    pub tokens: Vec<TokenCfg>,
 
-    /// Per-intent stage-2 token configs. Index of the inner Vec matches the
-    /// local class index produced by the per-intent classifier (read from
-    /// each artifact's `tokens.json`).
-    pub tokens_run: Vec<TokenCfg>,
-    pub tokens_dropback: Vec<TokenCfg>,
-
-    pub intent_features: Vec<String>,
-    pub xgb_run_features: Vec<String>,
-    pub xgb_dropback_features: Vec<String>,
-    pub punt_features: Vec<String>,
+    pub token_features: Vec<String>,
     pub time_features: Vec<String>,
 
     pub feature_sources: BTreeMap<String, (String, Option<usize>)>,
@@ -94,10 +81,7 @@ pub struct PipelineConfig {
     /// row-index sampler reads each field at the sampled index.
     pub play_pool_fields: Vec<String>,
 
-    pub intent_model_path: String,
-    pub xgb_run_model_path: String,
-    pub xgb_dropback_model_path: String,
-    pub punt_model_path: String,
+    pub token_model_path: String,
     pub time_model_path: String,
 }
 
@@ -135,10 +119,7 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
             .ok_or_else(|| anyhow::anyhow!("missing [models.{key}] in pipeline.toml"))
     };
 
-    let intent_features = pull("intent")?.features.clone();
-    let xgb_run_features = pull("xgb_run")?.features.clone();
-    let xgb_dropback_features = pull("xgb_dropback")?.features.clone();
-    let punt_features = pull("punt")?.features.clone();
+    let token_features = pull("token")?.features.clone();
     let time_features = pull("time")?.features.clone();
 
     let mut feature_sources = BTreeMap::new();
@@ -171,58 +152,31 @@ pub fn load(path: &Path) -> anyhow::Result<PipelineConfig> {
         ))
     };
 
-    let intent_model_path = onnx_path("intent")?;
-    let xgb_run_model_path = onnx_path("xgb_run")?;
-    let xgb_dropback_model_path = onnx_path("xgb_dropback")?;
-    let punt_model_path = onnx_path("punt")?;
+    let token_model_path = onnx_path("token")?;
     let time_model_path = onnx_path("time")?;
 
-    // ── Resolve intent class ordering from training artifact ──
-    let intent_names = load_names_json(
-        &format!("{}/{}/intents.json", artifact_base, model_subdir("intent")?),
-        "intents",
-    )?;
-
-    // ── Resolve per-intent token ordering + configs from training artifacts ──
-    let resolve_tokens = |json_path: String| -> anyhow::Result<Vec<TokenCfg>> {
-        let names = load_names_json(&json_path, "tokens")?;
-        names
-            .iter()
-            .map(|n| {
-                token_lookup
-                    .get(n)
-                    .cloned()
-                    .ok_or_else(|| anyhow::anyhow!("token {n} (from {json_path}) not in [tokens]"))
-            })
-            .collect()
-    };
-
-    let tokens_run = resolve_tokens(format!(
-        "{}/{}/tokens.json",
-        artifact_base,
-        model_subdir("xgb_run")?
-    ))?;
-    let tokens_dropback = resolve_tokens(format!(
-        "{}/{}/tokens.json",
-        artifact_base,
-        model_subdir("xgb_dropback")?
-    ))?;
+    // ── Resolve token class ordering + configs from the training artifact ──
+    // tokens.json declares the class-index → token-name order the classifier was
+    // trained with; we mirror it here so the sampled class index maps to the
+    // right TokenCfg.
+    let token_json = format!("{}/{}/tokens.json", artifact_base, model_subdir("token")?);
+    let tokens: Vec<TokenCfg> = load_names_json(&token_json, "tokens")?
+        .iter()
+        .map(|n| {
+            token_lookup
+                .get(n)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("token {n} (from {token_json}) not in [tokens]"))
+        })
+        .collect::<anyhow::Result<_>>()?;
 
     Ok(PipelineConfig {
-        intent_names,
-        tokens_run,
-        tokens_dropback,
-        intent_features,
-        xgb_run_features,
-        xgb_dropback_features,
-        punt_features,
+        tokens,
+        token_features,
         time_features,
         feature_sources,
         play_pool_fields,
-        intent_model_path,
-        xgb_run_model_path,
-        xgb_dropback_model_path,
-        punt_model_path,
+        token_model_path,
         time_model_path,
     })
 }

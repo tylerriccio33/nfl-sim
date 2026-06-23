@@ -37,16 +37,9 @@ MODELS: dict[str, Any] = CONFIG["models"]
 TOKENS: dict[str, Any] = CONFIG["tokens"]
 TOKEN_NAMES: list[str] = list(TOKENS.keys())
 
-# Ordered list of intents — defines the class index used by the intent model.
-# Order is taken from the TOML's [intents.*] section.
+# Ordered list of intents — taken from the TOML's [intents.*] section. Used to
+# map a token's intent string to the Intent enum and to validate the config.
 INTENT_NAMES: list[str] = list(INTENT_VALUES.keys())
-
-# Token names grouped by their intent. Used by per-intent outcome models so
-# each model only learns over its own subset of tokens.
-TOKENS_BY_INTENT: dict[str, list[str]] = {
-    intent_name: [tok for tok, cfg in TOKENS.items() if cfg["intent"] == intent_name]
-    for intent_name in INTENT_NAMES
-}
 
 # ── Play pool ────────────────────────────────────────────────────
 
@@ -64,24 +57,13 @@ class ArtifactPaths:
 
     base: Path = Path("training/artifacts")
 
-    # Intent model (stage 1)
-    intent_dir: Path = field(default_factory=lambda: Path(MODELS["intent"]["artifact"]))
-    intent_raw: str = MODELS["intent"]["raw"]
-
-    # Per-intent outcome token models (stage 2)
-    xgb_run_dir: Path = field(default_factory=lambda: Path(MODELS["xgb_run"]["artifact"]))
-    xgb_run_raw: str = MODELS["xgb_run"]["raw"]
-
-    xgb_dropback_dir: Path = field(default_factory=lambda: Path(MODELS["xgb_dropback"]["artifact"]))
-    xgb_dropback_raw: str = MODELS["xgb_dropback"]["raw"]
+    # The single token classifier
+    token_dir: Path = field(default_factory=lambda: Path(MODELS["token"]["artifact"]))
+    token_raw: str = MODELS["token"]["raw"]
 
     # Time model
     time_dir: Path = field(default_factory=lambda: Path(MODELS["time"]["artifact"]))
     time_raw: str = MODELS["time"]["raw"]
-
-    # ST models
-    punt_yards_dir: Path = field(default_factory=lambda: Path(MODELS["punt"]["artifact"]))
-    punt_yards_raw: str = MODELS["punt"]["raw"]
 
 
 ARTIFACT_PATHS = ArtifactPaths()

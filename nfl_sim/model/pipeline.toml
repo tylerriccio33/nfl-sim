@@ -139,9 +139,17 @@ complete_pass = false
 pass_attempt = true
 rush_attempt = false
 
+# FG/PUNT are predicted by the single token classifier like any other token —
+# there is no dedicated FG math or punt regressor. Their yards are realized from
+# the uniform [lo, hi] fallback (they are excluded from the play pool), and that
+# value drives apply_outcome directly:
+#   * PUNT: yards_gained *is* the punt distance → field flip.
+#   * FG:   made iff yardline_100 - yards_gained <= 0, so a uniform draw over
+#           [50, 60] makes ~always inside the ~50 yardline and falls off for long
+#           attempts. Tune against parity.
 [tokens.PUNT]
 intent = "PUNT"
-yards = [0, 0]
+yards = [40, 50]
 turnover = "NONE"
 complete_pass = false
 pass_attempt = false
@@ -149,7 +157,7 @@ rush_attempt = false
 
 [tokens.FG]
 intent = "FIELD_GOAL"
-yards = [0, 0]
+yards = [50, 60]
 turnover = "NONE"
 complete_pass = false
 pass_attempt = false
@@ -172,9 +180,12 @@ fields = ["yards_gained", "passer_player_id"]
 
 # ── Models ───────────────────────────────────────────────────────────
 
-# Stage 1: predict the intent (RUN / DROPBACK / FIELD_GOAL / PUNT)
-[models.intent]
-artifact = "training/artifacts/intent"
+# The single token classifier: predicts a token directly over *all* tokens
+# (RUN_*, CP_*, IC, SACK, *_FUM, PASS_INT, FG, PUNT). The token fully encodes
+# intent + outcome bucket, so there is no separate intent stage or per-intent
+# expert. Features are the union of what the old intent/run/dropback models used.
+[models.token]
+artifact = "training/artifacts/token"
 raw = "model.json"
 features = [
     "down",
@@ -187,59 +198,15 @@ features = [
     "spread_line",
     "season_epa",
     "dropback_rate",
-]
-outcomes = ["intent"]
-
-# Stage 2a: given intent=RUN, predict the outcome token
-[models.xgb_run]
-artifact = "training/artifacts/xgb_run"
-raw = "model.json"
-features = [
-    "down",
-    "ydstogo",
-    "yardline_100",
-    "score_diff",
-    "qtr",
-    "clock",
-    "goal_to_go",
-    "spread_line",
-    "season_epa",
+    "int_rate",
 ]
 outcomes = ["token"]
-
-# Stage 2b: given intent=DROPBACK, predict the outcome token
-[models.xgb_dropback]
-artifact = "training/artifacts/xgb_dropback"
-raw = "model.json"
-features = [
-    "down",
-    "ydstogo",
-    "yardline_100",
-    "score_diff",
-    "qtr",
-    "clock",
-    "goal_to_go",
-    "spread_line",
-    "season_epa",
-    "int_rate"
-]
-outcomes = ["token"]
-
-[models.punt]
-artifact = "training/artifacts/punt"
-raw = "model.json"
-features = ["yardline_100"]
-outcomes = ["kick_distance"]
 
 [models.time]
 artifact = "training/artifacts/time"
 raw = "model.json"
 features = ["yards_gained", "complete_pass", "pass_attempt", "rush_attempt"]
 outcomes = ["time_elapsed"]
-
-# ST plays use a fixed time override (no model needed)
-[st.time_override]
-value = 20
 
 # ── XGB Hyperparameters ───────────────────────────────────────────────
 [xgb]

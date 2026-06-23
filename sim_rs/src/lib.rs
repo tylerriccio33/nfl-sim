@@ -19,7 +19,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rayon::prelude::*;
 
-use crate::config::{load as load_config, PipelineConfig};
+use crate::config::load as load_config;
 use crate::features::FeaturePlan;
 use crate::loop_::{FeaturePlans, Passthrough, TraceColumns};
 use crate::models::Models;
@@ -46,7 +46,6 @@ fn resolve_worker_count() -> usize {
 
 #[pyclass]
 pub struct SimEngine {
-    cfg: PipelineConfig,
     store: OnlineStore,
     pool: PlayPool,
     /// String passthrough field names, in output order (every string pool field
@@ -58,10 +57,7 @@ pub struct SimEngine {
     /// One independent `Models` per worker thread. Each owns its own ONNX
     /// sessions + RNG, so shards run with zero shared mutable state.
     worker_models: Vec<Models>,
-    intent_plan: FeaturePlan,
-    run_plan: FeaturePlan,
-    dropback_plan: FeaturePlan,
-    punt_plan: FeaturePlan,
+    token_plan: FeaturePlan,
     time_plan: FeaturePlan,
 }
 
@@ -145,14 +141,8 @@ impl SimEngine {
             pool_str_values,
         );
 
-        let intent_plan = FeaturePlan::build(&cfg.intent_features, &cfg.feature_sources, &store);
-        let run_plan = FeaturePlan::build(&cfg.xgb_run_features, &cfg.feature_sources, &store);
-        let dropback_plan =
-            FeaturePlan::build(&cfg.xgb_dropback_features, &cfg.feature_sources, &store);
-        let punt_plan = FeaturePlan::build(&cfg.punt_features, &cfg.feature_sources, &store);
+        let token_plan = FeaturePlan::build(&cfg.token_features, &cfg.feature_sources, &store);
         let time_plan = FeaturePlan::build(&cfg.time_features, &cfg.feature_sources, &store);
-
-        let n_intents = cfg.intent_names.len();
 
         // Worker pool: one `Models` per shard. Each gets a deterministic seed
         // derived from the master so reproducibility holds at a fixed worker
@@ -164,17 +154,12 @@ impl SimEngine {
             // collide in the xoshiro stream.
             let worker_seed = seed.wrapping_add((w as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
             let m = Models::load(
-                &cfg.intent_model_path,
-                &cfg.xgb_run_model_path,
-                &cfg.xgb_dropback_model_path,
-                &cfg.punt_model_path,
+                &cfg.token_model_path,
                 &cfg.time_model_path,
-                cfg.tokens_run.clone(),
-                cfg.tokens_dropback.clone(),
+                cfg.tokens.clone(),
                 pool_yards_idx,
                 pool_str_pt_idx.clone(),
                 pool_num_pt_idx.clone(),
-                n_intents,
                 worker_seed,
             )
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -182,16 +167,12 @@ impl SimEngine {
         }
 
         Ok(SimEngine {
-            cfg,
             store,
             pool,
             pool_str_pt_names,
             pool_num_pt_names,
             worker_models,
-            intent_plan,
-            run_plan,
-            dropback_plan,
-            punt_plan,
+            token_plan,
             time_plan,
         })
     }
@@ -219,10 +200,7 @@ impl SimEngine {
             .collect();
 
         let plans = FeaturePlans {
-            intent: &self.intent_plan,
-            run: &self.run_plan,
-            dropback: &self.dropback_plan,
-            punt: &self.punt_plan,
+            token: &self.token_plan,
             time: &self.time_plan,
         };
 
@@ -232,7 +210,6 @@ impl SimEngine {
                 &self.store,
                 &self.pool,
                 &mut self.worker_models,
-                &self.cfg.intent_names,
                 &self.pool_str_pt_names,
                 &self.pool_num_pt_names,
                 plans,
@@ -257,7 +234,6 @@ fn run_batched_parallel(
     store: &OnlineStore,
     pool: &PlayPool,
     worker_models: &mut [Models],
-    intent_names: &[String],
     str_pt_names: &[String],
     num_pt_names: &[String],
     plans: FeaturePlans<'_>,
@@ -301,7 +277,6 @@ fn run_batched_parallel(
                 store,
                 pool,
                 models,
-                intent_names,
                 str_pt_names,
                 num_pt_names,
                 plans,

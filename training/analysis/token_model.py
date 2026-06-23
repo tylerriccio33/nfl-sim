@@ -1,6 +1,14 @@
-"""Train the stage-2 token classifier for RUN intent.
+"""Train the single token classifier over *all* tokens.
 
-Run interactively: `uv run marimo edit training/analysis/run.py`
+One XGB multiclass model predicts a token directly (RUN_*, CP_*, IC, SACK,
+*_FUM, PASS_INT, FG, PUNT) — the token fully encodes intent + outcome bucket, so
+there is no separate intent stage or per-intent expert.
+
+Run interactively: `uv run marimo edit training/analysis/token_model.py`
+
+Named `token_model.py` (not `token.py`): a module named `token` shadows the
+stdlib `token` module when run as a script, breaking the interpreter's import
+machinery.
 """
 
 import marimo
@@ -11,8 +19,7 @@ app = marimo.App()
 
 @app.cell
 def _():
-    INTENT = "RUN"
-    MODEL_KEY = "xgb_run"
+    MODEL_KEY = "token"
 
     import json
     from pathlib import Path
@@ -23,20 +30,22 @@ def _():
     from sklearn.metrics import accuracy_score, log_loss
     from sklearn.model_selection import GridSearchCV, GroupKFold, GroupShuffleSplit
 
-    from nfl_sim.model.config import MODELS, TOKENS_BY_INTENT
+    from nfl_sim.model.config import MODELS, TOKEN_NAMES
     from training.prepare import prepare, tokenize_row
 
     cfg = MODELS[MODEL_KEY]
     features = cfg["features"]
     artifact = Path(cfg["artifact"]) / cfg["raw"]
-    tokens = TOKENS_BY_INTENT[INTENT]
+    # Class ordering is the TOML token order — saved to tokens.json so the Rust
+    # engine maps the sampled class index back to the right token.
+    tokens = TOKEN_NAMES
     tok_to_idx = {t: i for i, t in enumerate(tokens)}
 
     df = prepare()
     tok = [tokenize_row(row) for row in df.iter_rows(named=True)]
-    df = df.with_columns(token=pl.Series(tok)).filter(pl.col("token").is_in(tokens))
+    df = df.with_columns(token=pl.Series(tok))
     df = df.with_columns(_y=pl.col("token").replace_strict(tok_to_idx, return_dtype=pl.Int32))
-    print(f"{len(df)} {INTENT} plays, {len(tokens)} tokens: {tokens}")
+    print(f"{len(df)} plays, {len(tokens)} tokens")
     for _t in tokens:
         _c = int((df["token"] == _t).sum())
         print(f"  {_t:15s} {_c:>7d}  ({_c / len(df) * 100:.1f}%)")
