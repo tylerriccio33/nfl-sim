@@ -73,6 +73,12 @@ train: train-token train-time export-onnx ## Train all models and export to ONNX
 train-token: ## Train the single token classifier
 	@uv run training/analysis/token_model.py
 
+eval-token: ## Evaluate the token classifier (metrics, per-token f1, importances)
+	@uv run training/analysis/token_eval.py
+
+eval-token-edit: ## Open the token eval notebook interactively
+	@uv run marimo edit training/analysis/token_eval.py
+
 train-time: ## Train time-elapsed regressor
 	@uv run training/analysis/time.py
 

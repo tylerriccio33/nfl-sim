@@ -31,6 +31,7 @@ def _():
     from sklearn.model_selection import GridSearchCV, GroupKFold, GroupShuffleSplit
 
     from nfl_sim.model.config import MODELS, TOKEN_NAMES
+    from training.intent_loss import CROSS_INTENT_COST, make_intent_objective
     from training.prepare import prepare, tokenize_row
 
     cfg = MODELS[MODEL_KEY]
@@ -50,6 +51,7 @@ def _():
         _c = int((df["token"] == _t).sum())
         print(f"  {_t:15s} {_c:>7d}  ({_c / len(df) * 100:.1f}%)")
     return (
+        CROSS_INTENT_COST,
         GridSearchCV,
         GroupKFold,
         GroupShuffleSplit,
@@ -59,6 +61,7 @@ def _():
         features,
         json,
         log_loss,
+        make_intent_objective,
         np,
         tokens,
         xgb,
@@ -80,16 +83,29 @@ def _(GroupShuffleSplit, df, features, np):
 
 
 @app.cell
-def _(GridSearchCV, GroupKFold, g_dev, tokens, x_dev, xgb, y_dev):
+def _(
+    CROSS_INTENT_COST,
+    GridSearchCV,
+    GroupKFold,
+    g_dev,
+    make_intent_objective,
+    tokens,
+    x_dev,
+    xgb,
+    y_dev,
+):
     grid = {
         "n_estimators": [200, 400],
         "max_depth": [4, 6, 8],
         "learning_rate": [0.05, 0.1],
     }
+    # Cost-sensitive intent objective: softmax cross-entropy, but the push-down on
+    # wrong-*intent* tokens is scaled by W so cross-intent errors (CP vs RUN) cost
+    # more than same-intent ones (CP vs SACK). softmax is still applied at predict
+    # time, so inference/ONNX/Rust are unaffected.
     base = xgb.XGBClassifier(
-        objective="multi:softprob",
+        objective=make_intent_objective(CROSS_INTENT_COST),
         num_class=len(tokens),
-        eval_metric="mlogloss",
         random_state=42,
     )
     search = GridSearchCV(
